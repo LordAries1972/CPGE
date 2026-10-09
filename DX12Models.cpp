@@ -42,6 +42,23 @@ extern ThreadManager threadManager;
 extern ShaderManager shaderManager;
 extern Configuration config;
 
+// Per-model GPU constant buffers are rewritten by the CPU every frame while the GPU may still be executing
+// the previous 1-2 frames.  Each buffer therefore holds FrameCount consecutive "frame slices"; the slice for the
+// frame being recorded is selected with DX12Renderer::m_frameIndex (the same index the frame fences use), so
+// the CPU never overwrites data an in-flight frame is still reading.
+namespace {
+    // b0: 1 + MAX_PLANAR_PLANES + 6 pass slots per frame slice (main, planar mirror planes, live-capture faces)
+    constexpr UINT64 DX12CbPassStride()   { return (sizeof(ConstantBuffer) + 255u) & ~255u; }
+    constexpr UINT64 DX12CbFrameStride()  { return DX12CbPassStride() * (1u + MAX_PLANAR_PLANES + 6u); }
+    // b1: min 1728 bytes per shader contract
+    constexpr UINT64 DX12LightFrameStride()
+    {
+        return (((sizeof(LightBuffer) > 1728u) ? sizeof(LightBuffer) : 1728u) + 255u) & ~255u;
+    }
+    // b4
+    constexpr UINT64 DX12MaterialFrameStride() { return (sizeof(MaterialGPU) + 255u) & ~255u; }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal helper: get the DX11-on-12 device from the active DX12 renderer.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -512,56 +529,121 @@ bool Model::SetupModelForRendering()
         debug.logDebugMessage(LogLevel::LOG_WARNING, L"[DX12 Model] PBR setup failed for model ID: %d (non-fatal)", m_modelInfo.ID);
 
     // ─── DX12 native upload-heap buffers ─────────────────────────────────────
-    // Create upload-heap VB / IB / CB so the DX12 command list can draw this
-    // model directly without needing D3D11 shaders on the 11on12 context.
-    // Upload-heap resources are always in GENERIC_READ state and can be read
-    // by the GPU without a copy; suitable for static-geometry models.
+    // Create VRAM VB / IB (staged, see below) and upload-heap CBs so the DX12 command list can
+    // draw this model directly without needing D3D11 shaders on the 11on12 context.
     {
         CD3DX12_HEAP_PROPERTIES uploadHeap(D3D12_HEAP_TYPE_UPLOAD);
 
-        // Vertex buffer
+        // Vertex + index buffers live in a DEFAULT heap (VRAM), filled through staging upload buffers and a
+        // one-shot copy.  They were previously left in the UPLOAD heap, i.e. CPU system memory that the GPU
+        // fetched across PCIe on EVERY draw - for a 1.5M triangle mesh drawn once per shadow view plus the main
+        // pass that is tens of MB of PCIe traffic per draw, and the dominant DX12-only cost.
+        // The geometry is static (nothing rewrites it after load), which is exactly what VRAM is for.
         const UINT64 vbBytes = m_modelInfo.vertices.size() * sizeof(Vertex);
-        CD3DX12_RESOURCE_DESC vbDesc = CD3DX12_RESOURCE_DESC::Buffer(vbBytes);
-        HRESULT hr = dx12->m_d3d12Device->CreateCommittedResource(
-            &uploadHeap, D3D12_HEAP_FLAG_NONE, &vbDesc,
-            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
-            IID_PPV_ARGS(&m_modelInfo.d3d12VertexBuffer));
-        if (SUCCEEDED(hr) && m_modelInfo.d3d12VertexBuffer) {
-            void* pDst = nullptr;
-            CD3DX12_RANGE noRead(0, 0);
-            m_modelInfo.d3d12VertexBuffer->Map(0, &noRead, &pDst);
-            memcpy(pDst, m_modelInfo.vertices.data(), vbBytes);
-            m_modelInfo.d3d12VertexBuffer->Unmap(0, nullptr);
-
-            m_modelInfo.d3d12VBView.BufferLocation = m_modelInfo.d3d12VertexBuffer->GetGPUVirtualAddress();
-            m_modelInfo.d3d12VBView.SizeInBytes    = static_cast<UINT>(vbBytes);
-            m_modelInfo.d3d12VBView.StrideInBytes  = sizeof(Vertex);
-        }
-
-        // Index buffer
         const UINT64 ibBytes = m_modelInfo.indices.size() * sizeof(uint32_t);
-        CD3DX12_RESOURCE_DESC ibDesc = CD3DX12_RESOURCE_DESC::Buffer(ibBytes);
-        hr = dx12->m_d3d12Device->CreateCommittedResource(
-            &uploadHeap, D3D12_HEAP_FLAG_NONE, &ibDesc,
-            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
-            IID_PPV_ARGS(&m_modelInfo.d3d12IndexBuffer));
-        if (SUCCEEDED(hr) && m_modelInfo.d3d12IndexBuffer) {
-            void* pDst = nullptr;
-            CD3DX12_RANGE noRead(0, 0);
-            m_modelInfo.d3d12IndexBuffer->Map(0, &noRead, &pDst);
-            memcpy(pDst, m_modelInfo.indices.data(), ibBytes);
-            m_modelInfo.d3d12IndexBuffer->Unmap(0, nullptr);
+        {
+            ComPtr<ID3D12Resource> vbStaging, ibStaging;
+            CD3DX12_HEAP_PROPERTIES defaultHeap(D3D12_HEAP_TYPE_DEFAULT);
 
-            m_modelInfo.d3d12IBView.BufferLocation = m_modelInfo.d3d12IndexBuffer->GetGPUVirtualAddress();
-            m_modelInfo.d3d12IBView.SizeInBytes    = static_cast<UINT>(ibBytes);
-            m_modelInfo.d3d12IBView.Format         = DXGI_FORMAT_R32_UINT;
-            m_modelInfo.d3d12IndexCount            = static_cast<UINT>(m_modelInfo.indices.size());
+            auto createStaged = [&](UINT64 bytes, const void* src,
+                                    ComPtr<ID3D12Resource>& dst, ComPtr<ID3D12Resource>& staging) -> bool
+            {
+                if (bytes == 0 || !src) return false;
+                CD3DX12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(bytes);
+                if (FAILED(dx12->m_d3d12Device->CreateCommittedResource(
+                        &defaultHeap, D3D12_HEAP_FLAG_NONE, &desc,
+                        D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&dst))))
+                    return false;
+                if (FAILED(dx12->m_d3d12Device->CreateCommittedResource(
+                        &uploadHeap, D3D12_HEAP_FLAG_NONE, &desc,
+                        D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&staging))))
+                    return false;
+                void* pDst = nullptr;
+                CD3DX12_RANGE noRead(0, 0);
+                if (FAILED(staging->Map(0, &noRead, &pDst)) || !pDst)
+                    return false;
+                memcpy(pDst, src, static_cast<size_t>(bytes));
+                staging->Unmap(0, nullptr);
+                return true;
+            };
+
+            bool uploaded = createStaged(vbBytes, m_modelInfo.vertices.data(), m_modelInfo.d3d12VertexBuffer, vbStaging) &&
+                            createStaged(ibBytes, m_modelInfo.indices.data(),  m_modelInfo.d3d12IndexBuffer,  ibStaging);
+
+            if (uploaded)
+            {
+                // Private allocator / list / fence: safe from the loader thread while the render thread owns the
+                // frame command list.  The queue itself is thread-safe.
+                ComPtr<ID3D12CommandAllocator>    alloc;
+                ComPtr<ID3D12GraphicsCommandList> list;
+                ComPtr<ID3D12Fence>               fence;
+                uploaded = SUCCEEDED(dx12->m_d3d12Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc))) &&
+                           SUCCEEDED(dx12->m_d3d12Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc.Get(), nullptr, IID_PPV_ARGS(&list))) &&
+                           SUCCEEDED(dx12->m_d3d12Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
+
+                if (uploaded)
+                {
+                    list->CopyBufferRegion(m_modelInfo.d3d12VertexBuffer.Get(), 0, vbStaging.Get(), 0, vbBytes);
+                    list->CopyBufferRegion(m_modelInfo.d3d12IndexBuffer.Get(),  0, ibStaging.Get(), 0, ibBytes);
+                    D3D12_RESOURCE_BARRIER toRead[2] = {
+                        CD3DX12_RESOURCE_BARRIER::Transition(m_modelInfo.d3d12VertexBuffer.Get(),
+                            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER),
+                        CD3DX12_RESOURCE_BARRIER::Transition(m_modelInfo.d3d12IndexBuffer.Get(),
+                            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_INDEX_BUFFER) };
+                    list->ResourceBarrier(2, toRead);
+                    uploaded = SUCCEEDED(list->Close());
+                }
+
+                if (uploaded)
+                {
+                    ID3D12CommandList* lists[] = { list.Get() };
+                    dx12->m_commandQueue->ExecuteCommandLists(1, lists);
+                    dx12->m_commandQueue->Signal(fence.Get(), 1);
+
+                    HANDLE evt = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+                    bool done = false;
+                    if (evt)
+                    {
+                        fence->SetEventOnCompletion(1, evt);
+                        done = (WaitForSingleObject(evt, 10000) == WAIT_OBJECT_0);
+                        CloseHandle(evt);
+                    }
+                    if (!done)
+                    {
+                        // The copy may still be reading the staging buffers / list: leak them rather than free
+                        // memory the GPU could touch.
+                        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[DX12 Model] Geometry upload wait timed out.");
+                        vbStaging.Detach(); ibStaging.Detach(); list.Detach(); alloc.Detach();
+                        uploaded = false;
+                    }
+                }
+            }
+
+            if (uploaded)
+            {
+                m_modelInfo.d3d12VBView.BufferLocation = m_modelInfo.d3d12VertexBuffer->GetGPUVirtualAddress();
+                m_modelInfo.d3d12VBView.SizeInBytes    = static_cast<UINT>(vbBytes);
+                m_modelInfo.d3d12VBView.StrideInBytes  = sizeof(Vertex);
+
+                m_modelInfo.d3d12IBView.BufferLocation = m_modelInfo.d3d12IndexBuffer->GetGPUVirtualAddress();
+                m_modelInfo.d3d12IBView.SizeInBytes    = static_cast<UINT>(ibBytes);
+                m_modelInfo.d3d12IBView.Format         = DXGI_FORMAT_R32_UINT;
+                m_modelInfo.d3d12IndexCount            = static_cast<UINT>(m_modelInfo.indices.size());
+            }
+            else
+            {
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[DX12 Model] Failed to create VRAM geometry buffers - model will not draw natively.");
+                m_modelInfo.d3d12VertexBuffer.Reset();
+                m_modelInfo.d3d12IndexBuffer.Reset();
+            }
         }
 
-        // Per-model constant buffer b0 (persistently mapped upload heap, 256-byte aligned)
-        const UINT64 cbBytes = (sizeof(ConstantBuffer) + 255u) & ~255u;
+        // Per-model constant buffer b0 (persistently mapped upload heap, 256-byte aligned).
+        // 1 + MAX_PLANAR_PLANES + 6 slots: [0] main pass, [1 + plane] planar mirror passes, then one per live-capture face
+        // (see Model::RenderDX12 cbSlot).
+        const UINT64 cbBytes = DX12CbFrameStride() * DX12Renderer::FrameCount;
         CD3DX12_RESOURCE_DESC cbDesc = CD3DX12_RESOURCE_DESC::Buffer(cbBytes);
-        hr = dx12->m_d3d12Device->CreateCommittedResource(
+        HRESULT hr = dx12->m_d3d12Device->CreateCommittedResource(
             &uploadHeap, D3D12_HEAP_FLAG_NONE, &cbDesc,
             D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
             IID_PPV_ARGS(&m_modelInfo.d3d12ConstantBuffer));
@@ -572,9 +654,7 @@ bool Model::SetupModelForRendering()
 
         // Light constant buffer b1 (persistently mapped, min 1728 bytes per shader contract)
         {
-            const UINT kLightMin  = 1728;
-            const UINT lightActual = static_cast<UINT>(sizeof(LightBuffer));
-            const UINT64 lightAligned = ((lightActual > kLightMin ? lightActual : kLightMin) + 255u) & ~255u;
+            const UINT64 lightAligned = DX12LightFrameStride() * DX12Renderer::FrameCount;
             CD3DX12_RESOURCE_DESC lDesc = CD3DX12_RESOURCE_DESC::Buffer(lightAligned);
             hr = dx12->m_d3d12Device->CreateCommittedResource(
                 &uploadHeap, D3D12_HEAP_FLAG_NONE, &lDesc,
@@ -590,7 +670,7 @@ bool Model::SetupModelForRendering()
 
         // Material constant buffer b4 (persistently mapped, 256-byte aligned)
         {
-            const UINT64 matAligned = (sizeof(MaterialGPU) + 255u) & ~255u;
+            const UINT64 matAligned = DX12MaterialFrameStride() * DX12Renderer::FrameCount;
             CD3DX12_RESOURCE_DESC mDesc = CD3DX12_RESOURCE_DESC::Buffer(matAligned);
             hr = dx12->m_d3d12Device->CreateCommittedResource(
                 &uploadHeap, D3D12_HEAP_FLAG_NONE, &mDesc,
@@ -937,7 +1017,7 @@ void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
                 matGPU->Ka = mat->Ka; matGPU->Kd = mat->Kd; matGPU->Ks = mat->Ks;
                 matGPU->Ns = mat->Ns; matGPU->Metallic = mat->Metallic;
                 matGPU->Roughness = mat->Roughness; matGPU->ReflectionStrength = mat->Reflection;
-                matGPU->EmissiveFactor = mat->emissiveFactor; matGPU->EmissiveStrength = mat->emissiveStrength;
+                matGPU->EmissiveFactor = mat->emissiveFactor; matGPU->EmissiveStrength = mat->emissiveStrength * config.myConfig.EmissionScale();
                 matGPU->NormalScale = mat->normalScale;
             } else {
                 matGPU->Ka = XMFLOAT3(0.1f, 0.1f, 0.1f);
@@ -958,6 +1038,7 @@ void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
             matGPU->useDiffuseMap    = m_modelInfo.useDiffuseMap    ? 1.0f : 0.0f;
             matGPU->useGlossMap      = (m_modelInfo.useGlossMap    && m_modelInfo.d3d12TexResources[6]) ? 1.0f : 0.0f;
             matGPU->useEmissiveMap   = (m_modelInfo.useEmissiveMap && m_modelInfo.d3d12TexResources[7]) ? 1.0f : 0.0f;
+            matGPU->receiveShadows   = m_modelInfo.receiveShadows ? 1.0f : 0.0f;
             // NormalScale == 0 tells the shader to use vertex normal (no normal map present)
             if (m_modelInfo.normalMapSRVs.empty())
                 matGPU->NormalScale = 0.0f;
@@ -989,7 +1070,6 @@ void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
         ID3D11ShaderResourceView* envSRV       = m_modelInfo.environmentMapSRV ? m_modelInfo.environmentMapSRV.Get() : nullptr;
         ID3D11ShaderResourceView* glossSRV     = m_modelInfo.glossMapSRV       ? m_modelInfo.glossMapSRV.Get()       : nullptr;
         ID3D11ShaderResourceView* emissiveSRV  = m_modelInfo.emissiveMapSRV    ? m_modelInfo.emissiveMapSRV.Get()    : nullptr;
-        ID3D11ShaderResourceView* shadowSRV    = m_modelInfo.shadowMapSRV      ? m_modelInfo.shadowMapSRV.Get()      : nullptr;
 
         if (texSRV) deviceContext->PSSetShaderResources(SLOT_diffuseTexture, 1, &texSRV);
         // Always set the normal map slot to prevent stale SRV from a previous model
@@ -1005,28 +1085,28 @@ void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
         if (aoSRV)    deviceContext->PSSetShaderResources(SLOT_aoMap,           1, &aoSRV);
         if (envSRV)   deviceContext->PSSetShaderResources(SLOT_environmentMap,  1, &envSRV);
 
-        // Bind extended maps (t6 gloss, t7 emissive, t8 shadow)
+        // Bind extended maps (t6 gloss, t7 emissive)
         deviceContext->PSSetShaderResources(SLOT_glossMap,    1, &glossSRV);
         deviceContext->PSSetShaderResources(SLOT_emissiveMap, 1, &emissiveSRV);
-        deviceContext->PSSetShaderResources(SLOT_shadowMap,   1, &shadowSRV);
 
         deviceContext->PSSetSamplers(SLOT_SAMPLER_STATE,        1, m_modelInfo.samplerState.GetAddressOf());
         deviceContext->PSSetSamplers(SLOT_ENVIRO_SAMPLER_STATE, 1, m_modelInfo.environmentSamplerState.GetAddressOf());
-        if (m_modelInfo.shadowSamplerState)
-            deviceContext->PSSetSamplers(SLOT_SHADOW_SAMPLER_STATE, 1, m_modelInfo.shadowSamplerState.GetAddressOf());
 
-        // Update and bind shadow constant buffer (b6)
+        // Legacy 11on12 fallback path: shadow maps are only produced by the native DX12
+        // path (DX12Renderer::RenderShadowPassDX12), so b6 is written with shadows OFF.
+        // Packed (not zeroed) so the video settings brightness / contrast still reach the shader.
         if (m_modelInfo.shadowBuffer)
         {
+            D3D11_BUFFER_DESC sbDesc = {};
+            m_modelInfo.shadowBuffer->GetDesc(&sbDesc);
             D3D11_MAPPED_SUBRESOURCE shadowMapped = {};
             if (SUCCEEDED(deviceContext->Map(m_modelInfo.shadowBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &shadowMapped)))
             {
-                ShadowBufferGPU* shadowGPU = static_cast<ShadowBufferGPU*>(shadowMapped.pData);
-                shadowGPU->lightViewProj   = XMMatrixIdentity();
-                shadowGPU->shadowBias      = 0.001f;
-                shadowGPU->shadowStrength  = 0.8f;
-                shadowGPU->useShadowMap    = (shadowSRV != nullptr) ? 1.0f : 0.0f;
-                shadowGPU->shadowMapSize   = 2048.0f;
+                ShadowFrameData noShadows;                                // enabled = false
+                ShadowBufferData sb;
+                ShadowPackGPU(noShadows, true, sb);                       // useShadowMap = useLocalShadows = 0
+                memset(shadowMapped.pData, 0, sbDesc.ByteWidth);
+                memcpy(shadowMapped.pData, &sb, std::min<size_t>(sbDesc.ByteWidth, sizeof(ShadowBufferData)));
                 deviceContext->Unmap(m_modelInfo.shadowBuffer.Get(), 0);
             }
             deviceContext->PSSetConstantBuffers(SLOT_SHADOW_BUFFER, 1, m_modelInfo.shadowBuffer.GetAddressOf());
@@ -1269,7 +1349,7 @@ void Model::RegisterDX12Textures(ID3D12GraphicsCommandList* cmdList, DX12Rendere
 // open.  Binds all per-model constant buffers (b0 camera/world, b1 lights,
 // b2 debug, b4 material), registers texture SRVs on first call, and draws.
 // ─────────────────────────────────────────────────────────────────────────────
-void Model::RenderDX12(ID3D12GraphicsCommandList* cmdList, DX12Renderer* dx12, float deltaTime)
+void Model::RenderDX12(ID3D12GraphicsCommandList* cmdList, DX12Renderer* dx12, float deltaTime, int cbSlot)
 {
     if (!cmdList || !dx12) return;
     if (!m_isLoaded || bIsDestroyed) return;
@@ -1278,6 +1358,9 @@ void Model::RenderDX12(ID3D12GraphicsCommandList* cmdList, DX12Renderer* dx12, f
         !m_modelInfo.d3d12ConstantBuffer || !m_modelInfo.d3d12CBMapped)
         return;
     if (m_modelInfo.d3d12IndexCount == 0) return;
+
+    // Frame slice for this frame in flight (see the helpers at the top of this file).
+    const UINT frameSlice = dx12->m_frameIndex % DX12Renderer::FrameCount;
 
     // === b0: camera / world / view / projection ===
     {
@@ -1288,10 +1371,12 @@ void Model::RenderDX12(ID3D12GraphicsCommandList* cmdList, DX12Renderer* dx12, f
         cb.cameraPosition   = m_modelInfo.cameraPosition;
         cb.modelScale       = m_modelInfo.scale;
         // asm MemoryCopy: REP MOVSQ bulk quad-word transfer — hot path (every model, every frame).
-        MemoryCopy(&cb, m_modelInfo.d3d12CBMapped, sizeof(ConstantBuffer));
+        const UINT64 cbOffset = DX12CbFrameStride() * frameSlice
+                              + DX12CbPassStride()  * static_cast<UINT64>(std::clamp(cbSlot, 0, MAX_PLANAR_PLANES + 6));
+        MemoryCopy(&cb, static_cast<uint8_t*>(m_modelInfo.d3d12CBMapped) + cbOffset, sizeof(ConstantBuffer));
         cmdList->SetGraphicsRootConstantBufferView(
             DX12_ROOT_PARAM_CONST_BUFFER,
-            m_modelInfo.d3d12ConstantBuffer->GetGPUVirtualAddress());
+            m_modelInfo.d3d12ConstantBuffer->GetGPUVirtualAddress() + cbOffset);
     }
 
     // === b1: per-model lights ===
@@ -1303,10 +1388,11 @@ void Model::RenderDX12(ID3D12GraphicsCommandList* cmdList, DX12Renderer* dx12, f
         for (int i = 0; i < maxLights; ++i)
             lb.lights[i] = m_modelInfo.localLights[i];
         // asm MemoryCopy: REP MOVSQ bulk quad-word transfer.
-        MemoryCopy(&lb, m_modelInfo.d3d12LightMapped, sizeof(LightBuffer));
+        const UINT64 lightOffset = DX12LightFrameStride() * frameSlice;
+        MemoryCopy(&lb, static_cast<uint8_t*>(m_modelInfo.d3d12LightMapped) + lightOffset, sizeof(LightBuffer));
         cmdList->SetGraphicsRootConstantBufferView(
             DX12_ROOT_PARAM_LIGHT_BUFFER,
-            m_modelInfo.d3d12LightBuffer->GetGPUVirtualAddress());
+            m_modelInfo.d3d12LightBuffer->GetGPUVirtualAddress() + lightOffset);
     }
 
     // === b4: PBR material ===
@@ -1320,7 +1406,7 @@ void Model::RenderDX12(ID3D12GraphicsCommandList* cmdList, DX12Renderer* dx12, f
             matGPU.Roughness = mat->Roughness;
             matGPU.ReflectionStrength = mat->Reflection;
             matGPU.EmissiveFactor  = mat->emissiveFactor;
-            matGPU.EmissiveStrength = mat->emissiveStrength;
+            matGPU.EmissiveStrength = mat->emissiveStrength * config.myConfig.EmissionScale();
             matGPU.NormalScale     = mat->normalScale;
         } else {
             matGPU.Ka = XMFLOAT3(0.1f, 0.1f, 0.1f);
@@ -1346,11 +1432,17 @@ void Model::RenderDX12(ID3D12GraphicsCommandList* cmdList, DX12Renderer* dx12, f
         matGPU.useDiffuseMap    = (m_modelInfo.useDiffuseMap    && m_modelInfo.d3d12TexResources[0]) ? 1.0f : 0.0f;
         matGPU.useGlossMap      = (m_modelInfo.useGlossMap      && m_modelInfo.d3d12TexResources[6]) ? 1.0f : 0.0f;
         matGPU.useEmissiveMap   = (m_modelInfo.useEmissiveMap   && m_modelInfo.d3d12TexResources[7]) ? 1.0f : 0.0f;
+        matGPU.receiveShadows   = m_modelInfo.receiveShadows ? 1.0f : 0.0f;
+        // Planar reflection: only reflector surfaces mix in the mirror render (0 = none).
+        const bool planarOn     = g_planarFrame.active && m_modelInfo.planarPlaneIndex >= 0 && ModelIsPlanarReflector(m_modelInfo);
+        matGPU.planarStrength   = planarOn ? std::clamp(m_modelInfo.planarStrength, 0.0f, 1.0f) : 0.0f;
+        matGPU.planarIndex      = planarOn ? static_cast<float>(m_modelInfo.planarPlaneIndex) : 0.0f;
         // asm MemoryCopy: REP MOVSQ bulk quad-word transfer.
-        MemoryCopy(&matGPU, m_modelInfo.d3d12MaterialMapped, sizeof(MaterialGPU));
+        const UINT64 matOffset = DX12MaterialFrameStride() * frameSlice;
+        MemoryCopy(&matGPU, static_cast<uint8_t*>(m_modelInfo.d3d12MaterialMapped) + matOffset, sizeof(MaterialGPU));
         cmdList->SetGraphicsRootConstantBufferView(
             DX12_ROOT_PARAM_MATERIAL_BUFFER,
-            m_modelInfo.d3d12MaterialBuffer->GetGPUVirtualAddress());
+            m_modelInfo.d3d12MaterialBuffer->GetGPUVirtualAddress() + matOffset);
     }
 
     // === b2: pixel shader debug mode ===

@@ -140,18 +140,14 @@ bool KeyboardHandler::Initialize(const KeyboardConfig& config) {
 
    // Prevent double initialization
    if (m_isInitialized.load()) {
-       #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-           debug.logLevelMessage(LogLevel::LOG_WARNING, L"KeyboardHandler already initialized - skipping");
-       #endif
+       debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"KeyboardHandler already initialized - skipping");
        return true;                                        // Already initialized
    }
 
    // Use ThreadLockHelper for thread-safe initialization
    ThreadLockHelper initLock(threadManager, "keyboard_init", 5000);
    if (!initLock.IsLocked()) {
-       #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-           debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire initialization lock - cannot initialize KeyboardHandler");
-       #endif
+       debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire initialization lock - cannot initialize KeyboardHandler");
        return false;                                       // Failed to acquire lock
    }
 
@@ -161,31 +157,23 @@ bool KeyboardHandler::Initialize(const KeyboardConfig& config) {
 
        // Validate configuration parameters
        if (m_config.keyRepeatDelay < 50) {                 // Minimum 50ms repeat delay
-           #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-               debug.logLevelMessage(LogLevel::LOG_WARNING, L"Key repeat delay too short, setting to minimum 50ms");
-           #endif
+           debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Key repeat delay too short, setting to minimum 50ms");
            m_config.keyRepeatDelay = 50;                   // Set minimum delay
        }
 
        if (m_config.keyRepeatRate < 10) {                  // Minimum 10ms repeat rate
-           #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-               debug.logLevelMessage(LogLevel::LOG_WARNING, L"Key repeat rate too fast, setting to minimum 10ms");
-           #endif
+           debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Key repeat rate too fast, setting to minimum 10ms");
            m_config.keyRepeatRate = 10;                    // Set minimum rate
        }
 
        if (m_config.maxCombinationKeys > 16) {             // Maximum 16 keys in combination
-           #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-               debug.logLevelMessage(LogLevel::LOG_WARNING, L"Max combination keys too high, setting to maximum 16");
-           #endif
+           debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Max combination keys too high, setting to maximum 16");
            m_config.maxCombinationKeys = 16;               // Set maximum combination size
        }
 
        // Initialize platform-specific keyboard hooks
        if (!InitializePlatformHooks()) {
-           #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-               debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to initialize platform-specific keyboard hooks");
-           #endif
+           debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to initialize platform-specific keyboard hooks");
            return false;                                   // Failed to initialize platform hooks
        }
 
@@ -220,9 +208,7 @@ bool KeyboardHandler::Initialize(const KeyboardConfig& config) {
        return true;                                        // Initialization successful
    }
    catch (const std::exception& e) {
-       #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-           debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception during KeyboardHandler initialization: %S", e.what());
-       #endif
+       debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception during KeyboardHandler initialization: %S", e.what());
        return false;                                       // Initialization failed
    }
 }
@@ -282,9 +268,7 @@ void KeyboardHandler::Cleanup() {
        #endif
    }
    catch (const std::exception& e) {
-       #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-           debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception during KeyboardHandler cleanup: %S", e.what());
-       #endif
+       debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception during KeyboardHandler cleanup: %S", e.what());
    }
 }
 
@@ -300,17 +284,13 @@ bool KeyboardHandler::EnableKeyboardSystem() {
 
    // Check if system is initialized
    if (!m_isInitialized.load()) {
-       #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-           debug.logLevelMessage(LogLevel::LOG_ERROR, L"Cannot enable keyboard system - not initialized");
-       #endif
+       debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Cannot enable keyboard system - not initialized");
        return false;                                       // System not initialized
    }
 
    // Check if already enabled
    if (m_isEnabled.load()) {
-       #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-           debug.logLevelMessage(LogLevel::LOG_WARNING, L"Keyboard system already enabled");
-       #endif
+       debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Keyboard system already enabled");
        return true;                                        // Already enabled
    }
 
@@ -318,17 +298,13 @@ bool KeyboardHandler::EnableKeyboardSystem() {
        // Save current OS hotkey states before blocking
        if (m_config.enableHotKeyBlocking) {
            if (!SaveOSHotkeyStates()) {
-               #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-                   debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to save OS hotkey states - continuing without blocking");
-               #endif
+               debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Failed to save OS hotkey states - continuing without blocking");
            }
        }
 
        // Start keyboard processing thread
        if (!StartKeyboardThread()) {
-           #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-               debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to start keyboard processing thread");
-           #endif
+           debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to start keyboard processing thread");
            return false;                                   // Failed to start thread
        }
 
@@ -342,9 +318,7 @@ bool KeyboardHandler::EnableKeyboardSystem() {
        return true;                                        // System enabled successfully
    }
    catch (const std::exception& e) {
-       #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-           debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception enabling keyboard system: %S", e.what());
-       #endif
+       debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception enabling keyboard system: %S", e.what());
        return false;                                       // Failed to enable system
    }
 }
@@ -357,9 +331,7 @@ bool KeyboardHandler::DisableKeyboardSystem() {
 
    // Check if currently enabled
    if (!m_isEnabled.load()) {
-       #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-           debug.logLevelMessage(LogLevel::LOG_WARNING, L"Keyboard system not enabled - nothing to disable");
-       #endif
+       debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Keyboard system not enabled - nothing to disable");
        return true;                                        // Not enabled, nothing to disable
    }
 
@@ -372,9 +344,7 @@ bool KeyboardHandler::DisableKeyboardSystem() {
        // Restore OS hotkey states if they were blocked
        if (m_config.enableHotKeyBlocking) {
            if (!RestoreOSHotkeyStates()) {
-               #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-                   debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to restore OS hotkey states");
-               #endif
+               debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Failed to restore OS hotkey states");
            }
        }
 
@@ -388,9 +358,7 @@ bool KeyboardHandler::DisableKeyboardSystem() {
        return true;                                        // System disabled successfully
    }
    catch (const std::exception& e) {
-       #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-           debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception disabling keyboard system: %S", e.what());
-       #endif
+       debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception disabling keyboard system: %S", e.what());
        return false;                                       // Failed to disable system
    }
 }
@@ -407,9 +375,7 @@ bool KeyboardHandler::StartKeyboardThread() {
 
    // Check if thread is already running
    if (m_threadRunning.load()) {
-       #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-           debug.logLevelMessage(LogLevel::LOG_WARNING, L"Keyboard thread already running");
-       #endif
+       debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Keyboard thread already running");
        return true;                                        // Already running
    }
 
@@ -432,9 +398,7 @@ bool KeyboardHandler::StartKeyboardThread() {
        return true;                                        // Thread started successfully
    }
    catch (const std::exception& e) {
-       #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-           debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception starting keyboard thread: %S", e.what());
-       #endif
+       debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception starting keyboard thread: %S", e.what());
        return false;                                       // Failed to start thread
    }
 }
@@ -447,9 +411,7 @@ bool KeyboardHandler::StopKeyboardThread() {
 
    // Check if thread is running
    if (!m_threadRunning.load()) {
-       #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-           debug.logLevelMessage(LogLevel::LOG_WARNING, L"Keyboard thread not running - nothing to stop");
-       #endif
+       debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Keyboard thread not running - nothing to stop");
        return true;                                        // Not running, nothing to stop
    }
 
@@ -475,18 +437,14 @@ bool KeyboardHandler::StopKeyboardThread() {
        return true;                                        // Thread stopped successfully
    }
    catch (const std::exception& e) {
-       #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-           debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception stopping keyboard thread: %S", e.what());
-       #endif
+       debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception stopping keyboard thread: %S", e.what());
        return false;                                       // Failed to stop thread
    }
 }
 
 // Terminate keyboard processing thread forcefully
 bool KeyboardHandler::TerminateKeyboardThread() {
-   #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-       debug.logLevelMessage(LogLevel::LOG_WARNING, L"KeyboardHandler::TerminateKeyboardThread() called - forceful termination");
-   #endif
+   debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"KeyboardHandler::TerminateKeyboardThread() called - forceful termination");
 
    try {
        // Set shutdown flag
@@ -500,16 +458,12 @@ bool KeyboardHandler::TerminateKeyboardThread() {
        // Mark thread as not running
        m_threadRunning.store(false);                       // Clear thread running flag
 
-       #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-           debug.logLevelMessage(LogLevel::LOG_WARNING, L"Keyboard processing thread terminated forcefully");
-       #endif
+       debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Keyboard processing thread terminated forcefully");
 
        return true;                                        // Thread terminated
    }
    catch (const std::exception& e) {
-       #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-           debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception terminating keyboard thread: %S", e.what());
-       #endif
+       debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception terminating keyboard thread: %S", e.what());
        return false;                                       // Failed to terminate thread
    }
 }
@@ -647,9 +601,7 @@ bool KeyboardHandler::RegisterHotkey(const std::vector<KeyCode>& keys, std::func
    
    // Validate key combination
    if (!ValidateKeyCombo(keys)) {
-       #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-           debug.logLevelMessage(LogLevel::LOG_ERROR, L"Invalid key combination for hotkey registration");
-       #endif
+       debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Invalid key combination for hotkey registration");
        return false;                                       // Invalid combination
    }
    
@@ -660,9 +612,7 @@ bool KeyboardHandler::RegisterHotkey(const std::vector<KeyCode>& keys, std::func
        // Register hotkey with thread safety
        ThreadLockHelper hotkeyLock(threadManager, "keyboard_hotkey_register", 2000);
        if (!hotkeyLock.IsLocked()) {
-           #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-               debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire hotkey lock for registration");
-           #endif
+           debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire hotkey lock for registration");
            return false;                                   // Failed to acquire lock
        }
        
@@ -676,9 +626,7 @@ bool KeyboardHandler::RegisterHotkey(const std::vector<KeyCode>& keys, std::func
        return true;                                        // Hotkey registered successfully
    }
    catch (const std::exception& e) {
-       #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-           debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception registering hotkey: %S", e.what());
-       #endif
+       debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception registering hotkey: %S", e.what());
        return false;                                       // Failed to register hotkey
    }
 }
@@ -696,9 +644,7 @@ bool KeyboardHandler::UnregisterHotkey(const std::vector<KeyCode>& keys) {
        // Unregister hotkey with thread safety
        ThreadLockHelper hotkeyLock(threadManager, "keyboard_hotkey_unregister", 2000);
        if (!hotkeyLock.IsLocked()) {
-           #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-               debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire hotkey lock for unregistration");
-           #endif
+           debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire hotkey lock for unregistration");
            return false;                                   // Failed to acquire lock
        }
        
@@ -714,16 +660,12 @@ bool KeyboardHandler::UnregisterHotkey(const std::vector<KeyCode>& keys) {
            return true;                                    // Hotkey unregistered successfully
        }
        else {
-           #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-               debug.logDebugMessage(LogLevel::LOG_WARNING, L"Hotkey not found for unregistration - Hash: 0x%016llX", comboHash);
-           #endif
+           debug.logDiagMessage(LogLevel::LOG_WARNING, L"Hotkey not found for unregistration - Hash: 0x%016llX", comboHash);
            return false;                                   // Hotkey not found
        }
    }
    catch (const std::exception& e) {
-       #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-           debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception unregistering hotkey: %S", e.what());
-       #endif
+       debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception unregistering hotkey: %S", e.what());
        return false;                                       // Failed to unregister hotkey
    }
 }
@@ -745,9 +687,7 @@ std::vector<KeyLogEntry> KeyboardHandler::GetRecentKeyLog(uint32_t maxEntries) c
        // Access key log with thread safety
        ThreadLockHelper logLock(threadManager, "keyboard_keylog_read", 1000, true); // Silent lock
        if (!logLock.IsLocked()) {
-           #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-               debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire key log lock - returning empty log");
-           #endif
+           debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire key log lock - returning empty log");
            return result;                                  // Return empty result on lock failure
        }
        
@@ -780,9 +720,7 @@ std::vector<KeyLogEntry> KeyboardHandler::GetRecentKeyLog(uint32_t maxEntries) c
        return result;                                      // Return key log entries
    }
    catch (const std::exception& e) {
-       #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-           debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception getting key log: %S", e.what());
-       #endif
+       debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception getting key log: %S", e.what());
 return result;                                      // Return empty result on exception
    }
 }
@@ -797,9 +735,7 @@ void KeyboardHandler::ClearKeyLog() {
        // Access key log with thread safety
        ThreadLockHelper logLock(threadManager, "keyboard_keylog_clear", 2000);
        if (!logLock.IsLocked()) {
-           #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-               debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire key log lock for clearing");
-           #endif
+           debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire key log lock for clearing");
            return;                                         // Failed to acquire lock
        }
        
@@ -812,9 +748,7 @@ void KeyboardHandler::ClearKeyLog() {
        #endif
    }
    catch (const std::exception& e) {
-       #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-           debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception clearing key log: %S", e.what());
-       #endif
+       debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception clearing key log: %S", e.what());
    }
 }
 
@@ -1083,9 +1017,7 @@ KeyCode KeyboardHandler::PlatformKeyToKeyCode(uint32_t platformKey) const {
             // Default case for unmapped keys
             default: 
             {
-                #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-                    debug.logDebugMessage(LogLevel::LOG_WARNING, L"[KeyboardHandler] Unknown Windows VK code: 0x%08X", platformKey);
-                #endif
+                debug.logDiagMessage(LogLevel::LOG_WARNING, L"[KeyboardHandler] Unknown Windows VK code: 0x%08X", platformKey);
                 return KeyCode::KEY_UNKNOWN;                            // Unknown or unmapped key
             }
         }
@@ -1197,17 +1129,13 @@ KeyCode KeyboardHandler::PlatformKeyToKeyCode(uint32_t platformKey) const {
             // Default case for unmapped keys
             default: 
             {
-                #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-                    debug.logDebugMessage(LogLevel::LOG_WARNING, L"[KeyboardHandler] Unknown Linux KeySym: 0x%08X", platformKey);
-                #endif
+                debug.logDiagMessage(LogLevel::LOG_WARNING, L"[KeyboardHandler] Unknown Linux KeySym: 0x%08X", platformKey);
                 return KeyCode::KEY_UNKNOWN;                            // Unknown or unmapped key
             }
         }
     #else
         // Unsupported platform fallback
-        #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[KeyboardHandler] Unsupported platform for key mapping: 0x%08X", platformKey);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"[KeyboardHandler] Unsupported platform for key mapping: 0x%08X", platformKey);
         return KeyCode::KEY_UNKNOWN;                                    // Unknown platform
     #endif
 }
@@ -1264,9 +1192,7 @@ bool KeyboardHandler::GetThreadPerformanceMetrics(float& cpuUsage, uint64_t& mem
        
        // Check if keyboard thread exists and is running
        if (!threadManager.DoesThreadExist(THREAD_AI_PROCESSING)) {
-           #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-               debug.logLevelMessage(LogLevel::LOG_WARNING, L"Keyboard thread does not exist - cannot get performance metrics");
-           #endif
+           debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Keyboard thread does not exist - cannot get performance metrics");
            return false;                                   // Thread doesn't exist
        }
        
@@ -1298,9 +1224,7 @@ bool KeyboardHandler::GetThreadPerformanceMetrics(float& cpuUsage, uint64_t& mem
        return true;                                        // Successfully retrieved metrics
    }
    catch (const std::exception& e) {
-       #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-           debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception getting performance metrics: %S", e.what());
-       #endif
+       debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception getting performance metrics: %S", e.what());
        
        // Reset output parameters on error
        cpuUsage = 0.0f;
@@ -1360,9 +1284,7 @@ void KeyboardHandler::KeyboardThreadFunction() {
                
            }
            catch (const std::exception& e) {
-               #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-                   debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception in keyboard thread main loop: %S", e.what());
-               #endif
+               debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception in keyboard thread main loop: %S", e.what());
                
                // Continue operation unless it's a critical error
                std::this_thread::sleep_for(std::chrono::milliseconds(10)); // Brief pause before retry
@@ -1376,9 +1298,7 @@ void KeyboardHandler::KeyboardThreadFunction() {
        
    }
    catch (const std::exception& e) {
-       #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-           debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Fatal exception in keyboard thread: %S", e.what());
-       #endif
+       debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Fatal exception in keyboard thread: %S", e.what());
    }
    
    #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
@@ -1468,9 +1388,7 @@ void KeyboardHandler::HandleKeyDown(KeyCode keyCode, uint32_t modifierFlags) {
                (*handler)(keyCode, modifierFlags);
            }
            catch (const std::exception& e) {
-               #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-                   debug.logDebugMessage(LogLevel::LOG_ERROR, L"Exception in custom key down handler: %S", e.what());
-               #endif
+               debug.logDiagMessage(LogLevel::LOG_ERROR, L"Exception in custom key down handler: %S", e.what());
            }
        }
        
@@ -1481,9 +1399,7 @@ void KeyboardHandler::HandleKeyDown(KeyCode keyCode, uint32_t modifierFlags) {
        
    }
    catch (const std::exception& e) {
-       #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-           debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception handling key down: %S", e.what());
-       #endif
+       debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception handling key down: %S", e.what());
    }
 }
 
@@ -1513,9 +1429,7 @@ void KeyboardHandler::HandleKeyUp(KeyCode keyCode, uint32_t modifierFlags) {
                (*handler)(keyCode, modifierFlags);
            }
            catch (const std::exception& e) {
-               #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-                   debug.logDebugMessage(LogLevel::LOG_ERROR, L"Exception in custom key up handler: %S", e.what());
-               #endif
+               debug.logDiagMessage(LogLevel::LOG_ERROR, L"Exception in custom key up handler: %S", e.what());
            }
        }
        
@@ -1526,9 +1440,7 @@ void KeyboardHandler::HandleKeyUp(KeyCode keyCode, uint32_t modifierFlags) {
        
    }
    catch (const std::exception& e) {
-       #if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-           debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception handling key up: %S", e.what());
-       #endif
+       debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception handling key up: %S", e.what());
    }
 }
 
@@ -1575,9 +1487,7 @@ void KeyboardHandler::ProcessKeyCombinations() {
 #endif
                    }
                    catch (const std::exception& e) {
-#if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-                       debug.logDebugMessage(LogLevel::LOG_ERROR, L"Exception in hotkey callback: %S", e.what());
-#endif
+                       debug.logDiagMessage(LogLevel::LOG_ERROR, L"Exception in hotkey callback: %S", e.what());
                    }
                }
            }
@@ -1589,18 +1499,14 @@ void KeyboardHandler::ProcessKeyCombinations() {
                    (*handler)(pressedKeys, m_currentModifierFlags.load());
                }
                catch (const std::exception& e) {
-#if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-                   debug.logDebugMessage(LogLevel::LOG_ERROR, L"Exception in custom key combo handler: %S", e.what());
-#endif
+                   debug.logDiagMessage(LogLevel::LOG_ERROR, L"Exception in custom key combo handler: %S", e.what());
                }
            }
        }
 
    }
    catch (const std::exception& e) {
-#if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-       debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception processing key combinations: %S", e.what());
-#endif
+       debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception processing key combinations: %S", e.what());
    }
 }
 
@@ -1633,9 +1539,7 @@ void KeyboardHandler::AddToKeyLog(KeyCode keyCode, bool isKeyDown, uint32_t modi
 
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception adding to key log: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception adding to key log: %S", e.what());
     }
 }
 
@@ -1657,9 +1561,7 @@ bool KeyboardHandler::InitializePlatformHooks() {
 
         if (m_keyboardHook == nullptr) {
             DWORD error = GetLastError();
-#if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to install Windows keyboard hook - Error: %d", error);
-#endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"Failed to install Windows keyboard hook - Error: %d", error);
             return false;                               // Failed to install hook
         }
 
@@ -1670,9 +1572,7 @@ bool KeyboardHandler::InitializePlatformHooks() {
         return true;                                    // Hook installed successfully
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception installing Windows keyboard hook: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception installing Windows keyboard hook: %S", e.what());
         return false;                                   // Failed to install hook
     }
 
@@ -1682,9 +1582,7 @@ bool KeyboardHandler::InitializePlatformHooks() {
         // Open X11 display connection
         m_display = XOpenDisplay(nullptr);
         if (m_display == nullptr) {
-#if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to open X11 display connection");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to open X11 display connection");
             return false;                               // Failed to open display
         }
 
@@ -1701,9 +1599,7 @@ bool KeyboardHandler::InitializePlatformHooks() {
         return true;                                    // X11 initialized successfully
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception initializing Linux keyboard handling: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception initializing Linux keyboard handling: %S", e.what());
         return false;                                   // Failed to initialize X11
     }
 
@@ -1716,9 +1612,7 @@ bool KeyboardHandler::InitializePlatformHooks() {
             kCGEventTapOptionDefault, eventMask, MacOSKeyboardCallback, this);
 
         if (m_eventTap == nullptr) {
-#if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to create macOS event tap");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to create macOS event tap");
             return false;                               // Failed to create event tap
         }
 
@@ -1738,9 +1632,7 @@ bool KeyboardHandler::InitializePlatformHooks() {
         return true;                                    // Event tap initialized successfully
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception initializing macOS event tap: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception initializing macOS event tap: %S", e.what());
         return false;                                   // Failed to initialize event tap
     }
 
@@ -1756,9 +1648,7 @@ bool KeyboardHandler::InitializePlatformHooks() {
         return true;                                    // Android initialized (placeholder)
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception initializing Android keyboard handling: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception initializing Android keyboard handling: %S", e.what());
         return false;                                   // Failed to initialize Android
     }
 
@@ -1774,17 +1664,13 @@ bool KeyboardHandler::InitializePlatformHooks() {
         return true;                                    // iOS initialized (placeholder)
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception initializing iOS keyboard handling: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception initializing iOS keyboard handling: %S", e.what());
         return false;                                   // Failed to initialize iOS
     }
 
 #else
     // Unsupported platform
-#if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-    debug.logLevelMessage(LogLevel::LOG_WARNING, L"Platform-specific keyboard hooks not supported on this platform");
-#endif
+    debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Platform-specific keyboard hooks not supported on this platform");
     return false;                                       // Platform not supported
 #endif
 }
@@ -1804,9 +1690,7 @@ void KeyboardHandler::CleanupPlatformHooks() {
 #endif
         }
         else {
-#if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to uninstall Windows keyboard hook - Error: %d", GetLastError());
-#endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"Failed to uninstall Windows keyboard hook - Error: %d", GetLastError());
         }
         m_keyboardHook = nullptr;                       // Clear hook handle
     }
@@ -1890,9 +1774,7 @@ bool KeyboardHandler::SaveOSHotkeyStates() {
         return true;                                    // Hotkey states saved successfully
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception saving Windows hotkey states: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception saving Windows hotkey states: %S", e.what());
         return false;                                   // Failed to save hotkey states
     }
 
@@ -1941,9 +1823,7 @@ bool KeyboardHandler::RestoreOSHotkeyStates() {
         return true;                                    // Hotkey states restored successfully
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception restoring Windows hotkey states: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception restoring Windows hotkey states: %S", e.what());
         return false;                                   // Failed to restore hotkey states
     }
 
@@ -1986,9 +1866,7 @@ void KeyboardHandler::UpdateLockKeyStates() {
 
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception updating Windows lock key states: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception updating Windows lock key states: %S", e.what());
     }
 
 #elif defined(PLATFORM_LINUX)
@@ -2004,9 +1882,7 @@ void KeyboardHandler::UpdateLockKeyStates() {
             }
         }
         catch (const std::exception& e) {
-#if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception updating Linux lock key states: %S", e.what());
-#endif
+            debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception updating Linux lock key states: %S", e.what());
         }
     }
 
@@ -2048,18 +1924,14 @@ uint64_t KeyboardHandler::CalculateKeyComboHash(const std::vector<KeyCode>& keys
 bool KeyboardHandler::ValidateKeyCombo(const std::vector<KeyCode>& keys) const {
     // Check if combination is empty
     if (keys.empty()) {
-#if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Key combination is empty");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Key combination is empty");
         return false;                                       // Empty combination not allowed
     }
 
     // Check if combination exceeds maximum size
     if (keys.size() > m_config.maxCombinationKeys) {
-#if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Key combination size %zu exceeds maximum %u",
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Key combination size %zu exceeds maximum %u",
             keys.size(), m_config.maxCombinationKeys);
-#endif
         return false;                                       // Combination too large
     }
 
@@ -2068,18 +1940,14 @@ bool KeyboardHandler::ValidateKeyCombo(const std::vector<KeyCode>& keys) const {
     std::sort(sortedKeys.begin(), sortedKeys.end());
     auto it = std::unique(sortedKeys.begin(), sortedKeys.end());
     if (it != sortedKeys.end()) {
-#if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Key combination contains duplicate keys");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Key combination contains duplicate keys");
         return false;                                       // Duplicate keys not allowed
     }
 
     // Check for unknown keys
     for (KeyCode key : keys) {
         if (key == KeyCode::KEY_UNKNOWN) {
-#if defined(_DEBUG_KEYBOARDHANDLER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Key combination contains unknown key");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Key combination contains unknown key");
             return false;                                   // Unknown keys not allowed
         }
     }

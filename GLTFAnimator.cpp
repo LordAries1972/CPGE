@@ -514,9 +514,7 @@ bool GLTFAnimator::LoadKeyframeData(int accessorIndex, const json& doc, const st
         // Check if accessors array exists
         if (!doc.contains("accessors") || !doc["accessors"].is_array())
         {
-            #if defined(_DEBUG_GLTFANIMATOR_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Document missing accessors array");
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Document missing accessors array");
             return false;
         }
 
@@ -524,10 +522,8 @@ bool GLTFAnimator::LoadKeyframeData(int accessorIndex, const json& doc, const st
         
         if (accessorIndex < 0 || accessorIndex >= static_cast<int>(accessors.size()))
         {
-            #if defined(_DEBUG_GLTFANIMATOR_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Accessor index %d out of bounds (max: %d)", 
-                                    accessorIndex, static_cast<int>(accessors.size()) - 1);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Accessor index %d out of bounds (max: %d)", 
+                                accessorIndex, static_cast<int>(accessors.size()) - 1);
             return false;
         }
 
@@ -544,9 +540,7 @@ bool GLTFAnimator::LoadKeyframeData(int accessorIndex, const json& doc, const st
         // Get buffer view information
         if (!accessor.contains("bufferView") || !accessor["bufferView"].is_number_integer())
         {
-            #if defined(_DEBUG_GLTFANIMATOR_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Accessor %d missing bufferView", accessorIndex);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Accessor %d missing bufferView", accessorIndex);
             return false;
         }
 
@@ -554,9 +548,7 @@ bool GLTFAnimator::LoadKeyframeData(int accessorIndex, const json& doc, const st
         
         if (!doc.contains("bufferViews") || !doc["bufferViews"].is_array())
         {
-            #if defined(_DEBUG_GLTFANIMATOR_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Document missing bufferViews array");
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Document missing bufferViews array");
             return false;
         }
         
@@ -564,9 +556,7 @@ bool GLTFAnimator::LoadKeyframeData(int accessorIndex, const json& doc, const st
         
         if (bufferViewIndex < 0 || bufferViewIndex >= static_cast<int>(bufferViews.size()))
         {
-            #if defined(_DEBUG_GLTFANIMATOR_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Invalid bufferView index: %d", bufferViewIndex);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Invalid bufferView index: %d", bufferViewIndex);
             return false;
         }
 
@@ -612,18 +602,14 @@ bool GLTFAnimator::LoadKeyframeData(int accessorIndex, const json& doc, const st
         // Validate binary data bounds
         if (totalByteOffset < 0 || totalByteOffset >= static_cast<int>(binaryData.size()))
         {
-            #if defined(_DEBUG_GLTFANIMATOR_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Invalid byte offset: %d", totalByteOffset);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Invalid byte offset: %d", totalByteOffset);
             return false;
         }
 
         // Only support FLOAT component type (5126) for animations
         if (componentType != 5126) // GL_FLOAT
         {
-            #if defined(_DEBUG_GLTFANIMATOR_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Unsupported component type: %d", componentType);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Unsupported component type: %d", componentType);
             return false;
         }
 
@@ -633,9 +619,7 @@ bool GLTFAnimator::LoadKeyframeData(int accessorIndex, const json& doc, const st
         // Validate sufficient data
         if (totalByteOffset + totalBytes > binaryData.size())
         {
-            #if defined(_DEBUG_GLTFANIMATOR_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Not enough binary data for accessor %d", accessorIndex);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Not enough binary data for accessor %d", accessorIndex);
             return false;
         }
 
@@ -666,9 +650,7 @@ bool GLTFAnimator::LoadKeyframeData(int accessorIndex, const json& doc, const st
     }
     catch (const std::exception& ex)
     {
-        #if defined(_DEBUG_GLTFANIMATOR_)
-            debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"[GLTFAnimator] Exception in LoadKeyframeData: %hs", ex.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_CRITICAL, L"[GLTFAnimator] Exception in LoadKeyframeData: %hs", ex.what());
         exceptionHandler.LogException(ex, "GLTFAnimator::LoadKeyframeData");
         return false;
     }
@@ -740,9 +722,7 @@ bool GLTFAnimator::StartAnimation(int parentModelID, int animationIndex)
         // Validate animation index
         if (animationIndex < 0 || animationIndex >= static_cast<int>(m_animations.size()))
         {
-            #if defined(_DEBUG_GLTFANIMATOR_)
-                debug.logDebugMessage(LogLevel::LOG_WARNING, L"[GLTFAnimator] Invalid animation index %d", animationIndex);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"[GLTFAnimator] Invalid animation index %d", animationIndex);
             return false;
         }
 
@@ -997,9 +977,7 @@ void GLTFAnimator::UpdateAnimations(float deltaTime, Model* sceneModels, int max
             // Validate animation index
             if (instance.animationIndex < 0 || instance.animationIndex >= static_cast<int>(m_animations.size()))
             {
-                #if defined(_DEBUG_GLTFANIMATOR_)
-                    debug.logDebugMessage(LogLevel::LOG_WARNING, L"[GLTFAnimator] Invalid animation index %d for parent ID %d", instance.animationIndex, instance.parentModelID);
-                #endif
+                debug.logDiagMessage(LogLevel::LOG_WARNING, L"[GLTFAnimator] Invalid animation index %d for parent ID %d", instance.animationIndex, instance.parentModelID);
                 continue;
             }
 
@@ -1012,9 +990,7 @@ void GLTFAnimator::UpdateAnimations(float deltaTime, Model* sceneModels, int max
             // Validate animation has non-zero duration
             if (animation.duration <= 0.0f)
             {
-                #if defined(_DEBUG_GLTFANIMATOR_)
-                    debug.logDebugMessage(LogLevel::LOG_WARNING, L"[GLTFAnimator] Animation has zero duration %.3f for parent ID %d", animation.duration, instance.parentModelID);
-                #endif
+                debug.logDiagMessage(LogLevel::LOG_WARNING, L"[GLTFAnimator] Animation has zero duration %.3f for parent ID %d", animation.duration, instance.parentModelID);
                 continue;
             }
 
@@ -1187,10 +1163,8 @@ void GLTFAnimator::UpdateAnimations(float deltaTime, Model* sceneModels, int max
                 // Validate sampler index
                 if (channel.samplerIndex < 0 || channel.samplerIndex >= static_cast<int>(animation.samplers.size()))
                 {
-                    #if defined(_DEBUG_GLTFANIMATOR_)
-                        debug.logDebugMessage(LogLevel::LOG_WARNING, L"[GLTFAnimator] Invalid sampler index %d for parent ID %d", 
-                                            channel.samplerIndex, instance.parentModelID);
-                    #endif
+                    debug.logDiagMessage(LogLevel::LOG_WARNING, L"[GLTFAnimator] Invalid sampler index %d for parent ID %d", 
+                                        channel.samplerIndex, instance.parentModelID);
                     continue;
                 }
 
@@ -1225,9 +1199,7 @@ void GLTFAnimator::UpdateAnimations(float deltaTime, Model* sceneModels, int max
     }
     catch (const std::exception& ex)
     {
-        #if defined(_DEBUG_GLTFANIMATOR_)
-            debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"[GLTFAnimator] Exception in UpdateAnimations: %s", ex.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_CRITICAL, L"[GLTFAnimator] Exception in UpdateAnimations: %s", ex.what());
         exceptionHandler.LogException(ex, "GLTFAnimator::UpdateAnimations");
     }
 }
@@ -1246,9 +1218,7 @@ void GLTFAnimator::InterpolateKeyframes(const AnimationSampler& sampler, float t
         // Handle empty keyframes - critical safety check
         if (sampler.keyframes.empty())
         {
-            #if defined(_DEBUG_GLTFANIMATOR_)
-                debug.logDebugMessage(LogLevel::LOG_WARNING, L"[GLTFAnimator] Empty keyframes in sampler");
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"[GLTFAnimator] Empty keyframes in sampler");
             outValues.clear();
             return;
         }
@@ -1346,9 +1316,7 @@ void GLTFAnimator::InterpolateKeyframes(const AnimationSampler& sampler, float t
         // Validate that both keyframes have values
         if (leftFrame.values.empty() || rightFrame.values.empty())
         {
-            #if defined(_DEBUG_GLTFANIMATOR_)
-                debug.logDebugMessage(LogLevel::LOG_WARNING, L"[GLTFAnimator] Empty keyframe values detected");
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"[GLTFAnimator] Empty keyframe values detected");
             outValues.clear();
             return;
         }
@@ -1425,9 +1393,7 @@ void GLTFAnimator::InterpolateKeyframes(const AnimationSampler& sampler, float t
     }
     catch (const std::exception& ex)
     {
-        #if defined(_DEBUG_GLTFANIMATOR_)
-            debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"[GLTFAnimator] Exception in InterpolateKeyframes: %hs", ex.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_CRITICAL, L"[GLTFAnimator] Exception in InterpolateKeyframes: %hs", ex.what());
         exceptionHandler.LogException(ex, "GLTFAnimator::InterpolateKeyframes");
         outValues.clear();
     }
@@ -1749,9 +1715,7 @@ void GLTFAnimator::SetAnimationDirection(int parentModelID, AnimationDirection d
     AnimationInstance* instance = GetAnimationInstance(parentModelID);
     if (!instance)
     {
-        #if defined(_DEBUG_GLTFANIMATOR_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[GLTFAnimator] SetAnimationDirection: no instance for parent ID %d", parentModelID);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"[GLTFAnimator] SetAnimationDirection: no instance for parent ID %d", parentModelID);
         return;
     }
 
@@ -1832,9 +1796,7 @@ void GLTFAnimator::HoldAnimationAtFrame(int parentModelID, int frameIndex)
     AnimationInstance* instance = GetAnimationInstance(parentModelID);
     if (!instance)
     {
-        #if defined(_DEBUG_GLTFANIMATOR_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[GLTFAnimator] HoldAnimationAtFrame: no instance for parent ID %d", parentModelID);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"[GLTFAnimator] HoldAnimationAtFrame: no instance for parent ID %d", parentModelID);
         return;
     }
 
@@ -1970,9 +1932,7 @@ bool GLTFAnimator::ValidateAccessorIndex(int accessorIndex, const json& doc) con
     // Check if accessors array exists in the document
     if (!doc.contains("accessors") || !doc["accessors"].is_array())
     {
-        #if defined(_DEBUG_GLTFANIMATOR_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] GLTF document missing accessors array");
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] GLTF document missing accessors array");
         LogAnimationError(L"GLTF document missing accessors array");
         return false;
     }
@@ -1987,11 +1947,10 @@ bool GLTFAnimator::ValidateAccessorIndex(int accessorIndex, const json& doc) con
     // CRITICAL DEBUG: If accessor doesn't exist, print full accessor info
     if (accessorIndex < 0 || accessorIndex >= static_cast<int>(accessors.size()))
     {
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] ACCESSOR INDEX OUT OF BOUNDS! Requested: %d, Available: 0-%d",
+                             accessorIndex, static_cast<int>(accessors.size()) - 1);
+
         #if defined(_DEBUG_GLTFANIMATOR_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] ACCESSOR INDEX OUT OF BOUNDS!");
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Requested: %d, Available: 0-%d", 
-                                accessorIndex, static_cast<int>(accessors.size()) - 1);
-            
             // Print all available accessors for debugging
             debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Available accessors:");
             for (size_t i = 0; i < accessors.size(); ++i)
@@ -2015,9 +1974,7 @@ bool GLTFAnimator::ValidateAccessorIndex(int accessorIndex, const json& doc) con
     const auto& accessor = accessors[accessorIndex];
     if (!accessor.contains("count") || !accessor.contains("componentType"))
     {
-        #if defined(_DEBUG_GLTFANIMATOR_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Accessor %d missing required fields (count or componentType)", accessorIndex);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] Accessor %d missing required fields (count or componentType)", accessorIndex);
         LogAnimationError(L"Accessor missing required fields: " + std::to_wstring(accessorIndex));
         return false;
     }
@@ -2032,16 +1989,12 @@ bool GLTFAnimator::ValidateAccessorIndex(int accessorIndex, const json& doc) con
 
 void GLTFAnimator::LogAnimationError(const std::wstring& errorMessage) const
 {
-   #if defined(_DEBUG_GLTFANIMATOR_)
-       debug.logDebugMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] ERROR: %ls", errorMessage.c_str());
-   #endif
+   debug.logDiagMessage(LogLevel::LOG_ERROR, L"[GLTFAnimator] ERROR: %ls", errorMessage.c_str());
 }
 
 void GLTFAnimator::LogAnimationWarning(const std::wstring& warningMessage) const
 {
-   #if defined(_DEBUG_GLTFANIMATOR_)
-       debug.logDebugMessage(LogLevel::LOG_WARNING, L"[GLTFAnimator] WARNING: %ls", warningMessage.c_str());
-   #endif
+   debug.logDiagMessage(LogLevel::LOG_WARNING, L"[GLTFAnimator] WARNING: %ls", warningMessage.c_str());
 }
 
 void GLTFAnimator::LogAnimationInfo(const std::wstring& infoMessage) const

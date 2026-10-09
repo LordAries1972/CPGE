@@ -138,9 +138,7 @@ void SoundManager::LoadAllSFX() {
             #endif
         }
         else {
-            #if defined(_DEBUG_SOUNDMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to preload: " + entry.second);
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Failed to preload: " + entry.second);
         }
     }
 }
@@ -152,9 +150,7 @@ void SoundManager::AddToQueue(SFX_ID id, float volume, StereoBalance balance, Pl
 void SoundManager::AddToQueue(SFX_ID id, float volume, StereoBalance balance, PlaybackType type, float timeout, SFX_PRIORITY priority, bool useFadeIn) {
     auto it = fileList.find(id);
     if (it == fileList.end()) {
-        #if defined(_DEBUG_SOUNDMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"AddToQueue failed: SFX_ID not found");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"AddToQueue failed: SFX_ID not found");
         return;
     }
 
@@ -456,18 +452,14 @@ void SoundManager::PlayQueueList() {
 
         LPDIRECTSOUNDBUFFER buffer = nullptr;
         if (FAILED(m_directSound->CreateSoundBuffer(&desc, &buffer, nullptr))) {
-            #if defined(_DEBUG_SOUNDMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"PlayQueueList: CreateSoundBuffer failed");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"PlayQueueList: CreateSoundBuffer failed");
             continue;
         }
 
         void* ptr = nullptr;
         DWORD size = 0;
         if (FAILED(buffer->Lock(0, item.audioData.size(), &ptr, &size, nullptr, nullptr, 0))) {
-            #if defined(_DEBUG_SOUNDMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"PlayQueueList: Lock failed");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"PlayQueueList: Lock failed");
             buffer->Release();
             continue;
         }

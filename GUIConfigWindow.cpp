@@ -113,6 +113,57 @@ struct RendererEntry { int type; const wchar_t* name; };
 static constexpr int RENDERER_COUNT =
     (int)(sizeof(AVAILABLE_RENDERERS) / sizeof(AVAILABLE_RENDERERS[0]));
 
+#if defined(PLATFORM_WINDOWS)
+// ---------------------------------------------------------------------------
+// Relaunch after a video-settings restart.
+//
+// Every renderer is its own executable (DX{GAME_NAME}.exe, DX12{GAME_NAME}.exe, OpenGL{GAME_NAME}.exe,
+// Vulkan{GAME_NAME}.exe - see CMakeLists.txt), so the exe to start is chosen from the SAVED rendererType,
+// not from the running module.  The relaunch must be started BEFORE WM_CLOSE is posted: a detached thread
+// inside this process dies with it, which is why the old "sleep 300 ms then ShellExecute" never ran.
+// A hidden cmd.exe is the survivor: it waits ~3 s (lets this process finish shutting down and release its
+// window / config file), then starts the target exe in its own folder.
+// Falls back to the running exe if the chosen renderer's exe is not next to it.
+// ---------------------------------------------------------------------------
+static void SpawnRelaunchForConfiguredRenderer()
+{
+    wchar_t self[MAX_PATH] = {};
+    if (!GetModuleFileNameW(NULL, self, MAX_PATH)) return;
+
+    std::wstring dir(self);
+    const size_t slash = dir.find_last_of(L"\\/");
+    dir = (slash == std::wstring::npos) ? L"." : dir.substr(0, slash);
+
+    static const wchar_t* const kPrefix[4] = { L"DX", L"DX12", L"OpenGL", L"Vulkan" };
+    const int type = std::clamp(config.myConfig.rendererType, 0, 3);
+    // Built from GAME_NAME (Includes.h) so the name follows the project: {renderer prefix}{GAME_NAME}.exe
+    std::wstring target = dir + L"\\" + kPrefix[type] + L"" GAME_NAME + L".exe";
+    if (GetFileAttributesW(target.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        debug.logDebugMessage(LogLevel::LOG_WARNING,
+            L"[GUIConfigWindow] Relaunch: %s not found - restarting the current executable instead.", target.c_str());
+        target = self;
+    }
+
+    // cmd /S /C "<ping delay> & start "" /D "<dir>" "<exe>""   (/S: strip exactly the outer quotes)
+    std::wstring cmdLine = L"cmd.exe /S /C \"ping -n 4 127.0.0.1 >nul & start \"\" /D \"" + dir + L"\" \"" + target + L"\"\"";
+    std::vector<wchar_t> buf(cmdLine.begin(), cmdLine.end());
+    buf.push_back(L'\0');
+
+    STARTUPINFOW si = {};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi = {};
+    if (CreateProcessW(NULL, buf.data(), NULL, NULL, FALSE,
+                       CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
+                       NULL, dir.c_str(), &si, &pi)) {
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+    } else {
+        debug.logDebugMessage(LogLevel::LOG_ERROR,
+            L"[GUIConfigWindow] Relaunch: CreateProcess failed (error %lu).", GetLastError());
+    }
+}
+#endif
+
 // ---------------------------------------------------------------------------
 // Local formatting helpers
 // ---------------------------------------------------------------------------
@@ -207,7 +258,7 @@ void GUIManager::CreateConfigWindow()
     const std::array<float, 5> tabContentH = {
         10.0f + 1.0f  * 32.0f,   // Tab 0: debug (1)
         10.0f + 8.0f  * 32.0f,   // Tab 1: 4 vols + music + TTS + TTSvol + mic (8)
-        10.0f + 14.0f * 32.0f,   // Tab 2: fov/renderer/disp/res/hz/aspect/vsync/aa/msaa/mip/cull/tripbuf/near/far (14)
+        10.0f + 36.0f * 32.0f,   // Tab 2 (36 incl. emission toggle + intensity + MSAA samples): fov/renderer/disp/res/hz/aspect/vsync/aa/msaa/msaasmp/mip/shadows/shq/shspot/shpoint/shdist/refl/reflq/reflstr/reflblur/refllive/reflupd/planar/planarq/planarstr/planardist/planarmax/planarupd/bright/contrast/cull/tripbuf/near/far (33)
         10.0f + 6.0f  * 32.0f,   // Tab 3: zoom/move/maxP/minP/joystick/joystick-rot (6)
         10.0f + 6.0f  * 32.0f,   // Tab 4: placeholder
     };
@@ -453,6 +504,28 @@ void GUIManager::CreateConfigWindow()
         };
         configWindow->AddControl(sc);
     };
+
+    // Greys out a row (label, readout, slider / toggle) and blocks all input on it while
+    // the parent option that owns it is switched off. Works for rows built by addSliderRow
+    // (_lbl/_val/_sldr) and addTogSlider (_lbl/_tog).
+    auto setRowEnabled = [weakWin](const std::string& pfx, bool enabled) {
+        auto w = weakWin.lock();
+        if (!w) return;
+        const MyColor txt = enabled ? MyColor(210, 210, 210, 255) : MyColor(100, 100, 108, 255);
+        for (auto& c : w->controls) {
+            if (c.id == pfx + "_lbl" || c.id == pfx + "_val") {
+                c.txtColor = txt;
+            } else if (c.id == pfx + "_sldr" || c.id == pfx + "_tog") {
+                c.isDisabled = !enabled;
+                if (!enabled) { c.isPressed = false; c.isActive = false; }
+            }
+        }
+    };
+
+    // Re-evaluates which child rows of the Video tab are available. Assigned after the
+    // Video tab is built; every parent toggle calls it so the change is instant.
+    auto videoLocks = std::make_shared<std::function<void()>>();
+    auto refreshVideoLocks = [videoLocks]() { if (*videoLocks) (*videoLocks)(); };
 
     // -----------------------------------------------------------------------
     // TITLEBAR — drawn entirely by onCustomRender (3-D look + circular close button)
@@ -806,17 +879,36 @@ void GUIManager::CreateConfigWindow()
             });
         y += ROW;
 
+        // --- Anti-Aliasing group: master switch -> MSAA -> MSAA sample count ---
+        // MSAA is only available while Anti-Aliasing is on, and the sample count only while MSAA is on.
         addTogSlider("t2_aa", y, L"Anti-Aliasing:", config.myConfig.antiAliasingEnabled, false, 2,
-            [needsVideoRestart](bool on) {
+            [needsVideoRestart, refreshVideoLocks](bool on) {
                 config.myConfig.antiAliasingEnabled = on;
                 *needsVideoRestart = true;
+                refreshVideoLocks();
             });
         y += ROW;
 
         addTogSlider("t2_msaa", y, L"MSAA:", config.myConfig.msaaEnabled, false, 2,
-            [needsVideoRestart](bool on) {
+            [needsVideoRestart, refreshVideoLocks](bool on) {
                 config.myConfig.msaaEnabled = on;
                 *needsVideoRestart = true;
+                refreshVideoLocks();
+            });
+        y += ROW;
+
+        addSliderRow("t2_msaasmp", y, L"MSAA Samples:", false, 2,
+            0.0f, 2.0f, (float)(config.myConfig.msaaSamples >= 8 ? 2 : (config.myConfig.msaaSamples >= 4 ? 1 : 0)),
+            [](float v) -> std::wstring {
+                static const wchar_t* kMsaaNames[3] = { L"2x", L"4x", L"8x" };
+                return kMsaaNames[std::clamp((int)std::round(v), 0, 2)];
+            },
+            [needsVideoRestart](float v) {
+                static const int kMsaaCounts[3] = { 2, 4, 8 };
+                const int s = kMsaaCounts[std::clamp((int)std::round(v), 0, 2)];
+                if (s != config.myConfig.msaaSamples)
+                    *needsVideoRestart = true;
+                config.myConfig.msaaSamples = s;
             });
         y += ROW;
 
@@ -825,6 +917,176 @@ void GUIManager::CreateConfigWindow()
                 config.myConfig.MipMapping = on;
                 *needsVideoRestart = true;
             });
+        y += ROW;
+
+        // --- Shadow options (see Lights.h BuildShadowFrame) ---
+        // Shadows / Spot / Point / Distance are read every frame and apply live;
+        // Quality changes the shadow map resolution and needs a video restart.
+        addTogSlider("t2_shadows", y, L"Shadows:", config.myConfig.shadowsEnabled, false, 2,
+            [refreshVideoLocks](bool on) {
+                config.myConfig.shadowsEnabled = on;
+                refreshVideoLocks();
+            });
+        y += ROW;
+
+        addSliderRow("t2_shq", y, L"Shadow Quality:", false, 2,
+            0.0f, 2.0f, (float)std::clamp(config.myConfig.shadowQuality, 0, 2),
+            [](float v) -> std::wstring {
+                static const wchar_t* kShadowQualityNames[3] = { L"Low", L"Medium", L"High" };
+                return kShadowQualityNames[std::clamp((int)std::round(v), 0, 2)];
+            },
+            [needsVideoRestart](float v) {
+                const int q = std::clamp((int)std::round(v), 0, 2);
+                if (q != config.myConfig.shadowQuality)
+                    *needsVideoRestart = true;
+                config.myConfig.shadowQuality = q;
+            });
+        y += ROW;
+
+        addSliderRow("t2_shspot", y, L"Spot Shadows:", false, 2,
+            0.0f, 8.0f, (float)std::clamp(config.myConfig.maxSpotShadows, 0, 8),
+            [](float v) { return CfgFmtInt(std::clamp((int)std::round(v), 0, 8)); },
+            [](float v) { config.myConfig.maxSpotShadows = std::clamp((int)std::round(v), 0, 8); });
+        y += ROW;
+
+        addSliderRow("t2_shpoint", y, L"Point Shadows:", false, 2,
+            0.0f, 4.0f, (float)std::clamp(config.myConfig.maxPointShadows, 0, 4),
+            [](float v) { return CfgFmtInt(std::clamp((int)std::round(v), 0, 4)); },
+            [](float v) { config.myConfig.maxPointShadows = std::clamp((int)std::round(v), 0, 4); });
+        y += ROW;
+
+        addSliderRow("t2_shdist", y, L"Shadow Distance:", false, 2,
+            50.0f, 1000.0f, (float)std::clamp(config.myConfig.shadowDistance, 50.0L, 1000.0L),
+            [](float v) { return CfgFmtInt((int)std::round(v)); },
+            [](float v) { config.myConfig.shadowDistance = (long double)std::clamp(std::round(v), 50.0f, 1000.0f); });
+        y += ROW;
+
+        // --- Scene reflection options (see "Scene Reflections" in Lights.h) ---
+        // Everything applies live except Quality (cube map size), which needs a video restart.
+        addTogSlider("t2_refl", y, L"Reflections:", config.myConfig.reflectionsEnabled, false, 2,
+            [refreshVideoLocks](bool on) {
+                config.myConfig.reflectionsEnabled = on;
+                refreshVideoLocks();
+            });
+        y += ROW;
+
+        addSliderRow("t2_reflq", y, L"Reflection Quality:", false, 2,
+            0.0f, 2.0f, (float)std::clamp(config.myConfig.reflectionQuality, 0, 2),
+            [](float v) -> std::wstring {
+                static const wchar_t* kReflQualityNames[3] = { L"Low", L"Medium", L"High" };
+                return kReflQualityNames[std::clamp((int)std::round(v), 0, 2)];
+            },
+            [needsVideoRestart](float v) {
+                const int q = std::clamp((int)std::round(v), 0, 2);
+                if (q != config.myConfig.reflectionQuality)
+                    *needsVideoRestart = true;
+                config.myConfig.reflectionQuality = q;
+            });
+        y += ROW;
+
+        addSliderRow("t2_reflstr", y, L"Reflection Strength:", false, 2,
+            0.0f, 2.0f, (float)std::clamp(config.myConfig.reflectionStrength, 0.0L, 2.0L),
+            [](float v) { return CfgFmtFloat((long double)v, 2); },
+            [](float v) { config.myConfig.reflectionStrength = (long double)std::clamp(v, 0.0f, 2.0f); });
+        y += ROW;
+
+        addSliderRow("t2_reflblur", y, L"Reflection Blur:", false, 2,
+            0.0f, 3.0f, (float)std::clamp(config.myConfig.reflectionBlur, 0.0L, 3.0L),
+            [](float v) { return CfgFmtFloat((long double)v, 1); },
+            [](float v) { config.myConfig.reflectionBlur = (long double)std::clamp(v, 0.0f, 3.0f); });
+        y += ROW;
+
+        addTogSlider("t2_refllive", y, L"Live Scene Reflections:", config.myConfig.reflectionLive, false, 2,
+            [refreshVideoLocks](bool on) {
+                config.myConfig.reflectionLive = on;
+                refreshVideoLocks();
+            });
+        y += ROW;
+
+        addSliderRow("t2_reflupd", y, L"Reflection Update:", false, 2,
+            0.0f, 2.0f, (float)std::clamp(config.myConfig.reflectionUpdate, 0, 2),
+            [](float v) -> std::wstring {
+                static const wchar_t* kReflUpdateNames[3] = { L"Slow", L"Normal", L"Every Frame" };
+                return kReflUpdateNames[std::clamp((int)std::round(v), 0, 2)];
+            },
+            [](float v) { config.myConfig.reflectionUpdate = std::clamp((int)std::round(v), 0, 2); });
+        y += ROW;
+
+        // --- Planar reflection options (see "Planar Reflections" in Lights.h) ---
+        // Everything applies live except Quality (mirror render target size), which needs a video restart.
+        addTogSlider("t2_planar", y, L"Planar Reflections:", config.myConfig.planarEnabled, false, 2,
+            [refreshVideoLocks](bool on) {
+                config.myConfig.planarEnabled = on;
+                refreshVideoLocks();
+            });
+        y += ROW;
+
+        addSliderRow("t2_planarq", y, L"Planar Quality:", false, 2,
+            0.0f, 2.0f, (float)std::clamp(config.myConfig.planarQuality, 0, 2),
+            [](float v) -> std::wstring {
+                static const wchar_t* kPlanarQualityNames[3] = { L"Low", L"Medium", L"High" };
+                return kPlanarQualityNames[std::clamp((int)std::round(v), 0, 2)];
+            },
+            [needsVideoRestart](float v) {
+                const int q = std::clamp((int)std::round(v), 0, 2);
+                if (q != config.myConfig.planarQuality)
+                    *needsVideoRestart = true;
+                config.myConfig.planarQuality = q;
+            });
+        y += ROW;
+
+        addSliderRow("t2_planarstr", y, L"Planar Strength:", false, 2,
+            0.0f, 1.0f, (float)std::clamp(config.myConfig.planarStrength, 0.0L, 1.0L),
+            [](float v) { return CfgFmtFloat((long double)v, 2); },
+            [](float v) { config.myConfig.planarStrength = (long double)std::clamp(v, 0.0f, 1.0f); });
+        y += ROW;
+
+        addSliderRow("t2_planardist", y, L"Planar Distortion:", false, 2,
+            0.0f, 1.0f, (float)std::clamp(config.myConfig.planarDistortion, 0.0L, 1.0L),
+            [](float v) { return CfgFmtFloat((long double)v, 2); },
+            [](float v) { config.myConfig.planarDistortion = (long double)std::clamp(v, 0.0f, 1.0f); });
+        y += ROW;
+
+        addSliderRow("t2_planarmax", y, L"Planar Surfaces:", false, 2,
+            1.0f, 4.0f, (float)std::clamp(config.myConfig.planarMaxPlanes, 1, 4),
+            [](float v) { return CfgFmtInt(std::clamp((int)std::round(v), 1, 4)); },
+            [](float v) { config.myConfig.planarMaxPlanes = std::clamp((int)std::round(v), 1, 4); });
+        y += ROW;
+
+        addSliderRow("t2_planarupd", y, L"Planar Update:", false, 2,
+            0.0f, 2.0f, (float)std::clamp(config.myConfig.planarUpdate, 0, 2),
+            [](float v) -> std::wstring {
+                static const wchar_t* kPlanarUpdateNames[3] = { L"Every Frame", L"Every 2nd Frame", L"Every 3rd Frame" };
+                return kPlanarUpdateNames[std::clamp((int)std::round(v), 0, 2)];
+            },
+            [](float v) { config.myConfig.planarUpdate = std::clamp((int)std::round(v), 0, 2); });
+        y += ROW;
+
+        // --- Display image adjustment (persisted in GameConfig.cfg; 1.00 = neutral) ---
+        addSliderRow("t2_bright", y, L"Brightness:", false, 2,
+            0.5f, 1.5f, (float)std::clamp(config.myConfig.brightness, 0.5L, 1.5L),
+            [](float v) { return CfgFmtFloat((long double)v, 2); },
+            [](float v) { config.myConfig.brightness = (long double)std::clamp(v, 0.5f, 1.5f); });
+        y += ROW;
+
+        addSliderRow("t2_contrast", y, L"Contrast:", false, 2,
+            0.5f, 1.5f, (float)std::clamp(config.myConfig.contrast, 0.5L, 1.5L),
+            [](float v) { return CfgFmtFloat((long double)v, 2); },
+            [](float v) { config.myConfig.contrast = (long double)std::clamp(v, 0.5f, 1.5f); });
+        y += ROW;
+
+        // --- Emission (applies live in every renderer; 1.00 = the model's authored emissive strength) ---
+        addTogSlider("t2_emis", y, L"Emission:", config.myConfig.emissionEnabled, false, 2,
+            [refreshVideoLocks](bool on) {
+                config.myConfig.emissionEnabled = on;
+                refreshVideoLocks();
+            });
+        y += ROW;
+
+        addSliderRow("t2_emisint", y, L"Emission Intensity:", false, 2,
+            0.0f, 3.0f, (float)std::clamp(config.myConfig.emissionIntensity, 0.0L, 3.0L),
+            [](float v) { return CfgFmtFloat((long double)v, 2); },
+            [](float v) { config.myConfig.emissionIntensity = (long double)std::clamp(v, 0.0f, 3.0f); });
         y += ROW;
 
         addTogSlider("t2_cull", y, L"Back Face Culling:", config.myConfig.BackCulling, false, 2,
@@ -852,6 +1114,32 @@ void GUIManager::CreateConfigWindow()
             500.0f, 2000.0f, (float)config.myConfig.farPlane,
             [](float v) { return CfgFmtInt((int)std::round(v)); },
             [](float v) { config.myConfig.farPlane = (long double)std::clamp(std::round(v), 500.0f, 2000.0f); });
+
+        // --- Parent / child availability: a child row is greyed out and inert while its parent option is off ---
+        *videoLocks = [setRowEnabled]() {
+            const auto& c = config.myConfig;
+
+            // Anti-Aliasing group
+            setRowEnabled("t2_msaa",    c.antiAliasingEnabled);
+            setRowEnabled("t2_msaasmp", c.antiAliasingEnabled && c.msaaEnabled);
+
+            // Shadows
+            for (const char* id : { "t2_shq", "t2_shspot", "t2_shpoint", "t2_shdist" })
+                setRowEnabled(id, c.shadowsEnabled);
+
+            // Scene reflections (Live toggle gates the Update-rate row)
+            for (const char* id : { "t2_reflq", "t2_reflstr", "t2_reflblur", "t2_refllive" })
+                setRowEnabled(id, c.reflectionsEnabled);
+            setRowEnabled("t2_reflupd", c.reflectionsEnabled && c.reflectionLive);
+
+            // Planar reflections
+            for (const char* id : { "t2_planarq", "t2_planarstr", "t2_planardist", "t2_planarmax", "t2_planarupd" })
+                setRowEnabled(id, c.planarEnabled);
+
+            // Emission
+            setRowEnabled("t2_emisint", c.emissionEnabled);
+        };
+        (*videoLocks)();
     }
 
     // ===================================================================
@@ -1023,16 +1311,9 @@ void GUIManager::CreateConfigWindow()
                     self->ApplyWindowFadeCallback(GUIWindowFadeType::FadeOut, 0.35f, NOTIFY_WIN,
                         [self, NOTIFY_WIN]() {
                             self->RemoveWindow(NOTIFY_WIN);
+                            SpawnRelaunchForConfiguredRenderer();       // BEFORE closing: it must outlive this process
                             threadManager.threadVars.bIsShuttingDown.store(true);
                             PostMessage(hwnd, WM_CLOSE, 0, 0);
-                            std::thread([]() {
-                                std::this_thread::sleep_for(std::chrono::milliseconds(300));
-                                wchar_t ep[MAX_PATH]={}, ed[MAX_PATH]={};
-                                GetModuleFileNameW(NULL, ep, MAX_PATH);
-                                wcscpy_s(ed, ep);
-                                if (wchar_t* s = wcsrchr(ed, L'\\')) *s = L'\0';
-                                ShellExecuteW(NULL, L"open", ep, NULL, ed, SW_SHOWNORMAL);
-                            }).detach();
                         });
                 };
                 nw->AddControl(c);
@@ -1160,16 +1441,9 @@ void GUIManager::CreateConfigWindow()
                 self->ApplyWindowFadeCallback(GUIWindowFadeType::FadeOut, 0.35f, NOTIFY_WIN,
                     [self, NOTIFY_WIN]() {
                         self->RemoveWindow(NOTIFY_WIN);
+                        SpawnRelaunchForConfiguredRenderer();           // BEFORE closing: it must outlive this process
                         threadManager.threadVars.bIsShuttingDown.store(true);
                         PostMessage(hwnd, WM_CLOSE, 0, 0);
-                        std::thread([]() {
-                            std::this_thread::sleep_for(std::chrono::milliseconds(300));
-                            wchar_t ep[MAX_PATH]={}, ed[MAX_PATH]={};
-                            GetModuleFileNameW(NULL, ep, MAX_PATH);
-                            wcscpy_s(ed, ep);
-                            if (wchar_t* s2 = wcsrchr(ed, L'\\')) *s2 = L'\0';
-                            ShellExecuteW(NULL, L"open", ep, NULL, ed, SW_SHOWNORMAL);
-                        }).detach();
                     });
             }).detach();
         }, 102);
@@ -1184,16 +1458,9 @@ void GUIManager::CreateConfigWindow()
             self->ApplyWindowFadeCallback(GUIWindowFadeType::FadeOut, 0.35f, win,
                 [self, win]() {
                     self->RemoveWindow(win);
+                    SpawnRelaunchForConfiguredRenderer();               // BEFORE closing: it must outlive this process
                     threadManager.threadVars.bIsShuttingDown.store(true);
                     PostMessage(hwnd, WM_CLOSE, 0, 0);
-                    std::thread([]() {
-                        std::this_thread::sleep_for(std::chrono::milliseconds(300));
-                        wchar_t ep[MAX_PATH]={}, ed[MAX_PATH]={};
-                        GetModuleFileNameW(NULL, ep, MAX_PATH);
-                        wcscpy_s(ed, ep);
-                        if (wchar_t* s = wcsrchr(ed, L'\\')) *s = L'\0';
-                        ShellExecuteW(NULL, L"open", ep, NULL, ed, SW_SHOWNORMAL);
-                    }).detach();
                 });
         }, 102);
 

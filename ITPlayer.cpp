@@ -1689,9 +1689,7 @@ void ITPlayer::TriggerEvent(size_t channel, const ITEvent& event, bool fromDelay
     }
 
     if (IsUnsupportedITCommand(effect, data)) {
-#if defined(_DEBUG_ITPlayer_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"ITPlayer: MIDI/filter/plugin effect ignored.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"ITPlayer: MIDI/filter/plugin effect ignored.");
     }
 
     ITChannelVoice& voice = effectVoice ? *effectVoice : host;

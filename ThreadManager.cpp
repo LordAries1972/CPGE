@@ -146,12 +146,10 @@ void ThreadUtils::NameCurrentThread(const wchar_t* name) {
         if (SUCCEEDED(hr))
             debug.logLevelMessage(LogLevel::LOG_INFO,
                 std::wstring(L"[ThreadUtils] Thread named: ") + name);
-        else
-            debug.logLevelMessage(LogLevel::LOG_WARNING,
-                std::wstring(L"[ThreadUtils] SetThreadDescription failed for: ") + name);
-    #else
-        (void)hr; // Suppress unused-variable warning in release builds
     #endif
+    if (FAILED(hr))
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
+            std::wstring(L"[ThreadUtils] SetThreadDescription failed for: ") + name);
 }
 
 bool ThreadUtils::PreferCore(DWORD coreIndex) {
@@ -163,12 +161,10 @@ bool ThreadUtils::PreferCore(DWORD coreIndex) {
 
     // Validate the requested LP index before calling the API.
     if (coreIndex >= si.dwNumberOfProcessors) {
-        #if defined(_DEBUG_THREADMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING,
-                L"[ThreadUtils] PreferCore(" + std::to_wstring(coreIndex) +
-                L") out of range -- system has " + std::to_wstring(si.dwNumberOfProcessors) +
-                L" logical processor(s).");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
+            L"[ThreadUtils] PreferCore(" + std::to_wstring(coreIndex) +
+            L") out of range -- system has " + std::to_wstring(si.dwNumberOfProcessors) +
+            L" logical processor(s).");
         return false;
     }
 
@@ -181,11 +177,11 @@ bool ThreadUtils::PreferCore(DWORD coreIndex) {
             debug.logLevelMessage(LogLevel::LOG_INFO,
                 L"[ThreadUtils] Ideal processor -> LP " + std::to_wstring(coreIndex) +
                 L" (was LP " + std::to_wstring(prev) + L").");
-        else
-            debug.logLevelMessage(LogLevel::LOG_WARNING,
-                L"[ThreadUtils] SetThreadIdealProcessor failed for LP " +
-                std::to_wstring(coreIndex) + L".");
     #endif
+    if (!ok)
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
+            L"[ThreadUtils] SetThreadIdealProcessor failed for LP " +
+            std::to_wstring(coreIndex) + L".");
 
     return ok;
 }
@@ -202,12 +198,10 @@ bool ThreadUtils::ForceCore(DWORD coreIndex) {
 
     // Safety check before constructing the affinity mask.
     if (coreIndex >= si.dwNumberOfProcessors) {
-        #if defined(_DEBUG_THREADMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING,
-                L"[ThreadUtils] ForceCore(" + std::to_wstring(coreIndex) +
-                L") out of range -- system has " + std::to_wstring(si.dwNumberOfProcessors) +
-                L" logical processor(s).");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
+            L"[ThreadUtils] ForceCore(" + std::to_wstring(coreIndex) +
+            L") out of range -- system has " + std::to_wstring(si.dwNumberOfProcessors) +
+            L" logical processor(s).");
         return false;
     }
 
@@ -215,16 +209,14 @@ bool ThreadUtils::ForceCore(DWORD coreIndex) {
     DWORD_PTR mask = (DWORD_PTR)1 << coreIndex;
     bool      ok   = (SetThreadAffinityMask(GetCurrentThread(), mask) != 0);
 
-    #if defined(_DEBUG_THREADMANAGER_) && defined(_DEBUG)
-        if (ok)
-            debug.logLevelMessage(LogLevel::LOG_WARNING,
-                L"[ThreadUtils] Hard affinity set -> LP " + std::to_wstring(coreIndex) +
-                L". DEBUG/PROFILING USE ONLY -- disables Windows load balancing.");
-        else
-            debug.logLevelMessage(LogLevel::LOG_ERROR,
-                L"[ThreadUtils] SetThreadAffinityMask failed for LP " +
-                std::to_wstring(coreIndex) + L".");
-    #endif
+    if (ok)
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
+            L"[ThreadUtils] Hard affinity set -> LP " + std::to_wstring(coreIndex) +
+            L". DEBUG/PROFILING USE ONLY -- disables Windows load balancing.");
+    else
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR,
+            L"[ThreadUtils] SetThreadAffinityMask failed for LP " +
+            std::to_wstring(coreIndex) + L".");
 
     return ok;
 }
@@ -251,13 +243,11 @@ void ThreadUtils::SetPriority(int priority) {
             debug.logLevelMessage(LogLevel::LOG_INFO,
                 std::wstring(L"[ThreadUtils] Thread priority -> ") + label + L".");
         }
-        else {
-            debug.logLevelMessage(LogLevel::LOG_WARNING,
-                L"[ThreadUtils] SetThreadPriority failed.");
-        }
-    #else
-        (void)ok; // Suppress unused-variable warning in release builds
     #endif
+    if (!ok) {
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
+            L"[ThreadUtils] SetThreadPriority failed.");
+    }
 }
 
 DWORD ThreadUtils::GetLogicalProcessorCount() {

@@ -207,7 +207,9 @@ void Camera::RestoreCameraStateAfterResize()
             forward    = lookDir;
             viewMatrix = glm::lookAtLH(position, target, up);
         }
-        catch (...) {}
+        catch (...) {
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"VulkanCamera - unknown exception rebuilding view matrix; keeping previous view");
+        }
 
         savedCameraState.isValid = false;
     }

@@ -11,6 +11,7 @@
 #   ./cmake-build-android.sh opengl
 #   ./cmake-build-android.sh vulkan release arm64-v8a
 #   ./cmake-build-android.sh clean
+#   ./cmake-build-android.sh help       # lists every directive (also -h, --help)
 
 set -euo pipefail
 
@@ -21,6 +22,69 @@ CMAKE_EXE="${CMAKE_EXE:-cmake}"
 ARG1="${1:-}"
 ARG2="${2:-}"
 ARG3="${3:-}"
+
+# --- Help (lists every directive and exits) ---
+show_help() {
+    local me
+    me="$(basename "$0")"
+    cat <<EOF
+
+${me} - cross-compile the engine for Android with CMake + the Android NDK
+
+Usage:
+  ${me} <directive> [config] [abi]
+
+Build directives (one render pipeline):
+  opengl    OpenGL ES renderer
+  vulkan    Vulkan renderer
+            (DirectX 11/12 are Windows-only - use cmake-build.bat)
+
+Maintenance directives:
+  clean     Deletes the Android build directory (Linux/build-android).
+  help      Shows this list. Aliases: -h  --help
+
+Config (second argument, used by opengl / vulkan):
+  debug     Debug build   (default when omitted)
+  release   Release build
+
+ABI (third argument, used by opengl / vulkan):
+  arm64-v8a      64-bit ARM   (default when omitted)
+  x86_64         64-bit x86   (emulators)
+  armeabi-v7a    32-bit ARM
+  x86            32-bit x86   (emulators)
+
+What a build does:
+  1. Locates the Android NDK (see Environment below).
+  2. Patches Includes.h (via python3) so only the chosen renderer #define
+     is active. Skipped if python3 is missing.
+  3. Configures with the NDK toolchain (c++_shared STL) and builds into
+     Linux/build-android/<abi>/<Renderer>/<Config> using all CPU cores.
+  4. Lists the produced lib*.so and the next packaging steps.
+
+Environment:
+  ANDROID_NDK        Android NDK root (checked first)
+  ANDROID_NDK_HOME   Android NDK root (checked second)
+  ANDROID_HOME       Android SDK root; uses ndk-bundle/ or the newest ndk/<ver>
+  ANDROID_PLATFORM   Android API level (default: android-24)
+  CMAKE_EXE          Path to the cmake binary (default: cmake on PATH)
+
+Examples:
+  ${me} opengl
+  ${me} vulkan release
+  ${me} vulkan release arm64-v8a
+  ${me} opengl debug x86_64
+  ${me} clean
+  ${me} help
+
+EOF
+}
+
+case "${ARG1,,}" in
+    help|-h|--help)
+        show_help
+        exit 0
+        ;;
+esac
 
 # --- Clean ---
 if [[ "${ARG1,,}" == "clean" ]]; then
@@ -47,6 +111,8 @@ if [[ -z "${ARG1}" ]]; then
     echo "  $(basename "$0") opengl"
     echo "  $(basename "$0") vulkan release arm64-v8a"
     echo "  $(basename "$0") clean"
+    echo ""
+    echo "Run '$(basename "$0") help' for the full list of directives."
     exit 1
 fi
 

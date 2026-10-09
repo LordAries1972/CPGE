@@ -39,6 +39,8 @@
 - **Named window lookup** — every window has a string name; retrieve it at any time with `GetWindow(name)`
 - **Lambda-driven events** — every control callback is a `std::function<void()>` you assign inline; closures are the intended idiom
 - **Weak-pointer safety** — lambda captures that outlive the window must use `std::weak_ptr<GUIWindow>` to avoid dangling references
+- **Exclusive pointer capture** — a press is owned by exactly ONE control (the topmost interactive control under the cursor) until the button is released, so a drag can never pick up a second control
+- **Disabled controls** — `isDisabled` greys out and locks sliders / toggles whose parent option is switched off
 - **Z-order focus model** — the topmost (highest z-order) visible window receives all input exclusively; background windows are locked out
 - **Modal blocking** — flag a window `isModal = true` to block all other windows from receiving input
 - **Window fades** — non-blocking alpha in/out transitions with optional completion callbacks
@@ -203,6 +205,7 @@ const float GAMEMENU_BUTTON_WIDTH = 250.0f;
 const float GAMEMENU_WINDOW_WIDTH = 300.0f;
 const float CLOSEWINBUTTON_SIZE = 16.0f;
 const float TITLEBAR_HEIGHT     = 28.0f;
+const float HSLIDER_KNOB_WIDTH  = 16.0f;   // Shared by HSlider hit-mapping (input) and drawing, so the knob tracks the cursor exactly
 ```
 
 ---
@@ -336,6 +339,13 @@ void GUIManager::HandleMouseWheel(int delta);
 
 Each method dispatches to the focused window's matching callback (`onCharInput`, `onBackspace`, `onEnter`, `onMouseWheel`). The focused window is the visible non-destroyed window with the highest z-order. No-op if the focused window has no callback registered.
 
+Built-in behaviour that does not need a callback:
+
+- `HandleChar` **drops control characters** (code < 32 and 127). `WM_CHAR` also delivers Backspace (0x08), Tab, Enter (0x0D), Esc and DEL; those have dedicated routes and are never inserted as text.
+- When the focused window has no `onCharInput`, `HandleChar` types into the window's **focused `TextInput`** control (respecting `maxInputLength`, firing `onTextChanged`). A TextInput therefore works in any window without registering a char handler. The cursor position is clamped on Backspace.
+- `HandleEnter` is always routed to the focused window's `onEnter` (it used to be console-only, which broke Enter-to-confirm in file dialogs). Windows without an `onEnter` are unaffected.
+- `HandleMouseWheel` scrolls an **open ComboBox dropdown** first (it is the topmost surface), then the first visible ListBox in the focused window.
+
 ---
 
 ## GUIWindow — Window Properties
@@ -400,7 +410,7 @@ Construct a `GUIControl` on the stack, set its fields, then call `window->AddCon
 | `lblFontSize` | `float` | `8.0f` | Font size for the label |
 | `lblCenterH` | `bool` | `true` | TitleBar: `true` = H+V centred label, `false` = left-aligned + V centred |
 | `bold` | `bool` | `false` | Bold label text (effective on OpenGL; accepted but no-op on DX/Vulkan) |
-| `bgTextureId` | `int` | `-1` | Texture ID for the normal state; `-1` = no texture (use colour fill) |
+| `bgTextureId` | `int` | `-1` | Texture ID for the normal state; `-1` = no texture (use colour fill). If an FXManager `ScrollColours` effect is active for this image (and the tint is fully opaque) the control draws the scrolling version through `fxManager.RenderScrollColours` |
 | `bgTextureHoverId` | `int` | `-1` | Texture ID for the hover state |
 | `clipContent` | `bool` | `false` | If `true` this control is scissored to the window's `m_clipRect` |
 | `sliderMin` | `float` | `0.0f` | HSlider / ToggleSlider minimum value |
@@ -408,7 +418,8 @@ Construct a `GUIControl` on the stack, set its fields, then call `window->AddCon
 | `sliderValue` | `float` | `0.0f` | HSlider / ToggleSlider current value |
 | `isHovered` | `bool` | `false` | Set by the input system; read-only in callbacks |
 | `isPressed` | `bool` | `false` | Set by the input system; read-only in callbacks |
-| `isActive` | `bool` | `false` | HSlider: true for the last-touched knob (flashes gold) |
+| `isActive` | `bool` | `false` | HSlider: true for the last-touched knob (flashes gold); cleared on release |
+| `isDisabled` | `bool` | `false` | HSlider / ToggleSlider: greyed out (dim overlay) and ignores clicks and drags. Used to lock child options when a parent toggle is off (see [Disabled Controls](#disabled-controls)) |
 
 ### Control Callbacks
 
@@ -756,9 +767,27 @@ For smooth scrollable content, prefer the `onMouseWheel` + `onCustomRender` patt
 - **`onMouseBtnDown`** fires once when `isLeftClick` goes `false → true` while hovering
 - **`onMouseBtnUp`** fires once when `isLeftClick` goes `true → false` while still hovering
 
+The press **edge** is derived inside `GUIManager` from the held flag: `pressEdge = isLeftClick && !m_prevLeftDown`. Callers keep passing the held flag (true from `WM_LBUTTONDOWN` until `WM_LBUTTONUP`); `GUIWindow::HandleMouseClick` now takes the edge as an extra `bool pressEdge` parameter:
+
+```cpp
+void HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick, bool pressEdge,
+                      GUIManager* guiMgr, bool& clickConsumed);
+```
+
+### Exclusive Pointer Capture
+
+On the button-down edge exactly **one** control claims the gesture:
+
+1. `GUIWindow::FindPressTarget(mousePosition)` returns the topmost (last drawn) visible, interactive control under the cursor. An open ComboBox dropdown panel is drawn above everything, so it is tested first. `None`, `Panel` and `TextArea` controls, read-only or disabled sliders and controls scissored outside the clip rect are skipped.
+2. Once that control has accepted the press its index is stored in `m_captureIndex`. While the button stays held, **only the capturing control** is hovered, dragged or sent callbacks. Every other control is inert, so dragging a slider across a button, toggle or second slider can no longer press, toggle, focus or drag them.
+3. A press that lands on no control sets `m_customCapture`, so the window's `onCustomMouseInput` owns that gesture (and a control drag can never leak into the custom handler).
+4. On release the capture is cleared with `ClearPointerCapture()` (for the focused window and for background windows). Release frames still run for every control so stale pressed states are cleared; only the control that actually holds `isPressed` can fire on release.
+
+If the controls vector is rebuilt in the middle of a gesture the stale capture index is discarded automatically.
+
 ### Click Cooldown
 
-A 1-second cross-frame click cooldown (`kClickCooldown = 1000 ms`) prevents accidental double-fires when two windows overlap or when a button closes a window and the next window would immediately receive the release. The cooldown is acquired by the first button that fires `onMouseBtnDown` and released automatically after 1 second.
+A 1-second cross-frame click cooldown (`kClickCooldown = 1000 ms`) guards **Buttons only** against accidental double-activation. List, combo, text and scrollbar controls are protected by press-edge capture instead, so fast follow-up clicks on them (for example open a ComboBox, then pick an item) are never swallowed.
 
 ### Focus Model
 
@@ -771,7 +800,25 @@ guiManager.BringWindowToFront("MyWindow");
 
 ### Active Interaction Continuation
 
-If the user is dragging a title bar or pressing a slider knob and the mouse leaves the window bounds, the gesture continues until the mouse button is released. This prevents sliders from freezing mid-drag.
+If the user is dragging a title bar or pressing a slider knob and the mouse leaves the window bounds, the gesture continues until the mouse button is released. This prevents sliders from freezing mid-drag. A window with a live capture (`m_captureIndex >= 0` or `m_customCapture`) counts as having an active interaction.
+
+HSlider and Scrollbar values are updated in exactly one place (`HandleMouseMove`), so `onSliderChanged` / `onScroll` fire once per mouse event instead of twice.
+
+### Disabled Controls
+
+Set `isDisabled = true` on an `HSlider` or `ToggleSlider` to lock it. A disabled control:
+
+- is skipped by `FindPressTarget`, `HandleMouseMove` and `HandleMouseClick` (no hover, press, drag or callbacks),
+- is drawn with a translucent dark overlay so it reads as unavailable,
+- clears `isPressed` / `isActive` if it was mid-gesture when it was disabled.
+
+The Config window uses this for child options whose parent toggle is off (for example the Shadow, Reflection, Planar, Emission and MSAA sub-options). Flip the flag whenever the parent changes:
+
+```cpp
+for (auto& c : win->controls)
+    if (c.id == "t2_emisint")                    // Emission Intensity slider
+        c.isDisabled = !config.myConfig.emissionEnabled;
+```
 
 ---
 
@@ -1600,12 +1647,22 @@ win->AddControl(lb);
 
 Clicking outside the dropdown (or selecting an item) closes it.
 
+Dropdown behaviour:
+
+- The open panel is **hit-tested separately** from the closed box (it hangs below the control's own rect), so its item rows can be clicked. A dropdown that hangs outside the owning window still counts as inside it.
+- With more items than `dropdownMaxRows` the panel scrolls with the mouse wheel (`listScrollOffset`) and draws a scroll thumb. Opening it scrolls so the current selection is visible.
+- The row under the cursor is highlighted (`hoverIndex`, -1 = none).
+- A press anywhere else closes an open dropdown (click-away).
+- The panel is drawn in a final pass **after** the content clip is popped, so it is never scissored by the clip of the control that owns it.
+
 | Field | Purpose |
 | ----- | ------- |
 | `items` | `std::vector<std::wstring>` — options list |
 | `selectedIndex` | Currently selected item (-1 = none) |
 | `isDropdownOpen` | `true` while the dropdown panel is visible |
 | `dropdownMaxRows` | Maximum visible rows in open panel (default 6) |
+| `listScrollOffset` | First visible item row in the open panel (wheel scrolled) |
+| `hoverIndex` | Item row under the cursor in the open panel (-1 = none; managed by the input system) |
 | `listItemHeight` | Row height in the open panel (default 22) |
 | `onSelectionChanged` | `std::function<void(int)>` fired on item selection |
 | `lblFontSize` | Text size in both the closed box and open panel |

@@ -9,6 +9,7 @@
 #   ./cmake-build.sh all debug          # builds every pipeline in Debug
 #   ./cmake-build.sh all release        # builds every pipeline in Release
 #   ./cmake-build.sh clean
+#   ./cmake-build.sh help               # lists every directive (also -h, --help)
 
 set -euo pipefail
 
@@ -18,6 +19,62 @@ CMAKE_EXE="${CMAKE_EXE:-cmake}"
 
 ARG1="${1:-}"
 ARG2="${2:-}"
+
+# --- Help (lists every directive and exits) ---
+show_help() {
+    local me
+    me="$(basename "$0")"
+    cat <<EOF
+
+${me} - configure and build the engine for Linux with CMake
+
+Usage:
+  ${me} <directive> [config]
+
+Build directives (one render pipeline):
+  opengl    OpenGL renderer
+  vulkan    Vulkan renderer
+            (DirectX 11/12 are Windows-only - use cmake-build.bat)
+
+Multi-pipeline directive:
+  all       Builds opengl then vulkan with the given config and prints a
+            pass/fail summary. Exits 1 if any pipeline failed.
+
+Maintenance directives:
+  clean     Deletes the Linux build directory (Linux/build).
+  help      Shows this list. Aliases: -h  --help
+
+Config (second argument, used by opengl / vulkan / all):
+  debug     Debug build   (default when omitted)
+  release   Release build
+
+What a build does:
+  1. Patches the Linux section of Includes.h (via python3) so only the
+     chosen renderer #define is active. Skipped if python3 is missing.
+  2. Reads GAME_NAME from Includes.h.
+  3. Configures and builds into Linux/build/<Renderer>/<Config>
+     using all CPU cores.
+
+Environment:
+  CMAKE_EXE   Path to the cmake binary (default: cmake on PATH).
+
+Examples:
+  ${me} opengl
+  ${me} vulkan release
+  ${me} all debug
+  ${me} all release
+  ${me} clean
+  ${me} help
+
+EOF
+}
+
+case "${ARG1,,}" in
+    help|-h|--help)
+        show_help
+        exit 0
+        ;;
+esac
 
 # --- Clean ---
 if [[ "${ARG1,,}" == "clean" ]]; then
@@ -41,6 +98,8 @@ if [[ -z "${ARG1}" ]]; then
     echo "  $(basename "$0") all debug"
     echo "  $(basename "$0") all release"
     echo "  $(basename "$0") clean"
+    echo ""
+    echo "Run '$(basename "$0") help' for the full list of directives."
     exit 1
 fi
 

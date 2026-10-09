@@ -15,7 +15,9 @@
 11. [Best Practices](#best-practices)
 12. [Troubleshooting](#troubleshooting)
 13. [Complete Example Implementation](#complete-example-implementation)
-14. [Platform-Specific Notes](#platform-specific-notes)
+14. [Shadow Mapping](#shadow-mapping)
+15. [Scene Reflections and Planar Mirrors](#scene-reflections-and-planar-mirrors)
+16. [Platform-Specific Notes](#platform-specific-notes)
 
 ---
 
@@ -30,6 +32,8 @@ The Light Class system provides a comprehensive lighting solution for the game e
 - **Thread-Safe Management**: Concurrent light creation and modification
 - **GPU-Optimized**: Structured for efficient shader usage
 - **Scene Integration**: Works with GLTF scene loading and SceneManager
+- **Real-Time Shadows**: 1 directional + 8 spot + 4 point shadow-casting lights on all four renderers
+- **Scene Reflections**: sky/environment probe, live scene capture and planar mirrors on all four renderers
 
 ---
 
@@ -87,7 +91,7 @@ struct LightStruct
     float baseIntensity;      // Original intensity (for animations)
     
     float animAmplitude;      // Animation strength
-    float _pad4;              // GPU padding (required)
+    int castShadows;          // 1 = this light renders a shadow map (was _pad4; still 4 bytes of GPU layout)
     float innerCone;          // Spot light inner cone (full intensity)
     float outerCone;          // Spot light outer cone (falloff)
     
@@ -1768,6 +1772,139 @@ private:
 
 ---
 
+## Shadow Mapping
+
+> **Status:** implemented in the TSOO project and merged into CPGE2026 on 2026-10-09. Not yet built or run on all four renderers at the time of writing; report any shader compile errors from the FXC/DXC build output or the GLSL / shaderc startup log.
+
+All four renderers (DX11, DX12, OpenGL, Vulkan) render real-time shadow maps from one shared planner in `Lights.h` / `Lights.cpp`. Nothing is called from game code: set `LightStruct::castShadows = 1` on a light and give the models `castShadows` / `receiveShadows` (both default to `true`).
+
+### Budget per frame
+
+| Light type | Depth target | Shader slot |
+|---|---|---|
+| 1 directional light | its own orthographic depth map | `t8` (`dirShadowMap`, `Texture2D`) |
+| up to 8 spot lights | 1 slice each | `t9` (`localShadowMaps`, `Texture2DArray`, 32 slices) |
+| up to 4 point lights | 6 consecutive slices each (cube faces +X -X +Y -Y +Z -Z) | `t9` |
+
+The caps are hard GPU layout limits. `config.myConfig.maxSpotShadows` / `maxPointShadows` / `shadowsEnabled` lower them at runtime. All lookups use a 3x3 PCF kernel, and each global light is darkened by **its own** shadow map (the ShadowsOnly debug view, mode 7, shows the darkest factor).
+
+### Enabling shadows on a light
+
+```cpp
+LightStruct sun{};
+sun.type        = int(LightType::DIRECTIONAL);
+sun.direction   = XMFLOAT3(0.0f, -1.0f, 0.0f);   // light travels downward
+sun.castShadows = 1;                              // this light renders a shadow map
+lightsManager.CreateLight(L"Sun", sun);
+```
+
+Only the first `MAX_GLOBAL_LIGHTS` lights are considered, and the light vector handed to the planner must be the same vector (same order) the renderer uploads to the GlobalLightBuffer.
+
+### Shared planner API (`Lights.h`)
+
+```cpp
+constexpr int MAX_SPOT_SHADOWS        = 8;
+constexpr int MAX_POINT_SHADOWS       = 4;
+constexpr int MAX_LOCAL_SHADOW_SLICES = 32;      // 8 + 4 * 6
+
+void BuildShadowFrame(const std::vector<LightStruct>& lights,
+                      const std::vector<ShadowCaster>& casters,
+                      const float camPos[3], ShadowFrameData& out);
+void ShadowPackGPU(const ShadowFrameData& frame, bool transposeForHLSL, ShadowBufferData& out);
+```
+
+| Item | Purpose |
+|---|---|
+| `ShadowCaster` | World-space bounding sphere of one shadow-casting model (`ShadowMakeWorldSphere`) |
+| `ShadowFrameData` | The frame plan: enabled flags, map sizes, directional and local matrices, and the list of `ShadowView` depth passes |
+| `ShadowBufferData` | The single GPU constant block shared by every shader: `b6` (DX), `binding = 6` (GL) or the set 2 shadow UBO (Vulkan). **2368 bytes**; must match the shader `ShadowBuffer` layout exactly |
+| `BuildShadowFrame` | Picks the casting lights, fits the directional frustum to the scene (texel-snapped so it does not shimmer) and builds the spot / cube-face matrices |
+| `ShadowPackGPU` | Fills `ShadowBufferData`. HLSL upload uses `transposeForHLSL = true` (shader `mul(v, M)`), GLSL uses `false` (`M * v`) |
+
+Each renderer owns a depth-only pass (slope-scaled bias, no culling) and calls the planner once per frame **before** the main pass. The Vulkan 3D shader now uses the full light list (up to 8 directional / point / spot lights) with the same light model as DX and OpenGL instead of the single `lights[0]` push constant it used before.
+
+### Per-model flags
+
+`ModelInfo::castShadows` and `ModelInfo::receiveShadows` (default `true`). The FBX importer honours the `CastShadow`, `ReceiveShadow` and light `CastShadows` properties (missing properties default to on, matching the FBX SDK); glTF has no such flags so glTF models and lights always cast. The flags are stored in the model cache (`CACHE_VERSION` is now 2, so an older `cache.dat` is rejected and rebuilt once).
+
+### Settings (Video tab)
+
+Saved in `GameConfig.cfg` as optional keys (loaded with defaults, deliberately **not** part of the config checksum, so existing configs are not reset):
+
+| Key | Range | Notes |
+|---|---|---|
+| `shadowsEnabled` | on / off | master switch, live |
+| `shadowQuality` | 0 / 1 / 2 | Low (1024 dir / 512 local), Medium (2048 / 1024), High (4096 / 1024); needs restart |
+| `maxSpotShadows` | 0 - 8 | live |
+| `maxPointShadows` | 0 - 4 | live |
+| `shadowDistance` | 50 - 1000 | directional shadow radius around the camera, live |
+| `brightness`, `contrast` | 0.5 - 1.5 | display adjustment, see below |
+
+**Brightness / Contrast** ride in the same `b6` block (`displayBrightness`, `displayContrast`; 1.0 = neutral, a zeroed buffer reads as neutral). Each model pixel shader finishes with `ApplyDisplayAdjust`: clamp to 0-1, contrast about 0.5, then multiply by brightness. They affect 3D models only, not the GUI, sprites or video.
+
+### Shader files
+
+The shader side lives in `ModelPixel.hlsl`, `DX12NativeModelPixel.hlsl`, `ModelPixel.glsl` (and the identical copy beside the executable) and the inline Vulkan 3D fragment shader in `VULKAN_Renderer.cpp`. The full design is in [Shadowing-Plan.md](Shadowing-Plan.md).
+
+---
+
+## Scene Reflections and Planar Mirrors
+
+Also shared by all four renderers through `Lights.h` / `Lights.cpp`. Three layers stack:
+
+1. **Sky probe** — a procedural cube map (RGBA8, full mip chain for roughness) built on the CPU from the strongest directional light and the light ambient colour.
+2. **Live scene capture** — optionally replaces the probe with a real capture of the scene around the camera.
+3. **Planar mirrors** — tagged floor / water / mirror meshes show a true mirrored render of the scene.
+
+### Sky probe
+
+Models that have no environment map of their own (`useEnvMap == 0`) sample the probe from a **separate slot** (`sceneProbe`): `t10` (DX11 / DX12), texture unit 10 (OpenGL), set 2 binding 4 (Vulkan). It is bound once per frame, so per-model state is untouched. A model with its own env map keeps the legacy path. Strength, blur and max mip travel in the tail of `ShadowBufferData` (`reflectionScale`, `reflectionMaxMip`, `reflectionBlur`); `reflectionScale == 0` means probe off. Face order is +X -X +Y -Y +Z -Z. The probe size is fixed at the first build from config (restart to change quality).
+
+```cpp
+bool ReflectionProbeUpdate(const std::vector<LightStruct>& lights, float deltaTime, ReflectionProbe& probe);
+void ReflectionFrameSet(const ReflectionProbe& probe, bool resourceReady);   // publishes g_reflectionFrame
+```
+
+Each renderer calls its `UpdateReflectionProbe*` function **before** the shadow pass / `ShadowPackGPU`, because both read `g_reflectionFrame`.
+
+### Live scene capture
+
+With `reflectionLive` on, the renderers keep a second cube (the capture cube). One face is captured per frame (a cycle takes 6 frames): the face starts as a copy of the matching sky face, every model is drawn over it with a 90 degree camera (`ReflectionCaptureFaceCamera`), the mip chain is rebuilt after the sixth face and `t10` switches to the capture cube (`g_reflectionCapture.ready`). While a face is being drawn the sky cube is bound instead and planar reflection is off, so the target is never sampled and written at once. Known limits: the capture includes the camera's own ship, and cube-face orientation per API is derived on paper (flipY on OpenGL / Vulkan).
+
+### Planar mirrors
+
+A model is a **planar reflector** when `ModelInfo::planarReflector` is set or its name contains `_mirror`, `_water` or `_planar` (case-insensitive), so an artist can tag a mesh in Blender. **Nothing is reflected until a mesh is tagged.**
+
+- The reflecting plane is found from the mesh (`ModelComputePlanarLocalPlane`, the dominant flat facing) and may have any orientation and height. `ModelInfo::planarHeightOffset` moves it along its normal.
+- Coplanar reflectors share one render. Up to `MAX_PLANAR_PLANES` (config `planarMaxPlanes`, 1 - 4) distinct planes are rendered per frame, each into its own slice of a `Texture2DArray` bound as `planarMap` (`t11` DX, unit 11 GL, set 2 binding 5 Vulkan). A reflector seen from behind is skipped.
+- Per frame: `PlanarBeginPlan()` -> `ModelPlanarRegister()` for every reflector -> `PlanarFrameBegin()` (before the shadow pass so `b6` knows the planes) -> after the shadow pass, one mirror render per plane using `PlanarBuildCamera()` (oblique near plane on the plane, x-flipped projection) -> bind `planarMap`.
+- `MaterialBuffer` carries `PlanarStrength` (per-model mix, `ModelInfo::planarStrength`, default 0.75) and `PlanarIndex` (the slice).
+
+### Settings (Video tab)
+
+| Key | Range | Notes |
+|---|---|---|
+| `reflectionsEnabled` | on / off | master switch, live |
+| `reflectionQuality` | 0 / 1 / 2 | probe cube 64 / 128 / 256 px; needs restart |
+| `reflectionStrength` | 0.0 - 2.0 | live |
+| `reflectionBlur` | 0.0 - 3.0 | extra mip bias, live |
+| `reflectionUpdate` | 0 / 1 / 2 | Slow (1 s) / Normal (0.25 s) / Every frame, live |
+| `reflectionLive` | on / off | live scene capture instead of sky only |
+| `planarEnabled` | on / off | master switch, live |
+| `planarQuality` | 0 / 1 / 2 | mirror target 640x360 / 960x540 / 1280x720; needs restart |
+| `planarStrength` | 0.0 - 1.0 | global multiplier, live |
+| `planarDistortion` | 0.0 - 1.0 | normal-map ripple, live |
+| `planarUpdate` | 0 / 1 / 2 | every frame / every 2nd / every 3rd, live |
+| `planarMaxPlanes` | 1 - 4 | live |
+
+All keys are optional, loaded with defaults and **not checksummed**. Child options in the Video tab are locked (`GUIControl::isDisabled`) while their parent toggle is off.
+
+### Emission
+
+`MyConfig::emissionEnabled` and `emissionIntensity` (0.0 - 3.0) scale every material's authored emissive strength: `final = authored * EmissionScale()`. All four renderers apply it on the CPU when they upload the material, so there is no shader change. The runtime-only `emissionPulse` (driven by the FXManager `EmissionPulsator` effect) multiplies the same scale and can never exceed the setting.
+
+---
+
 ## Platform-Specific Notes
 
 ### DirectX 11/12 Implementation
@@ -1918,6 +2055,8 @@ public:
 ```
 
 ### Vulkan Implementation
+
+> **Update:** the Vulkan 3D pipeline no longer takes a single `lights[0]` push constant. The whole `GlobalLightBuffer` is copied into a per-frame UBO at set 2 binding 0 (same layout and light model as DX `b3` / GL binding 3), `ShadowBufferData` goes into the set 2 shadow UBO written by `RenderShadowPassVK`, and the shadow maps, sky probe and planar array are bound at set 2 bindings 1 - 5. Expect Vulkan scenes to light differently from the old single-sun behaviour.
 
 ```cpp
 // Vulkan-specific implementation

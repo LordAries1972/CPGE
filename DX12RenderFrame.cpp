@@ -6,36 +6,28 @@
 // the scene, updating the scene, and handling any other rendering
 // tasks.
 //
-// Pipeline order (DX12):
-// 1) Initialize render, safety guards, acquire exclusive lock
-// 2) Viewport calculation from client rect
-// 3) Camera update + delta time  ← BEFORE fence wait (CPU-GPU overlap, mirrors Vulkan)
-// 2) Wait for previous frame, reset command allocator + list
-// 3.5) SCENE_GAMETITLE only, legacy D2D pre-pass — ONLY taken when a zoom/strobe
-//      intro FX is active on the background image or logo (rare/transient). Runs
-//      the full D2D Acquire/BeginDraw/.../EndDraw/Release dance exactly as before.
-// 4) Set root signature & heaps, viewport, scissor
-// 5) TransitionResource PRESENT → RENDER_TARGET (skipped if 3.5 already ran)
-// 6) Clear RT (skipped if 3.5 already ran) + DSV
-// 6.5) SCENE_GAMETITLE common case (no zoom/strobe FX): native sprite2D fast
-//      path — background image, logo, and starfield/firework particles drawn as
-//      ordinary D3D12 draws on this same open command list (no Direct2D, no
-//      D3D11-on-12 interop). Composition order:
-//      BACKGROUND → LOGO → STARFIELD → FIREWORKS → 3D MODELS → TSOO
-// 7) Update + bind constant buffers
-// 8) Scene-specific 3D rendering (RenderGamePlay)
-// 9) Close + execute 3D command list (back buffer left in RENDER_TARGET)
-// 10) Single D2D pass directly onto the wrapped back buffer: loading images,
-//     FX, overlays, text, FPS, cursor
-//     (bLoaderTaskFinished cached once as bLoaderDone; background/logo/starfield/
-//      fireworks already drawn in step 3.5 or 6.5, so only TSOO blit remains for
-//      SCENE_GAMETITLE post-3D)
-// 11) Release wrapped back buffer + dx11Context::Flush() (transition to PRESENT)
-// 12) Present frame via PresentFrame() — returns immediately (non-blocking)
-//     Frame latency waitable (MaxFrameLatency=1) then blocks until DXGI consumes the
-//     frame (one vblank period); vblank pacing shows in "present" timing slot.
-//     MoveToNextFrame() advances the frame index for the next iteration.
-//     (VSync=on: paced to 60fps; VSync=off: uncapped, waitable returns immediately)
+// Pipeline order (DX12) -- ONE command list per frame; the back buffer is bounced
+// PRESENT -> RENDER_TARGET exactly once, then handed to Direct2D, then to Present:
+//  0) Pace: wait on the swap-chain frame-latency waitable (VSync on) at the TOP of the
+//     frame so camera / input / delta time are sampled as late as possible.
+//  1) Initialize render, safety guards, acquire exclusive lock
+//  2) Viewport calculation from client rect
+//  3) Camera update + delta time  <- BEFORE the fence wait (CPU-GPU overlap, mirrors Vulkan)
+//  4) Wait for this frame slot's previous use (fence), read back its GPU timestamps,
+//     reset allocator + command list
+//  5) Transition back buffer PRESENT -> RENDER_TARGET, clear RT + DSV
+//  6) SCENE_GAMETITLE backdrop (DX12TitlePipeline::RecordBackdrop): background image
+//     (with the intro zoom), company logo, 3D starfield, fireworks -- all native D3D12,
+//     no Direct2D and no DX11-on-12 interop
+//  7) Update + bind constant buffers (per-frame-in-flight slices)
+//  8) Scene 3D (RenderGamePlay): planar plan, probe, shadows, planar mirror, live capture, models
+//  9) SCENE_GAMETITLE TSOO logo with the fade-strobe alpha (native), then Close + Execute
+// 10) Direct2D overlay recorded straight onto the back buffer via DX11-on-12: loading image,
+//     2D FX, text, GUI, cursor, FPS.  Release + Flush leave the back buffer in PRESENT.
+// 11) Closer list (only when needed): GPU timestamp resolve (debug capture) and/or the
+//     RENDER_TARGET -> PRESENT transition if the D2D overlay was unavailable this frame
+// 12) Present (non-blocking with the waitable).  MoveToNextFrame() signals the frame fence.
+//     (VSync=on: paced to the display by STEP 0; VSync=off: uncapped)
 
 /* ----------------------------------------------------------------
    DO NOT INCLUDE THIS FILE!!! THE PROJECT ITSELF SCOPES THIS FILE!
@@ -126,9 +118,7 @@ void DX12Renderer::RenderFrame()
     // Double-check rendering state after acquiring lock
     if (threadManager.threadVars.bIsRendering.load())
     {
-        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[DX12 RENDERFRAME] Another render operation already active - aborting");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[DX12 RENDERFRAME] Another render operation already active - aborting");
         return;
     }
 
@@ -182,18 +172,14 @@ void DX12Renderer::RenderFrame()
             {
                 if (!threadManager.threadVars.bIsResizing.load() && !sysUtils.IsWindowMinimized())
                 {
-                    #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-                        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[DX12 RENDERFRAME] Critical resources invalid. Attempting recovery.");
-                    #endif
+                    debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[DX12 RENDERFRAME] Critical resources invalid. Attempting recovery.");
                     threadManager.threadVars.bIsResizing.store(true);
                     try {
                         Resize(iOrigWidth, iOrigHeight);
                         ResumeLoader();
                     }
                     catch (const std::exception& e) {
-                        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-                            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 RENDERFRAME] Recovery failed: %hs", e.what());
-                        #endif
+                        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[DX12 RENDERFRAME] Recovery failed: %hs", e.what());
                     }
                     threadManager.threadVars.bIsResizing.store(false);
                     threadManager.threadVars.bIsRendering.store(false);
@@ -226,6 +212,20 @@ void DX12Renderer::RenderFrame()
 
             scissorRect = { 0, 0, static_cast<LONG>(width), static_cast<LONG>(height) };
 
+            // STEP 0: Frame pacing.  The swap chain was created with a frame-latency waitable object
+            // (MaxFrameLatency = BufferCount - 1).  Waiting on it at the TOP of the frame - rather than
+            // after Present - means input, camera and delta time are sampled after the display has
+            // released a slot, i.e. as late as possible, instead of a whole frame early.
+            // Gated on VSync so VSync-off / ALLOW_TEARING stays genuinely uncapped.
+            #if defined(_DEBUG)
+                const auto paceStart = std::chrono::steady_clock::now();
+            #endif
+            if (m_frameLatencyWaitableObject && config.myConfig.enableVSync)
+                WaitForSingleObjectEx(m_frameLatencyWaitableObject, 1000, TRUE);
+            #if defined(_DEBUG)
+                const double paceWaitMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - paceStart).count();
+            #endif
+
             // STEP 3: Camera update + delta time — computed BEFORE the GPU fence wait
             // so the CPU does useful work while WaitForPreviousFrame() may stall.
             // Mirrors the Vulkan render loop where delta/camera are computed before
@@ -255,7 +255,7 @@ void DX12Renderer::RenderFrame()
 
             #if defined(_DEBUG)
                 const bool bCollectTiming = (scene.stSceneType == SceneType::SCENE_GAMETITLE) && IsTimingCaptureActive();
-                const auto timingFrameStart = std::chrono::steady_clock::now();
+                const auto timingFrameStart = paceStart;                    // Total includes the pace wait: it is the real frame period
                 Renderer::RenderTimingSample timingSample = {};
                 auto timingMs = [](const std::chrono::steady_clock::time_point& start,
                                    const std::chrono::steady_clock::time_point& end) -> double {
@@ -270,178 +270,57 @@ void DX12Renderer::RenderFrame()
             WaitForPreviousFrame();
             #if defined(_DEBUG)
                 if (bCollectTiming)
-                    timingSample.waitPreviousMs = timingMs(timingPhaseStart, std::chrono::steady_clock::now());
+                    timingSample.waitPreviousMs = paceWaitMs + timingMs(timingPhaseStart, std::chrono::steady_clock::now());
                 timingPhaseStart = std::chrono::steady_clock::now();
             #endif
             ResetCommandList();
             #if defined(_DEBUG)
                 if (bCollectTiming)
                     timingSample.resetMs = timingMs(timingPhaseStart, std::chrono::steady_clock::now());
+
+                // GPU timestamps.  The fence wait above proved this frame slot's PREVIOUS use has finished on
+                // the GPU, so its stamps can be read back now; then start this frame's stamp sequence.
+                {
+                    DX12GpuProfiler::Result gpuPrev;
+                    if (m_gpuProf.Collect(m_frameIndex, gpuPrev) && bCollectTiming)
+                    {
+                        timingSample.gpuValid         = true;
+                        timingSample.gpuTotalMs       = gpuPrev.totalMs;
+                        timingSample.gpuBackdropMs    = gpuPrev.backdropMs;
+                        timingSample.gpuShadowsMs     = gpuPrev.shadowsMs;
+                        timingSample.gpuReflectionsMs = gpuPrev.reflectionsMs;
+                        timingSample.gpuModelsMs      = gpuPrev.modelsMs;
+                        timingSample.gpuTsooMs        = gpuPrev.tsooMs;
+                        timingSample.gpuOverlayMs     = gpuPrev.overlayMs;
+                    }
+                    m_gpuProf.BeginFrame(m_frameIndex, bCollectTiming);
+                    m_gpuProf.StampUpTo(m_commandList.Get(), DX12GpuProfiler::STAMP_FRAME_START);
+                }
                 timingPhaseStart = std::chrono::steady_clock::now();
             #endif
 
-            // STEP 3.5: D2D background pre-pass — SCENE_GAMETITLE only.
+            // STEP 3.5: Native title pipeline gate - SCENE_GAMETITLE only, once loading is complete.
             //
-            // DX11 parity: DXRenderFrame.cpp draws the title background via
-            // RenderBackgroundImage() BEFORE RenderGamePlay() so the 3D ship is
-            // composited on top of the background image.  The single post-3D D2D
-            // pass below previously blitted IMG_GAMEINTRO1 full-screen AFTER the
-            // 3D models, painting over them and making them invisible.
-            //
-            // Sequence:
-            //   1) Record + execute PRESENT → RENDER_TARGET transition and clears.
-            //   2) D2D pass blits the background and company logo; releasing the
-            //      wrapped resource returns the back buffer to PRESENT state.
-            //   3) Re-open the command list on the SAME allocator (the pre-pass
-            //      list is still in flight on the GPU — the allocator must NOT be
-            //      reset).  STEP 5's PRESENT → RENDER_TARGET transition therefore
-            //      stays valid and STEP 6 skips the RTV clear so the background
-            //      is preserved underneath the 3D models.
-            bool bBackgroundPrePassDone = false;   // legacy D2D pre-pass — only used as a zoom/strobe FX fallback now
-            bool bNativeBackgroundDrawn = false;   // native sprite2D fast path — the SCENE_GAMETITLE common case (see STEP 6.5)
-            // Match DX11's fastest composition pattern: Direct2D draws directly to
-            // the wrapped swap-chain back buffer.  The optional off-screen D2D
-            // path adds two full-screen composites and extra resource transitions
-            // on title frames, and one composite on every other frame; on the
-            // current workload that overhead is the likely 60fps -> ~42fps drop.
-            const bool bUseD2DOffscreen = false;
-            bool bD2DPrePassDone        = false;
-
-            // Shared eligibility gate for both the legacy D2D pre-pass and the native
-            // sprite2D fast path below — SCENE_GAMETITLE only, once loading is complete.
-            const bool bGameTitlePrepassEligible =
+            // The old design wrapped the real 3D pass in a Direct2D "pre-pass" (full-screen bitmap blit,
+            // an extra Close/Execute, two DX11-on-12 Acquire/Release/Flush round trips per frame).  The
+            // background, logo, starfield, fireworks and TSOO logo are now plain D3D12 draws recorded on
+            // THIS command list by DX12TitlePipeline.  Direct2D only draws the text / GUI overlay (STEP 10).
+            // If a title texture failed to load, that one element falls back to the D2D overlay.
+            // bLoaderTaskFinished only ever goes false -> true, and the flip happens in an FX callback run from
+            // the D2D pass below on this same thread.  Read it once so the whole frame sees one value.
+            const bool bLoaderDone = threadManager.threadVars.bLoaderTaskFinished.load();
+            const bool bTitleNative =
                 scene.stSceneType == SceneType::SCENE_GAMETITLE              &&
-                threadManager.threadVars.bLoaderTaskFinished.load()          &&
+                m_title.IsReady()                                            &&
+                bLoaderDone                                                  &&
                 (!threadManager.threadVars.bIsShuttingDown.load())           &&
                 (!bIsMinimized.load())                                       &&
                 (!threadManager.threadVars.bIsResizing.load())               &&
                 bIsInitialized.load();
+            const bool bNativeBackdropDrawn = bTitleNative && m_title.HasSlot(DX12TitlePipeline::kSlotBackground);
+            const bool bNativeTSOODrawn     = bTitleNative && m_title.HasSlot(DX12TitlePipeline::kSlotTSOO);
 
-            // Zoom/strobe intro FX on the background image or logo are short, transient
-            // animations — keep them on the proven D2D path below rather than teaching the
-            // native path their easing math. Everything else (the steady-state common case)
-            // uses the native fast path in STEP 6.5.
-            const bool bZoomOrStrobeActive =
-                fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_GAMEINTRO1))    ||
-                fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_COMPANYLOGO))   ||
-                fxManager.IsImageFadeStrobeActive(BlitObj2DIndexType::IMG_GAMEINTRO1)   ||
-                fxManager.IsImageFadeStrobeActive(BlitObj2DIndexType::IMG_COMPANYLOGO);
-
-            if (bGameTitlePrepassEligible && bZoomOrStrobeActive               &&
-                m_d2dContext && m_dx11Dx12Compat.dx11On12Device              &&
-                (bUseD2DOffscreen || (m_wrappedBackBuffers[m_frameIndex] && m_d2dRenderTargets[m_frameIndex])) &&
-                m_d2dTextures[int(BlitObj2DIndexType::IMG_GAMEINTRO1)])
-            {
-                #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-                    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[DX12 RENDERFRAME] STEP 3.5: background pre-pass (SCENE_GAMETITLE)");
-                #endif
-
-                if (!bUseD2DOffscreen)
-                {
-                    // 1) Legacy path: transition + clear the back buffer so D2D can acquire it.
-                    //    The back buffer's wrapped resource has InState=RENDER_TARGET, so the
-                    //    back buffer must be in that state before AcquireWrappedResources.
-                    TransitionResource(m_frameContexts[m_frameIndex].renderTarget.Get(),
-                        D3D12_RESOURCE_STATE_PRESENT,
-                        D3D12_RESOURCE_STATE_RENDER_TARGET);
-
-                    CD3DX12_CPU_DESCRIPTOR_HANDLE bgRtvHandle(m_frameContexts[m_frameIndex].rtvHandle);
-                    m_commandList->ClearRenderTargetView(bgRtvHandle, clearColor, 0, nullptr);
-                    // DSV is NOT cleared here — STEP 6 clears it unconditionally and no depth
-                    // writes occur between this pre-pass and STEP 6, so a second clear is redundant.
-
-                    CloseCommandList();
-                    ExecuteCommandList();
-                }
-
-                // 2) D2D background pass.
-                //    Off-screen path: the off-screen texture was transitioned to RENDER_TARGET at
-                //    the end of the previous frame's composite B command list, so no DX12 barrier
-                //    or command list close/execute is needed before AcquireWrappedResources.
-                //    Legacy path: the transition + execute above ensures the back buffer is in RT.
-                ID3D11Resource* bgWrapped = bUseD2DOffscreen
-                    ? m_d2dWrappedOffscreen[m_frameIndex].Get()
-                    : m_wrappedBackBuffers[m_frameIndex].Get();
-                m_dx11Dx12Compat.dx11On12Device->AcquireWrappedResources(&bgWrapped, 1);
-                if (bUseD2DOffscreen)
-                    m_d2dContext->SetTarget(m_d2dOffscreenBitmap[m_frameIndex].Get());
-                else
-                    m_d2dContext->SetTarget(m_d2dRenderTargets[m_frameIndex].Get());
-                m_d2dContext->BeginDraw();
-                if (bUseD2DOffscreen)
-                    m_d2dContext->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f));
-
-                // Full-screen title background — render zoomed version at same position if FX is active
-                if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_GAMEINTRO1)))
-                    fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
-                else
-                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
-
-                // Company logo overlay at half size, bottom-left corner
-                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)])
-                {
-                    D2D1_SIZE_F bgLogoSz = m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]->GetSize();
-                    int bgLogoW = static_cast<int>(bgLogoSz.width * 0.5f);
-                    int bgLogoH = static_cast<int>(bgLogoSz.height * 0.5f);
-                    if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_COMPANYLOGO)))
-                        fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_COMPANYLOGO), 0, iOrigHeight - bgLogoH, bgLogoW, bgLogoH);
-                    else
-                        Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - bgLogoH, bgLogoW, bgLogoH);
-                }
-
-                // 3D starfield (background FX pass) — drawn AFTER the background and
-                // logo but BEFORE the 3D models so the composition order is
-                // BACKGROUND IMG → LOGO → 3D STARFIELD → FIREWORKS → MODELS → TSOO.
-                // Previously the starfield was only rendered in the post-3D D2D pass
-                // (STEP 10), which painted the stars OVER the ship model.
-                try { fxManager.Render(true); }
-                catch (const std::exception&) {}
-
-                // Fireworks — rendered in the pre-pass so they appear BEHIND the 3D
-                // ship model and BEFORE the TSOO blit in the post-3D D2D pass.
-                try { fxManager.RenderFireworks(); }
-                catch (const std::exception&) {}
-
-                HRESULT bgHr = m_d2dContext->EndDraw();
-                if (FAILED(bgHr))
-                    debug.logDebugMessage(LogLevel::LOG_ERROR,
-                        L"[DX12 RENDERFRAME] Background pre-pass EndDraw failed (0x%08X)", bgHr);
-
-                m_d2dContext->SetTarget(nullptr);
-                m_dx11Dx12Compat.dx11On12Device->ReleaseWrappedResources(&bgWrapped, 1);
-
-                if (bUseD2DOffscreen)
-                {
-                    // Off-screen path: Flush is deferred to STEP 5.5 (just before Composite A
-                    // records the SRV read). The command list stays open for STEP 5.5/5.6 and
-                    // the main 3D pass — no close/execute needed here.
-                    bD2DPrePassDone = true;
-                }
-                else
-                {
-                    // Legacy path: Flush is DEFERRED to immediately before ExecuteCommandList at
-                    // STEP 9, letting the CPU record 3D commands while the GPU processes the
-                    // pre-pass PRESENT→RT transition and RTV clear.
-
-                    // 3) Re-open the command list for the main 3D pass.  The allocator
-                    //    keeps accumulating both lists; it is reset next frame after
-                    //    WaitForPreviousFrame guarantees the GPU is done with them.
-                    HRESULT bgReset = m_commandList->Reset(
-                        m_frameContexts[m_frameIndex].commandAllocator.Get(), m_pipelineState.Get());
-                    if (FAILED(bgReset))
-                    {
-                        debug.logDebugMessage(LogLevel::LOG_ERROR,
-                            L"[DX12 RENDERFRAME] Command list re-open after background pre-pass failed (0x%08X)", bgReset);
-                        threadManager.threadVars.bIsRendering.store(false);
-                        return;
-                    }
-                }
-
-                bBackgroundPrePassDone = true;
-            }
             #if defined(_DEBUG)
-                if (bCollectTiming)
-                    timingSample.backgroundPrePassMs = timingMs(timingPhaseStart, std::chrono::steady_clock::now());
                 timingPhaseStart = std::chrono::steady_clock::now();
             #endif
 
@@ -452,99 +331,49 @@ void DX12Renderer::RenderFrame()
             m_commandList->RSSetViewports(1, &viewport);
             m_commandList->RSSetScissorRects(1, &scissorRect);
 
-            // STEP 5: Transition back buffer PRESENT → RENDER_TARGET.
-            // Skipped when the STEP 3.5 pre-pass already ran: that path deliberately
-            // leaves the back buffer in RENDER_TARGET state (see STEP 9 comment), so
-            // issuing this transition again would record a barrier claiming a
-            // PRESENT -> RENDER_TARGET move that never happened on the GPU timeline.
-            if (!bBackgroundPrePassDone)
-                TransitionResource(m_frameContexts[m_frameIndex].renderTarget.Get(),
-                    D3D12_RESOURCE_STATE_PRESENT,
-                    D3D12_RESOURCE_STATE_RENDER_TARGET);
+            // STEP 5: Transition back buffer PRESENT -> RENDER_TARGET.  This is the only transition on the
+            // way in: the 11On12 wrapped back buffer (InState=RENDER_TARGET) is acquired in this state in
+            // STEP 10 and released straight to PRESENT.
+            TransitionResource(m_frameContexts[m_frameIndex].renderTarget.Get(),
+                D3D12_RESOURCE_STATE_PRESENT,
+                D3D12_RESOURCE_STATE_RENDER_TARGET);
 
-            CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_frameContexts[m_frameIndex].rtvHandle);
+            // MainRTV(): the multisampled colour target while MSAA is on (resolved into the back buffer at STEP 8.9),
+            // otherwise the back buffer itself.  The depth buffer shares the same sample count.
+            CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(MainRTV(m_frameIndex));
             CD3DX12_CPU_DESCRIPTOR_HANDLE dsvHandle(m_dsvHeap.cpuStart);
 
             m_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, &dsvHandle);
 
-            // STEP 5.5: Composite pre-pass off-screen onto the back buffer before 3D rendering.
-            // Flush() submits the DX11On12 pre-pass commands (including the off-screen RT→SR
-            // barrier from ReleaseWrappedResources) to the DX12 queue before the SRV read in
-            // CompositeD2DToBackBuffer.  FIFO on the shared queue guarantees correct ordering.
-            if (bD2DPrePassDone && bUseD2DOffscreen)
-            {
-                m_dx11Dx12Compat.dx11Context->Flush();
-                CompositeD2DToBackBuffer(rtvHandle, viewport, scissorRect);
-                // Restore the 3D pipeline state overwritten by the composite draw.
-                m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
-                ID3D12DescriptorHeap* ppHeaps3D[] = { m_cbvSrvUavHeap.heap.Get(), m_samplerHeap.heap.Get() };
-                m_commandList->SetDescriptorHeaps(_countof(ppHeaps3D), ppHeaps3D);
-                m_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, &dsvHandle);
-            }
-
-            // STEP 5.6: Transition off-screen back to RENDER_TARGET for the post-pass
-            // AcquireWrappedResources (InState=RT).  Only needed when the pre-pass ran and
-            // left off-screen in SHADER_RESOURCE (via Composite A + ReleaseWrappedResources).
-            if (bUseD2DOffscreen && bD2DPrePassDone && m_d2dOffscreenTex[m_frameIndex])
-            {
-                TransitionResource(m_d2dOffscreenTex[m_frameIndex].Get(),
-                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-                    D3D12_RESOURCE_STATE_RENDER_TARGET);
-            }
-
-            // STEP 6: Clear render targets (no lock needed — render thread is the sole user).
-            // When the STEP 3.5 pre-pass ran, the RTV already holds the D2D background —
-            // skip the colour clear so it is not wiped; depth is re-cleared either way.
-            if (!bBackgroundPrePassDone)
-                m_commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
+            // STEP 6: Clear render targets (no lock needed - render thread is the sole user).
+            m_commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
             m_commandList->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 
-            // STEP 6.5: Native sprite2D fast path — SCENE_GAMETITLE common case (no zoom/strobe
-            // FX active). Draws the background image, company logo, and starfield/firework
-            // particles as ordinary D3D12 draws on this same already-open command list — no
-            // Direct2D, no D3D11-on-12 interop, no extra Close/Execute. See DX12Renderer.cpp
-            // CreateSprite2DPipelines()/DrawSprite2DImage()/FlushNative2DParticles().
-            if (bGameTitlePrepassEligible && !bBackgroundPrePassDone && !bZoomOrStrobeActive &&
-                m_sprite2DImagePSO && m_sprite2DParticlePSO)
+            // STEP 6.5: Native title backdrop.  BACKGROUND -> LOGO -> STARFIELD -> FIREWORKS, drawn before the
+            // 3D models so the ship composites on top.  The TSOO logo follows the models (STEP 8.5).
+            if (bNativeBackdropDrawn)
             {
                 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-                    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[DX12 RENDERFRAME] STEP 6.5: native sprite2D background pass (SCENE_GAMETITLE)");
+                    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[DX12 RENDERFRAME] STEP 6.5: native title backdrop (SCENE_GAMETITLE)");
                 #endif
 
-                // Full-screen title background, then company logo (bottom-left, half size) —
-                // same layout as the legacy D2D pre-pass above.
-                DrawSprite2DImage(0, 0, 0, iOrigWidth, iOrigHeight);
-                if (m_sprite2DTex[1] && m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)])
-                {
-                    // Logo size comes from the (still-loaded) D2D bitmap purely to read its
-                    // width/height cheaply — this is a plain property read, not a D2D draw.
-                    D2D1_SIZE_F logoSz = m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]->GetSize();
-                    int logoW = static_cast<int>(logoSz.width * 0.5f);
-                    int logoH = static_cast<int>(logoSz.height * 0.5f);
-                    DrawSprite2DImage(1, 0, iOrigHeight - logoH, logoW, logoH);
-                }
-
-                // Starfield + fireworks — queued as native particles instead of D2D FillRectangle
-                // calls, then flushed in one DrawInstanced call. Same ordering as the legacy path:
-                // BACKGROUND -> LOGO -> STARFIELD -> FIREWORKS -> (below) 3D MODELS -> TSOO.
-                BeginNative2DBatch();
-                try { fxManager.Render(true); }
-                catch (const std::exception&) {}
-                try { fxManager.RenderFireworks(); }
-                catch (const std::exception&) {}
-                EndNative2DBatch();
-                FlushNative2DParticles();
+                m_title.RecordBackdrop(m_commandList.Get(), m_frameIndex);
 
                 // Restore the 3D model pipeline state the sprite draws overwrote.
                 m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
                 ID3D12DescriptorHeap* ppHeapsRestore[] = { m_cbvSrvUavHeap.heap.Get(), m_samplerHeap.heap.Get() };
                 m_commandList->SetDescriptorHeaps(_countof(ppHeapsRestore), ppHeapsRestore);
+                m_commandList->SetPipelineState(MainPSO());
                 m_commandList->RSSetViewports(1, &viewport);
                 m_commandList->RSSetScissorRects(1, &scissorRect);
                 m_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, &dsvHandle);
-
-                bNativeBackgroundDrawn = true;
             }
+
+            #if defined(_DEBUG)
+                if (bCollectTiming)
+                    timingSample.backgroundPrePassMs = timingMs(timingPhaseStart, std::chrono::steady_clock::now());
+                m_gpuProf.StampUpTo(m_commandList.Get(), DX12GpuProfiler::STAMP_BACKDROP);
+            #endif
 
             // Animate lights (pulse / flicker / strobe) each frame before updating
             // the global light buffer — mirrors the DX11, OpenGL, and Vulkan render paths.
@@ -555,11 +384,11 @@ void DX12Renderer::RenderFrame()
 
             if (m_constantBuffer)
                 m_commandList->SetGraphicsRootConstantBufferView(DX12_ROOT_PARAM_CONST_BUFFER,
-                    m_constantBuffer->GetGPUVirtualAddress());
+                    CameraCBAddress());
 
             if (m_globalLightBuffer)
                 m_commandList->SetGraphicsRootConstantBufferView(DX12_ROOT_PARAM_GLOBAL_LIGHT_BUFFER,
-                    m_globalLightBuffer->GetGPUVirtualAddress());
+                    GlobalLightCBAddress());
 
             if (m_envBuffer)
                 m_commandList->SetGraphicsRootConstantBufferView(DX12_ROOT_PARAM_ENVIRONMENT_BUFFER,
@@ -609,23 +438,26 @@ void DX12Renderer::RenderFrame()
                     break;
             }
 
+            // STEP 8.5: TSOO logo (centred, fade-strobe alpha) over the 3D models - native.
+            if (bNativeTSOODrawn)
+                m_title.RecordTSOO(m_commandList.Get(), m_frameIndex);
+
             #if defined(_DEBUG)
+                m_gpuProf.StampUpTo(m_commandList.Get(), DX12GpuProfiler::STAMP_TSOO);
                 if (bCollectTiming)
-                    timingSample.commandRecordMs = timingMs(timingPhaseStart, std::chrono::steady_clock::now());
+                    timingSample.commandRecordMs = timingMs(timingPhaseStart, std::chrono::steady_clock::now()) - timingSample.backgroundPrePassMs;
                 timingPhaseStart = std::chrono::steady_clock::now();
             #endif
+
+            // STEP 8.9: MSAA resolve.  Everything above (backdrop, models, TSOO logo) went into the multisampled
+            // target; resolve it into the back buffer so the Direct2D overlay (STEP 10) draws on the final image.
+            // The back buffer is left in RENDER_TARGET, as STEP 9 requires.
+            ResolveMsaaToBackBuffer(m_commandList.Get());
 
             // STEP 9: Close and execute 3D command list.
             // Deliberately leave the back buffer in RENDER_TARGET state so that
             // AcquireWrappedResources (inState=RENDER_TARGET) can hand it to D2D.
             CloseCommandList();
-
-            // Deferred 11On12 flush (legacy path only): ensures the STEP 3.5 D2D pre-pass
-            // commands are submitted to the shared hardware queue before the 3D draw list
-            // executes.  For the off-screen path the Flush was already called in STEP 5.5
-            // (before recording Composite A), so submitting it again here is unnecessary.
-            if (bBackgroundPrePassDone && !bUseD2DOffscreen)
-                m_dx11Dx12Compat.dx11Context->Flush();
             ExecuteCommandList();
             #if defined(_DEBUG)
                 if (bCollectTiming)
@@ -633,28 +465,19 @@ void DX12Renderer::RenderFrame()
                 timingPhaseStart = std::chrono::steady_clock::now();
             #endif
 
-            // STEP 10: 2D rendering via DX11On12 / D2D interop.
+            // STEP 10: Direct2D overlay via DX11On12 - text, GUI, 2D FX, cursor, loading image.
             //
-            // Off-screen path: D2D renders into the per-frame off-screen texture (in RT state).
-            // After EndDraw/Release/Flush, Composite B draws the off-screen onto the back buffer
-            // and then transitions both resources to their next-frame starting states.
-            // Legacy path: D2D renders directly into the back buffer (in RT state).
-            // ReleaseWrappedResources with OutState=PRESENT transitions it for PresentFrame().
+            // D2D renders directly into the wrapped swap-chain back buffer (left in RENDER_TARGET by
+            // STEP 9).  ReleaseWrappedResources with OutState=PRESENT transitions it for Present, and
+            // Flush submits the interop commands to the shared queue.  Track whether that happened:
+            // if the overlay is unavailable this frame the closer list (STEP 11) does the transition.
+            bool bBackBufferToPresent = false;
             if (m_d2dContext && m_dx11Dx12Compat.dx11On12Device &&
-                (bUseD2DOffscreen || (m_wrappedBackBuffers[m_frameIndex] && m_d2dRenderTargets[m_frameIndex])))
+                m_wrappedBackBuffers[m_frameIndex] && m_d2dRenderTargets[m_frameIndex])
             {
-                // Off-screen path: render D2D into the per-frame off-screen texture
-                // (already in RENDER_TARGET state — either from the previous frame's
-                // Composite B command list or, for SCENE_GAMETITLE, from STEP 5.6).
-                // Legacy path: render D2D directly into the back buffer.
-                ID3D11Resource* wrappedRes = bUseD2DOffscreen
-                    ? m_d2dWrappedOffscreen[m_frameIndex].Get()
-                    : m_wrappedBackBuffers[m_frameIndex].Get();
+                ID3D11Resource* wrappedRes = m_wrappedBackBuffers[m_frameIndex].Get();
                 m_dx11Dx12Compat.dx11On12Device->AcquireWrappedResources(&wrappedRes, 1);
-                if (bUseD2DOffscreen)
-                    m_d2dContext->SetTarget(m_d2dOffscreenBitmap[m_frameIndex].Get());
-                else
-                    m_d2dContext->SetTarget(m_d2dRenderTargets[m_frameIndex].Get());
+                m_d2dContext->SetTarget(m_d2dRenderTargets[m_frameIndex].Get());
 
                 // ── Single D2D pass: background, 3D-behind FX, overlays ──────────
                 // One BeginDraw/EndDraw per frame eliminates the inter-pass flush
@@ -664,36 +487,19 @@ void DX12Renderer::RenderFrame()
                     bIsInitialized.load())
                 {
                     m_d2dContext->BeginDraw();
-                    if (bUseD2DOffscreen)
-                        m_d2dContext->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f));
-
-                    // Cache the loader state once — bLoaderTaskFinished only ever
-                    // transitions false→true, so a single read per BeginDraw is safe
-                    // and saves three redundant atomic loads within this block.
-                    const bool bLoaderDone = threadManager.threadVars.bLoaderTaskFinished.load();
 
                     switch (scene.stSceneType)
                     {
                         case SceneType::SCENE_GAMETITLE:
                         {
-                            if (bBackgroundPrePassDone || bNativeBackgroundDrawn)
+                            if (bNativeBackdropDrawn)
                             {
-                                // Background/logo/starfield/fireworks already drawn — either by the
-                                // legacy D2D pre-pass or the STEP 6.5 native fast path.
-                                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_TSOO)])
-                                {
-                                    int startX = (iOrigWidth - 536) / 2; // Centered horizontally
-                                    int startY = (iOrigHeight - 466) / 2; // Centered vertically
-                                    if (fxManager.IsImageFadeStrobeActive(BlitObj2DIndexType::IMG_TSOO))
-                                        fxManager.RenderImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
-                                    else
-                                        Blit2DObjectToSize(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
-                                }
+                                // Background / logo / starfield / fireworks were drawn natively in STEP 6.5.
                             }
                             else if (bLoaderDone)
                             {
-                                // Pre-pass unavailable this frame (e.g. background image
-                                // not loaded yet) — legacy post-3D blit as a fallback.
+                                // Native backdrop unavailable (background texture failed to load, or the native
+                                // pipeline could not be created) - D2D fallback.  Drawn after the 3D models.
                                 if (m_d2dTextures[int(BlitObj2DIndexType::IMG_GAMEINTRO1)]) {
                                     if (fxManager.IsImageZoomActive(int(BlitObj2DIndexType::IMG_GAMEINTRO1)))
                                         fxManager.RenderZoomedImage(int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
@@ -725,6 +531,17 @@ void DX12Renderer::RenderFrame()
                                         Blit2DObjectToSize(BlitObj2DIndexType::IMG_LOADING, 0, 0, iOrigWidth, iOrigHeight);
                                 }
                             }
+
+                            // TSOO logo fallback: only when the native TSOO texture is unavailable.
+                            if (bLoaderDone && !bNativeTSOODrawn && m_d2dTextures[int(BlitObj2DIndexType::IMG_TSOO)])
+                            {
+                                int startX = (iOrigWidth - 536) / 2;                // Centered horizontally
+                                int startY = (iOrigHeight - 466) / 2;               // Centered vertically
+                                if (fxManager.IsImageFadeStrobeActive(BlitObj2DIndexType::IMG_TSOO))
+                                    fxManager.RenderImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
+                                else
+                                    Blit2DObjectToSize(BlitObj2DIndexType::IMG_TSOO, startX, startY, 536, 466);
+                            }
                             break;
                         }
 
@@ -750,13 +567,15 @@ void DX12Renderer::RenderFrame()
                     }
 
                     // Background FX (starfield, warp tunnel) behind 3D content.
-                    // When the STEP 3.5 pre-pass ran it already rendered these BEFORE
-                    // the 3D models — rendering them again here would paint the stars
-                    // over the ship model.
-                    if (!bBackgroundPrePassDone)
+                    // When the STEP 6.5 native backdrop ran it already drew (and updated) these BEFORE
+                    // the 3D models - rendering them again here would paint the stars over the ship
+                    // model and advance their simulation twice per frame.
+                    if (!bNativeBackdropDrawn)
                     {
                         try { fxManager.Render(true); }
-                        catch (const std::exception&) {}
+                        catch (const std::exception&) {
+                            // Per-frame path: intentionally silent (FXManager::Render already logs its own exceptions).
+                        }
                     }
 
                     // ── Scene-specific 2D + overlays ─────────────────────────────
@@ -979,9 +798,7 @@ void DX12Renderer::RenderFrame()
                         fxManager.Render2D();
                     }
                     catch (const std::exception& e) {
-                        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-                            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 RENDERFRAME] 2D effects rendering failed: %hs", e.what());
-                        #endif
+                        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[DX12 RENDERFRAME] 2D effects rendering failed: %hs", e.what());
                     }
 
                     // GUI windows and interface elements
@@ -989,9 +806,7 @@ void DX12Renderer::RenderFrame()
                         guiManager.Render();
                     }
                     catch (const std::exception& e) {
-                        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-                            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 RENDERFRAME] GUI rendering failed: %hs", e.what());
-                        #endif
+                        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[DX12 RENDERFRAME] GUI rendering failed: %hs", e.what());
                     }
 
                     // Mouse cursor (always on top)
@@ -1018,9 +833,7 @@ void DX12Renderer::RenderFrame()
                     }
                     catch (const std::exception& e)
                     {
-                        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-                            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 RENDERFRAME] Post-processing effects failed: %hs", e.what());
-                        #endif
+                        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[DX12 RENDERFRAME] Post-processing effects failed: %hs", e.what());
                     }
 
                     // End D2D overlay pass
@@ -1029,16 +842,12 @@ void DX12Renderer::RenderFrame()
                         HRESULT hr = m_d2dContext->EndDraw();
                         if (FAILED(hr))
                         {
-                            #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-                                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 RENDERFRAME] Direct2D EndDraw failed (0x%08X)", hr);
-                            #endif
+                            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[DX12 RENDERFRAME] Direct2D EndDraw failed (0x%08X)", hr);
                         }
                     }
                     catch (const std::exception& e)
                     {
-                        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-                            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 RENDERFRAME] EndDraw failed: %hs", e.what());
-                        #endif
+                        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[DX12 RENDERFRAME] EndDraw failed: %hs", e.what());
                     }
 
                     #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
@@ -1049,29 +858,31 @@ void DX12Renderer::RenderFrame()
                 // Return D2D context target and release the wrapped resource.
                 m_d2dContext->SetTarget(nullptr);
                 m_dx11Dx12Compat.dx11On12Device->ReleaseWrappedResources(&wrappedRes, 1);
-                // Flush submits the DX11On12 D2D commands (including the off-screen / back-buffer
-                // state transition barrier) to the shared DX12 queue.
+                // Flush submits the DX11On12 D2D commands (including the back-buffer RENDER_TARGET ->
+                // PRESENT transition) to the shared DX12 queue, ahead of the closer list and Present.
                 m_dx11Dx12Compat.dx11Context->Flush();
+                bBackBufferToPresent = true;
+            }
 
-                if (bUseD2DOffscreen)
+            // STEP 11: Closer list.  Needed when (a) the D2D overlay did not run, so the back buffer is
+            // still in RENDER_TARGET and must reach PRESENT before Present, and/or (b) a GPU timestamp
+            // capture is active and the final stamp + readback resolve must follow the D2D work on the queue.
+            {
+                bool bNeedCloser = !bBackBufferToPresent;
+                #if defined(_DEBUG)
+                    bNeedCloser = bNeedCloser || m_gpuProf.Active();
+                #endif
+
+                if (bNeedCloser &&
+                    SUCCEEDED(m_commandList->Reset(m_frameContexts[m_frameIndex].compositeAllocator.Get(), nullptr)))
                 {
-                    // Off-screen path: composite the post-pass onto the back buffer,
-                    // then transition the off-screen back to RT for the next frame's
-                    // pre-pass and the back buffer to PRESENT for PresentFrame().
-                    // Reset with the per-frame composite allocator so this command list
-                    // does not conflict with the main 3D allocator (still in flight).
-                    m_commandList->Reset(m_frameContexts[m_frameIndex].compositeAllocator.Get(), nullptr);
-                    CompositeD2DToBackBuffer(rtvHandle, viewport, scissorRect);
-                    // Transition off-screen back to RENDER_TARGET so the next frame's
-                    // pre-pass can AcquireWrappedResources (InState=RT) without a barrier.
-                    TransitionResource(m_d2dOffscreenTex[m_frameIndex].Get(),
-                        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-                        D3D12_RESOURCE_STATE_RENDER_TARGET);
-                    // Transition back buffer to PRESENT for PresentFrame().
-                    // (Legacy path: ReleaseWrappedResources with OutState=PRESENT handles this.)
-                    TransitionResource(m_frameContexts[m_frameIndex].renderTarget.Get(),
-                        D3D12_RESOURCE_STATE_RENDER_TARGET,
-                        D3D12_RESOURCE_STATE_PRESENT);
+                    if (!bBackBufferToPresent)
+                        TransitionResource(m_frameContexts[m_frameIndex].renderTarget.Get(),
+                            D3D12_RESOURCE_STATE_RENDER_TARGET,
+                            D3D12_RESOURCE_STATE_PRESENT);
+                    #if defined(_DEBUG)
+                        m_gpuProf.Resolve(m_commandList.Get());
+                    #endif
                     CloseCommandList();
                     ExecuteCommandList();
                 }
@@ -1080,9 +891,8 @@ void DX12Renderer::RenderFrame()
                 if (bCollectTiming)
                 {
                     timingSample.d2dOverlayMs = timingMs(timingPhaseStart, std::chrono::steady_clock::now());
-                    timingSample.backgroundPrePass = bBackgroundPrePassDone;
-                    timingSample.d2dAvailable = (m_d2dContext && m_dx11Dx12Compat.dx11On12Device &&
-                        (bUseD2DOffscreen || (m_wrappedBackBuffers[m_frameIndex] && m_d2dRenderTargets[m_frameIndex])));
+                    timingSample.backgroundPrePass = false;                 // Legacy D2D pre-pass no longer exists; bg=0 confirms the native path
+                    timingSample.d2dAvailable = bBackBufferToPresent;
                     timingSample.screenRecorderActive = screenRecorder.IsRecording();
                 }
                 timingPhaseStart = std::chrono::steady_clock::now();
@@ -1102,14 +912,7 @@ void DX12Renderer::RenderFrame()
                                                 m_swapChain.Get(), m_frameIndex);
 
                 PresentFrame();
-                // Pace to vblank: wait here (after Present returns immediately) rather than
-                // blocking inside Present. Only meaningful when VSync is enabled -- gated on
-                // config so VSync-off/ALLOW_TEARING mode stays genuinely uncapped instead of
-                // being silently vblank-throttled. WaitForPreviousFrame() (STEP 2, top of loop)
-                // already provides the CPU/GPU allocator-safety sync every frame regardless of
-                // this wait, so stacking this on top when VSync is off only cost FPS for nothing.
-                if (m_frameLatencyWaitableObject && config.myConfig.enableVSync)
-                    WaitForSingleObjectEx(m_frameLatencyWaitableObject, 1000, TRUE);
+                // Frame pacing now happens at the top of the next frame (STEP 0), so Present() stays non-blocking.
                 #if defined(_DEBUG)
                     if (bCollectTiming)
                         timingSample.presentMs = timingMs(timingPhaseStart, std::chrono::steady_clock::now());
@@ -1127,9 +930,7 @@ void DX12Renderer::RenderFrame()
                 #endif
             }
             catch (const std::exception& e) {
-                #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-                    debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 RENDERFRAME] Present operation failed: %hs", e.what());
-                #endif
+                debug.logDiagMessage(LogLevel::LOG_ERROR, L"[DX12 RENDERFRAME] Present operation failed: %hs", e.what());
             }
 
             // STEP 13: Clear rendering state for next frame
@@ -1142,9 +943,7 @@ void DX12Renderer::RenderFrame()
     }
     catch (const std::exception& e)
     {
-        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"[DX12 RENDERFRAME] Critical exception occurred: %hs", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_CRITICAL, L"[DX12 RENDERFRAME] Critical exception occurred: %hs", e.what());
 
         threadManager.threadVars.bIsRendering.store(false);
     }
@@ -1156,6 +955,454 @@ void DX12Renderer::RenderFrame()
     // FINAL: Guarantee rendering state is clear
     threadManager.threadVars.bIsRendering.store(false);
     // exclusiveRenderLock releases automatically on scope exit
+}
+
+// ===========================================================================================
+// RenderShadowPassDX12 — shadow depth passes + per-frame shadow binding.
+// Records depth-only draws into the t8 / t9 shadow maps on the open command list, then
+// restores the main 3D pass state (root signature, heaps, viewport/scissor, RTV/DSV and
+// the frame-level root CBVs b0/b3/b5) and binds b6 (this frame's ShadowBufferData slice)
+// plus the t8/t9 descriptor table.  Plans against m_frameGlobalLights - the exact vector
+// UpdateConstantBuffers() uploaded to b3 - so lightShadowInfo[i] matches globalLights[i].
+// ===========================================================================================
+void DX12Renderer::RenderShadowPassDX12()
+{
+    ID3D12GraphicsCommandList* cl = m_commandList.Get();
+    if (!cl) return;
+
+    m_shadowFrame.enabled = false;
+    m_shadowFrame.views.clear();
+
+    if (m_shadowResourcesReady && m_shadowPSO && threadManager.threadVars.bLoaderTaskFinished.load())
+    {
+        // Gather world-space bounding spheres of every shadow-casting mesh.
+        m_shadowCasters.clear();
+        m_shadowCasterModels.clear();
+        for (int i = 0; i < MAX_SCENE_MODELS; ++i)
+        {
+            Model& m = scene.scene_models[i];
+            if (!m.m_isLoaded || m.bIsDestroyed) continue;
+            ModelInfo& mi = m.m_modelInfo;
+            if (mi.bIsTransformProxy || mi.bIsTransformOnly || !mi.castShadows) continue;
+            if (!mi.d3d12VertexBuffer || !mi.d3d12IndexBuffer || mi.d3d12IndexCount == 0) continue;
+            if (!ModelComputeShadowBounds(mi)) continue;
+
+            XMFLOAT4X4 w;
+            XMStoreFloat4x4(&w, mi.worldMatrix);
+            const float scale[3] = { mi.scale.x, mi.scale.y, mi.scale.z };
+            ShadowCaster c{};
+            ShadowMakeWorldSphere(mi.shadowBoundsCenter, mi.shadowBoundsRadius, scale, &w._11, c);
+            m_shadowCasters.push_back(c);
+            m_shadowCasterModels.push_back(i);
+        }
+
+        const XMFLOAT3 cp = myCamera.GetPosition();
+        const float camPos[3] = { cp.x, cp.y, cp.z };
+        BuildShadowFrame(m_frameGlobalLights, m_shadowCasters, camPos, m_shadowFrame);
+    }
+
+    if (m_shadowFrame.enabled)
+    {
+        // Shadow maps rest in PIXEL_SHADER_RESOURCE between frames.
+        D3D12_RESOURCE_BARRIER toWrite[2] = {
+            CD3DX12_RESOURCE_BARRIER::Transition(m_shadowDirTex.Get(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE),
+            CD3DX12_RESOURCE_BARRIER::Transition(m_shadowLocalTex.Get(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE)
+        };
+        cl->ResourceBarrier(2, toWrite);
+
+        cl->SetGraphicsRootSignature(m_shadowRootSignature.Get());
+        cl->SetPipelineState(m_shadowPSO.Get());
+        cl->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+        for (const ShadowView& view : m_shadowFrame.views)
+        {
+            const bool isDir = (view.target == SHADOW_TARGET_DIRECTIONAL);
+            const INT  dsvIndex = isDir ? 0 : (1 + view.target);
+            CD3DX12_CPU_DESCRIPTOR_HANDLE dsv(m_shadowDsvHeap.cpuStart, dsvIndex, m_shadowDsvHeap.handleIncrementSize);
+            const int size = isDir ? m_shadowDirSize : m_shadowLocalSize;
+
+            cl->OMSetRenderTargets(0, nullptr, FALSE, &dsv);
+            cl->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+
+            D3D12_VIEWPORT vp = { 0.0f, 0.0f, static_cast<float>(size), static_cast<float>(size), 0.0f, 1.0f };
+            D3D12_RECT     sr = { 0, 0, static_cast<LONG>(size), static_cast<LONG>(size) };
+            cl->RSSetViewports(1, &vp);
+            cl->RSSetScissorRects(1, &sr);
+
+            for (size_t c = 0; c < m_shadowCasters.size(); ++c)
+            {
+                if (!ShadowViewAffectsCaster(view, m_shadowCasters[c])) continue;
+                ModelInfo& mi = scene.scene_models[m_shadowCasterModels[c]].m_modelInfo;
+
+                XMFLOAT4X4 w;
+                XMStoreFloat4x4(&w, mi.worldMatrix);
+                float wlvp[16];
+                ShadowMat4Mul(&w._11, view.viewProj, wlvp);
+
+                float constants[20];
+                for (int r = 0; r < 4; ++r)                                     // transpose for HLSL column_major
+                    for (int col = 0; col < 4; ++col)
+                        constants[col * 4 + r] = wlvp[r * 4 + col];
+                constants[16] = mi.scale.x; constants[17] = mi.scale.y; constants[18] = mi.scale.z; constants[19] = 1.0f;
+                cl->SetGraphicsRoot32BitConstants(0, 20, constants, 0);
+
+                cl->IASetVertexBuffers(0, 1, &mi.d3d12VBView);
+                cl->IASetIndexBuffer(&mi.d3d12IBView);
+                cl->DrawIndexedInstanced(mi.d3d12IndexCount, 1, 0, 0, 0);
+            }
+        }
+
+        D3D12_RESOURCE_BARRIER toRead[2] = {
+            CD3DX12_RESOURCE_BARRIER::Transition(m_shadowDirTex.Get(),
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE),
+            CD3DX12_RESOURCE_BARRIER::Transition(m_shadowLocalTex.Get(),
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
+        };
+        cl->ResourceBarrier(2, toRead);
+
+        // --- Restore the main 3D pass (mirrors RenderFrame STEP 4 / 5 / 7) ---
+        cl->SetGraphicsRootSignature(m_rootSignature.Get());
+        ID3D12DescriptorHeap* ppHeaps[] = { m_cbvSrvUavHeap.heap.Get(), m_samplerHeap.heap.Get() };
+        cl->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
+
+        D3D12_VIEWPORT mainVP = { 0.0f, 0.0f, static_cast<float>(iOrigWidth), static_cast<float>(iOrigHeight), 0.0f, 1.0f };
+        D3D12_RECT     mainSR = { 0, 0, static_cast<LONG>(iOrigWidth), static_cast<LONG>(iOrigHeight) };
+        cl->RSSetViewports(1, &mainVP);
+        cl->RSSetScissorRects(1, &mainSR);
+
+        CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(MainRTV(m_frameIndex));
+        CD3DX12_CPU_DESCRIPTOR_HANDLE dsvHandle(m_dsvHeap.cpuStart);
+        cl->OMSetRenderTargets(1, &rtvHandle, FALSE, &dsvHandle);
+
+        if (m_constantBuffer)
+            cl->SetGraphicsRootConstantBufferView(DX12_ROOT_PARAM_CONST_BUFFER, CameraCBAddress());
+        if (m_globalLightBuffer)
+            cl->SetGraphicsRootConstantBufferView(DX12_ROOT_PARAM_GLOBAL_LIGHT_BUFFER, GlobalLightCBAddress());
+        if (m_envBuffer)
+            cl->SetGraphicsRootConstantBufferView(DX12_ROOT_PARAM_ENVIRONMENT_BUFFER, m_envBuffer->GetGPUVirtualAddress());
+
+        cl->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    }
+
+    // b6: this frame's slice (always written; shadows off => useShadowMap = useLocalShadows = 0).
+    if (m_shadowBuffer && m_shadowBufferMapped && m_shadowBufferStride > 0)
+    {
+        ShadowBufferData sb;
+        ShadowPackGPU(m_shadowFrame, true, sb);
+        const UINT64 offset = static_cast<UINT64>(m_frameIndex) * m_shadowBufferStride;
+        memcpy(m_shadowBufferMapped + offset, &sb, sizeof(ShadowBufferData));
+
+        cl->SetGraphicsRootConstantBufferView(DX12_ROOT_PARAM_SHADOW_BUFFER,
+            m_shadowBuffer->GetGPUVirtualAddress() + offset);
+
+        // Second slice with planar reflections off, for the live capture pass: the per-model material buffers are
+        // read when the list executes (so reflectors would still carry planar strength), and the capture draws bind
+        // a NULL planar array.
+        sb.planarParams[0] = 0.0f;
+        const UINT64 noPlanarOffset = (static_cast<UINT64>(FrameCount) + m_frameIndex) * m_shadowBufferStride;
+        memcpy(m_shadowBufferMapped + noPlanarOffset, &sb, sizeof(ShadowBufferData));
+    }
+
+    // t8 / t9 table (null SRVs if shadow resources failed so the root parameter is never unset).
+    if (m_shadowSRVTable.ptr != 0)
+        cl->SetGraphicsRootDescriptorTable(DX12_ROOT_PARAM_SHADOW_TABLE, CurrentShadowTableDX12());
+    else if (m_nullTextureGPUHandle.ptr != 0)
+        cl->SetGraphicsRootDescriptorTable(DX12_ROOT_PARAM_SHADOW_TABLE, m_nullTextureGPUHandle);
+}
+
+// ===========================================================================================
+// CurrentShadowTableDX12 — the main t8-t11 descriptor table; the "live" variant (t10 = live capture cube)
+// once a capture cycle has completed, otherwise the sky-probe table.
+// ===========================================================================================
+D3D12_GPU_DESCRIPTOR_HANDLE DX12Renderer::CurrentShadowTableDX12() const
+{
+    if (g_reflectionCapture.ready && config.myConfig.reflectionLive && m_capTex && m_shadowSRVTableLive.ptr != 0)
+        return m_shadowSRVTableLive;
+    return m_shadowSRVTable;
+}
+
+// ===========================================================================================
+// RestoreMainPassDX12 — re-establishes everything the main model pass relies on.  Needed after a pass that
+// switched the root signature (capture mip generation) because that invalidates every root argument.
+// Mirrors RenderShadowPassDX12's restore block + the frame-level root CBVs and the b6 / t8-t11 binding.
+// ===========================================================================================
+void DX12Renderer::RestoreMainPassDX12()
+{
+    ID3D12GraphicsCommandList* cl = m_commandList.Get();
+    if (!cl) return;
+
+    cl->SetGraphicsRootSignature(m_rootSignature.Get());
+    ID3D12DescriptorHeap* ppHeaps[] = { m_cbvSrvUavHeap.heap.Get(), m_samplerHeap.heap.Get() };
+    cl->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
+    if (m_pipelineState)
+        cl->SetPipelineState(MainPSO());                                        // main pass => the MSAA PSO when MSAA is on
+
+    D3D12_VIEWPORT mainVP = { 0.0f, 0.0f, static_cast<float>(iOrigWidth), static_cast<float>(iOrigHeight), 0.0f, 1.0f };
+    D3D12_RECT     mainSR = { 0, 0, static_cast<LONG>(iOrigWidth), static_cast<LONG>(iOrigHeight) };
+    cl->RSSetViewports(1, &mainVP);
+    cl->RSSetScissorRects(1, &mainSR);
+    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(MainRTV(m_frameIndex));
+    CD3DX12_CPU_DESCRIPTOR_HANDLE dsvHandle(m_dsvHeap.cpuStart);
+    cl->OMSetRenderTargets(1, &rtvHandle, FALSE, &dsvHandle);
+
+    if (m_constantBuffer)
+        cl->SetGraphicsRootConstantBufferView(DX12_ROOT_PARAM_CONST_BUFFER, CameraCBAddress());
+    if (m_globalLightBuffer)
+        cl->SetGraphicsRootConstantBufferView(DX12_ROOT_PARAM_GLOBAL_LIGHT_BUFFER, GlobalLightCBAddress());
+    if (m_envBuffer)
+        cl->SetGraphicsRootConstantBufferView(DX12_ROOT_PARAM_ENVIRONMENT_BUFFER, m_envBuffer->GetGPUVirtualAddress());
+    if (m_shadowBuffer && m_shadowBufferMapped && m_shadowBufferStride > 0)
+        cl->SetGraphicsRootConstantBufferView(DX12_ROOT_PARAM_SHADOW_BUFFER,
+            m_shadowBuffer->GetGPUVirtualAddress() + static_cast<UINT64>(m_frameIndex) * m_shadowBufferStride);
+    if (m_shadowSRVTable.ptr != 0)
+        cl->SetGraphicsRootDescriptorTable(DX12_ROOT_PARAM_SHADOW_TABLE, CurrentShadowTableDX12());
+    else if (m_nullTextureGPUHandle.ptr != 0)
+        cl->SetGraphicsRootDescriptorTable(DX12_ROOT_PARAM_SHADOW_TABLE, m_nullTextureGPUHandle);
+    cl->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+}
+
+// ===========================================================================================
+// RenderReflectionCaptureDX12 — live scene capture (see "Live scene capture" in Lights.h).
+// ONE face per frame: the sky probe's face is copied into the capture cube, every model is drawn over it
+// with a 90 degree camera (main root signature + PSO; b0 slot 1 + MAX_PLANAR_PLANES + face; the mirror
+// descriptor table so the cube is never referenced while it is a render target; the planar-off b6 slice),
+// and after the sixth face the mips are rebuilt with the downsample PSO.  Runs after the planar pass.
+// ===========================================================================================
+void DX12Renderer::RenderReflectionCaptureDX12(float deltaTime)
+{
+    ID3D12GraphicsCommandList* cl = m_commandList.Get();
+    if (!cl || !g_reflectionFrame.active || !m_reflTex || m_shadowSRVTable.ptr == 0 || m_planarMirrorTable.ptr == 0) return;
+
+    if (!config.myConfig.reflectionLive || !threadManager.threadVars.bLoaderTaskFinished.load())
+    {
+        g_reflectionCapture.ready = false;
+        return;
+    }
+    if (!m_capTex && !m_capFailed)
+        CreateCaptureResourcesDX12();
+    if (!m_capTex || m_capSize != m_reflProbe.size || m_reflUploadedVersion == 0) return;
+
+    const XMFLOAT3 cp = myCamera.GetPosition();
+    const float camPos[3] = { cp.x, cp.y, cp.z };
+    int  face = 0;
+    bool lastFace = false;
+    if (!ReflectionCaptureNext(deltaTime, camPos, face, lastFace))
+        return;
+
+    const UINT mips = static_cast<UINT>(m_capMips);
+    const UINT size = static_cast<UINT>(m_capSize);
+    const UINT sub  = static_cast<UINT>(face) * mips;                           // mip 0 of this face
+
+    // ---- 1. sky face -> capture face ----
+    D3D12_RESOURCE_BARRIER toCopy[2] = {
+        CD3DX12_RESOURCE_BARRIER::Transition(m_reflTex.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_SOURCE, sub),
+        CD3DX12_RESOURCE_BARRIER::Transition(m_capTex.Get(),  D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST,   sub) };
+    cl->ResourceBarrier(2, toCopy);
+    CD3DX12_TEXTURE_COPY_LOCATION dstLoc(m_capTex.Get(), sub);
+    CD3DX12_TEXTURE_COPY_LOCATION srcLoc(m_reflTex.Get(), sub);
+    cl->CopyTextureRegion(&dstLoc, 0, 0, 0, &srcLoc, nullptr);
+    D3D12_RESOURCE_BARRIER afterCopy[2] = {
+        CD3DX12_RESOURCE_BARRIER::Transition(m_reflTex.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, sub),
+        CD3DX12_RESOURCE_BARRIER::Transition(m_capTex.Get(),  D3D12_RESOURCE_STATE_COPY_DEST,   D3D12_RESOURCE_STATE_RENDER_TARGET,        sub) };
+    cl->ResourceBarrier(2, afterCopy);
+
+    // ---- 2. models over it ----
+    cl->SetGraphicsRootDescriptorTable(DX12_ROOT_PARAM_SHADOW_TABLE, m_planarMirrorTable);
+    if (m_shadowBuffer && m_shadowBufferMapped && m_shadowBufferStride > 0)
+        cl->SetGraphicsRootConstantBufferView(DX12_ROOT_PARAM_SHADOW_BUFFER,
+            m_shadowBuffer->GetGPUVirtualAddress() + (static_cast<UINT64>(FrameCount) + m_frameIndex) * m_shadowBufferStride);
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE capRtv(m_capRtvHeap.cpuStart, static_cast<INT>(sub), m_capRtvHeap.handleIncrementSize);
+    CD3DX12_CPU_DESCRIPTOR_HANDLE capDsv(m_capDsvHeap.cpuStart);
+    cl->OMSetRenderTargets(1, &capRtv, FALSE, &capDsv);
+    cl->ClearDepthStencilView(capDsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+    D3D12_VIEWPORT vp = { 0.0f, 0.0f, static_cast<float>(size), static_cast<float>(size), 0.0f, 1.0f };
+    D3D12_RECT     sr = { 0, 0, static_cast<LONG>(size), static_cast<LONG>(size) };
+    cl->RSSetViewports(1, &vp);
+    cl->RSSetScissorRects(1, &sr);
+
+    float v[16], p[16];
+    const float nearZ = std::max(static_cast<float>(config.myConfig.nearPlane), 0.05f);
+    const float farZ  = std::max(static_cast<float>(config.myConfig.farPlane), nearZ + 1.0f);
+    ReflectionCaptureFaceCamera(face, g_reflectionCapture.origin, nearZ, farZ, true, false, v, p);
+    XMFLOAT4X4 v4, p4;
+    std::memcpy(&v4, v, sizeof(v));
+    std::memcpy(&p4, p, sizeof(p));
+    const XMMATRIX capView = XMLoadFloat4x4(&v4);
+    const XMMATRIX capProj = XMLoadFloat4x4(&p4);
+    const XMFLOAT3 origin(g_reflectionCapture.origin[0], g_reflectionCapture.origin[1], g_reflectionCapture.origin[2]);
+
+    for (int i = 0; i < MAX_SCENE_MODELS; ++i)
+    {
+        Model& m = scene.scene_models[i];
+        if (!m.m_isLoaded || m.m_modelInfo.bIsTransformProxy) continue;
+        m.m_modelInfo.fxActive         = false;
+        m.m_modelInfo.viewMatrix       = capView;
+        m.m_modelInfo.projectionMatrix = capProj;
+        m.m_modelInfo.cameraPosition   = origin;
+        m.RenderDX12(cl, this, 0.0f, 1 + MAX_PLANAR_PLANES + face);
+    }
+
+    D3D12_RESOURCE_BARRIER toSRV = CD3DX12_RESOURCE_BARRIER::Transition(m_capTex.Get(),
+        D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, sub);
+    cl->ResourceBarrier(1, &toSRV);
+
+    // ---- 3. last face: rebuild mips 1.. with the downsample PSO ----
+    if (lastFace)
+    {
+        if (mips > 1 && m_capDownPSO && m_capDownRootSig)
+        {
+            cl->SetGraphicsRootSignature(m_capDownRootSig.Get());
+            cl->SetPipelineState(m_capDownPSO.Get());
+            ID3D12DescriptorHeap* heaps[] = { m_cbvSrvUavHeap.heap.Get() };
+            cl->SetDescriptorHeaps(1, heaps);
+            cl->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+            for (UINT m = 1; m < mips; ++m)
+            {
+                const UINT ms = static_cast<UINT>(ReflectionMipSize(m_capSize, static_cast<int>(m)));
+                D3D12_VIEWPORT mvp = { 0.0f, 0.0f, static_cast<float>(ms), static_cast<float>(ms), 0.0f, 1.0f };
+                D3D12_RECT     msr = { 0, 0, static_cast<LONG>(ms), static_cast<LONG>(ms) };
+                cl->RSSetViewports(1, &mvp);
+                cl->RSSetScissorRects(1, &msr);
+                for (UINT f = 0; f < 6; ++f)
+                {
+                    const UINT dstSub = m + f * mips;
+                    D3D12_RESOURCE_BARRIER toRT = CD3DX12_RESOURCE_BARRIER::Transition(m_capTex.Get(),
+                        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET, dstSub);
+                    cl->ResourceBarrier(1, &toRT);
+                    CD3DX12_CPU_DESCRIPTOR_HANDLE rtv(m_capRtvHeap.cpuStart, static_cast<INT>(f * mips + m), m_capRtvHeap.handleIncrementSize);
+                    cl->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+                    CD3DX12_GPU_DESCRIPTOR_HANDLE srv(m_cbvSrvUavHeap.gpuStart,
+                        static_cast<INT>(DX12_CAPTURE_SRV_BASE + f * (mips - 1) + (m - 1)), m_cbvSrvUavHeap.handleIncrementSize);
+                    cl->SetGraphicsRootDescriptorTable(0, srv);
+                    cl->DrawInstanced(3, 1, 0, 0);
+                    D3D12_RESOURCE_BARRIER toPSR = CD3DX12_RESOURCE_BARRIER::Transition(m_capTex.Get(),
+                        D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, dstSub);
+                    cl->ResourceBarrier(1, &toPSR);
+                }
+            }
+        }
+        g_reflectionCapture.ready = true;
+    }
+
+    // The mip pass switched the root signature (all root arguments invalid) and the capture changed targets:
+    // put the main pass back exactly as the model loop expects it.
+    RestoreMainPassDX12();
+}
+
+// ===========================================================================================
+// PlanarPlanDX12 — registers every reflector's plane for this frame and decides whether the planar
+// array is active (see "Planar Reflections" in Lights.h).  Runs BEFORE RenderShadowPassDX12 so the
+// b6 upload already carries the planes.
+// ===========================================================================================
+void DX12Renderer::PlanarPlanDX12()
+{
+    PlanarBeginPlan();
+
+    if (config.myConfig.planarEnabled && m_shadowSRVTable.ptr != 0 && m_planarMirrorTable.ptr != 0 &&
+        threadManager.threadVars.bLoaderTaskFinished.load())
+    {
+        const XMFLOAT3 cp = myCamera.GetPosition();
+        const float camPos[3] = { cp.x, cp.y, cp.z };
+        for (int i = 0; i < MAX_SCENE_MODELS; ++i)
+        {
+            Model& m = scene.scene_models[i];
+            m.m_modelInfo.planarPlaneIndex = -1;
+            if (!m.m_isLoaded || m.bIsDestroyed || m.m_modelInfo.bIsTransformProxy || m.m_modelInfo.bIsTransformOnly) continue;
+            if (!ModelIsPlanarReflector(m.m_modelInfo)) continue;
+            XMFLOAT4X4 w;
+            XMStoreFloat4x4(&w, m.m_modelInfo.worldMatrix);
+            const float scale[3] = { m.m_modelInfo.scale.x, m.m_modelInfo.scale.y, m.m_modelInfo.scale.z };
+            ModelPlanarRegister(m.m_modelInfo, &w._11, scale, camPos);
+        }
+    }
+
+    if (g_planarFrame.planeCount > 0 && !m_planarTex && !m_planarFailed)
+        CreatePlanarResourcesDX12();
+
+    PlanarFrameBegin(m_planarTex != nullptr, static_cast<float>(iOrigWidth), static_cast<float>(iOrigHeight));
+}
+
+// ===========================================================================================
+// RenderPlanarPassDX12 — planar reflection mirror renders (see "Planar Reflections" in Lights.h).
+// Re-records every non-reflector model through each plane's mirrored camera into that plane's array
+// slice using the SAME root signature + PSO as the main pass.  Per-model b0 data goes to constant-buffer
+// slot 1 + plane (the main pass uses slot 0), so no pass overwrites another's data before the list executes.
+// The root table points at the mirror copy whose t11 is NULL, so the planar array is never referenced by a
+// bound table while it is a render target.
+// Runs after RenderShadowPassDX12 (b6 + shadow maps bound) and after SetPipelineState, before the main loop.
+// ===========================================================================================
+void DX12Renderer::RenderPlanarPassDX12()
+{
+    ID3D12GraphicsCommandList* cl = m_commandList.Get();
+    if (!cl || !g_planarFrame.active || !g_planarFrame.renderThisFrame || !m_planarTex) return;
+
+    // Planar array -> render target; the root table switches to the mirror copy (NULL t11).
+    D3D12_RESOURCE_BARRIER toRT = CD3DX12_RESOURCE_BARRIER::Transition(m_planarTex.Get(),
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    cl->ResourceBarrier(1, &toRT);
+    cl->SetGraphicsRootDescriptorTable(DX12_ROOT_PARAM_SHADOW_TABLE, m_planarMirrorTable);
+
+    D3D12_VIEWPORT vp = { 0.0f, 0.0f, static_cast<float>(m_planarW), static_cast<float>(m_planarH), 0.0f, 1.0f };
+    D3D12_RECT     sr = { 0, 0, static_cast<LONG>(m_planarW), static_cast<LONG>(m_planarH) };
+    cl->RSSetViewports(1, &vp);
+    cl->RSSetScissorRects(1, &sr);
+
+    // Real camera (row-vector float[16] == XMMATRIX bytes).
+    XMFLOAT4X4 v4, p4;
+    XMStoreFloat4x4(&v4, myCamera.GetViewMatrix());
+    XMStoreFloat4x4(&p4, myCamera.GetProjectionMatrix());
+    const XMFLOAT3 cp = myCamera.GetPosition();
+    const float camPos[3] = { cp.x, cp.y, cp.z };
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE planarDsv(m_planarDsvHeap.cpuStart);
+    for (int plane = 0; plane < g_planarFrame.planeCount; ++plane)
+    {
+        CD3DX12_CPU_DESCRIPTOR_HANDLE planarRtv(m_planarRtvHeap.cpuStart, plane, m_planarRtvHeap.handleIncrementSize);
+        cl->OMSetRenderTargets(1, &planarRtv, FALSE, &planarDsv);
+        const float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+        cl->ClearRenderTargetView(planarRtv, clearColor, 0, nullptr);
+        cl->ClearDepthStencilView(planarDsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+
+        XMFLOAT4X4 mv4, mp4;
+        float rcam[3];
+        PlanarBuildCamera(&v4._11, &p4._11, camPos, g_planarFrame.planes[plane].n, g_planarFrame.planes[plane].d,
+                          true, &mv4._11, &mp4._11, rcam);
+        const XMMATRIX mirrorView = XMLoadFloat4x4(&mv4);
+        const XMMATRIX mirrorProj = XMLoadFloat4x4(&mp4);
+
+        for (int i = 0; i < MAX_SCENE_MODELS; ++i)
+        {
+            Model& m = scene.scene_models[i];
+            if (!m.m_isLoaded || m.m_modelInfo.bIsTransformProxy) continue;
+            if (ModelIsPlanarReflector(m.m_modelInfo)) continue;                // a reflector never reflects itself
+
+            m.m_modelInfo.fxActive         = false;
+            m.m_modelInfo.viewMatrix       = mirrorView;
+            m.m_modelInfo.projectionMatrix = mirrorProj;
+            m.m_modelInfo.cameraPosition   = XMFLOAT3(rcam[0], rcam[1], rcam[2]);
+            m.RenderDX12(cl, this, 0.0f, 1 + plane);                            // b0 slot 1 + plane
+        }
+    }
+
+    // Back to the main pass: planar array readable again, main root table, main RT/DS + viewport.
+    D3D12_RESOURCE_BARRIER toSRV = CD3DX12_RESOURCE_BARRIER::Transition(m_planarTex.Get(),
+        D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    cl->ResourceBarrier(1, &toSRV);
+    cl->SetGraphicsRootDescriptorTable(DX12_ROOT_PARAM_SHADOW_TABLE, CurrentShadowTableDX12());
+
+    D3D12_VIEWPORT mainVP = { 0.0f, 0.0f, static_cast<float>(iOrigWidth), static_cast<float>(iOrigHeight), 0.0f, 1.0f };
+    D3D12_RECT     mainSR = { 0, 0, static_cast<LONG>(iOrigWidth), static_cast<LONG>(iOrigHeight) };
+    cl->RSSetViewports(1, &mainVP);
+    cl->RSSetScissorRects(1, &mainSR);
+    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(MainRTV(m_frameIndex));
+    CD3DX12_CPU_DESCRIPTOR_HANDLE dsvHandle(m_dsvHeap.cpuStart);
+    cl->OMSetRenderTargets(1, &rtvHandle, FALSE, &dsvHandle);
+
+    g_planarFrame.hasImage = true;
 }
 
 // ===========================================================================================
@@ -1190,9 +1437,37 @@ inline void DX12Renderer::RenderGamePlay(float deltaTime)
             debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[DX12 RENDERFRAME] Rendering 3D models");
         #endif
 
+        // Planar reflection planning: registers reflector planes + decides active BEFORE b6 is uploaded.
+        PlanarPlanDX12();
+
+        // Scene reflection probe (t10): rebuild + copy on the open command list.  Must run BEFORE
+        // RenderShadowPassDX12, which uploads b6 (reflection scale / mip range) and binds the t8-t10 table.
+        UpdateReflectionProbeDX12(deltaTime);
+
+        // Shadow depth passes (restores the main-pass state afterwards) + b6 / t8 / t9 / t10 binding.
+        RenderShadowPassDX12();
+        #if defined(_DEBUG)
+            m_gpuProf.StampUpTo(m_commandList.Get(), DX12GpuProfiler::STAMP_SHADOWS);
+        #endif
+
         // Set the DX12 PSO once for all model draws this frame
         if (m_pipelineState)
             m_commandList->SetPipelineState(m_pipelineState.Get());
+
+        // Planar reflection mirror render (same PSO / root signature as the main pass), then the
+        // main pass continues with the t11 table bound by RenderShadowPassDX12.
+        RenderPlanarPassDX12();
+
+        // Live scene capture into the reflection cube (one face per frame); restores the main pass state.
+        RenderReflectionCaptureDX12(deltaTime);
+        #if defined(_DEBUG)
+            m_gpuProf.StampUpTo(m_commandList.Get(), DX12GpuProfiler::STAMP_REFLECTIONS);
+        #endif
+
+        // The planar / capture passes drew with the 1-sample PSO into 1-sample targets; the model loop below
+        // draws into the main (possibly multisampled) target, so switch to the main-pass PSO.
+        if (m_pipelineState)
+            m_commandList->SetPipelineState(MainPSO());
 
         // Hoist camera reads once per frame — calling the getters inside the loop
         // would invoke them once per loaded model each frame.
@@ -1217,6 +1492,10 @@ inline void DX12Renderer::RenderGamePlay(float deltaTime)
                 scene.scene_models[i].RenderDX12(m_commandList.Get(), this, deltaTime);
             }
         }
+
+        #if defined(_DEBUG)
+            m_gpuProf.StampUpTo(m_commandList.Get(), DX12GpuProfiler::STAMP_MODELS);
+        #endif
     }
 }
 
@@ -1360,16 +1639,12 @@ void DX12Renderer::RenderBackgroundImage()
         HRESULT hr = m_d2dContext->EndDraw();
         if (FAILED(hr))
         {
-            #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 RenderBackgroundImage] EndDraw failed (0x%08X)", hr);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[DX12 RenderBackgroundImage] EndDraw failed (0x%08X)", hr);
         }
     }
     catch (const std::exception& e)
     {
-        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX12 RenderBackgroundImage] EndDraw exception: %hs", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[DX12 RenderBackgroundImage] EndDraw exception: %hs", e.what());
     }
     } // end if (false) — dead code block
 } // End of RenderBackgroundImage()

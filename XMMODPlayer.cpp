@@ -724,9 +724,7 @@ void XMMODPlayer::FillAudioBuffer() {
     DWORD playCursor = 0, writeCursorDS = 0;
     HRESULT hr = secondaryBuffer->GetCurrentPosition(&playCursor, &writeCursorDS);
     if (FAILED(hr)) {
-        #if defined(_DEBUG_XMPlayer_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"FillAudioBuffer: Failed to get current position.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"FillAudioBuffer: Failed to get current position.");
         return;
     }
 
@@ -736,9 +734,7 @@ void XMMODPlayer::FillAudioBuffer() {
     DWORD samplesToWrite = distance / (sizeof(int16_t) * 2);
 
     if (samplesToWrite == 0) {
-        #if defined(_DEBUG_XMPlayer_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"FillAudioBuffer: No samples to write.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"FillAudioBuffer: No samples to write.");
         return;
     }
 
@@ -780,9 +776,7 @@ void XMMODPlayer::FillAudioBuffer() {
         #endif
     }
     else {
-        #if defined(_DEBUG_XMPlayer_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"FillAudioBuffer: Lock failed.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"FillAudioBuffer: Lock failed.");
     }
 
     #if defined(_DEBUG_XMPlayer_)

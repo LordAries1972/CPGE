@@ -21,6 +21,9 @@
 
 #if defined(__USE_OPENGL__)
 
+#include <set>                                                                  // GLStageCheck de-duplication
+#include <utility>
+
 #include "OpenGLRenderer.h"
 #include "BuildInfo.h"
 #include "Debug.h"
@@ -153,6 +156,33 @@ static void UploadModelUniformsCached(
     if (u.uEmissiveFactor>= 0) glUniform3f(u.uEmissiveFactor,0.0f, 0.0f, 0.0f);
     if (u.uEmissiveStr   >= 0) glUniform1f(u.uEmissiveStr,   1.0f);
 
+    // ── Scene reflections (embedded fallback shader only) ────────────────────
+    // Zero scales switch the effects off; the probe / planar textures are per-frame state on units 10 / 11.
+    if (u.uReflParams >= 0)
+        glUniform3f(u.uReflParams, g_reflectionFrame.active ? g_reflectionFrame.scale : 0.0f,
+                    g_reflectionFrame.maxMip, g_reflectionFrame.blur);
+    const bool planarOn = g_planarFrame.active && mi.planarPlaneIndex >= 0 && (mi.planarReflector || mi.planarTagState == 1);
+    if (u.uPlanarStrength >= 0) glUniform1f(u.uPlanarStrength, planarOn ? std::clamp(mi.planarStrength, 0.0f, 1.0f) : 0.0f);
+    if (u.uPlanarIndex    >= 0) glUniform1f(u.uPlanarIndex,    planarOn ? static_cast<float>(mi.planarPlaneIndex) : 0.0f);
+    if (u.uPlanarParams   >= 0)
+        glUniform4f(u.uPlanarParams,
+                    g_planarFrame.active ? static_cast<float>(std::clamp(config.myConfig.planarStrength, 0.0L, 1.0L)) : 0.0f,
+                    static_cast<float>(std::clamp(config.myConfig.planarDistortion, 0.0L, 1.0L)),
+                    1.0f / std::max(g_planarFrame.screenW, 1.0f), 1.0f / std::max(g_planarFrame.screenH, 1.0f));
+    if (u.uPlanarPlanes   >= 0)
+    {
+        float pl[16] = {};
+        for (int p = 0; p < MAX_PLANAR_PLANES; ++p)
+        {
+            const bool used = p < g_planarFrame.planeCount;
+            pl[p * 4 + 0] = used ? g_planarFrame.planes[p].n[0] : 0.0f;
+            pl[p * 4 + 1] = used ? g_planarFrame.planes[p].n[1] : 1.0f;
+            pl[p * 4 + 2] = used ? g_planarFrame.planes[p].n[2] : 0.0f;
+            pl[p * 4 + 3] = used ? g_planarFrame.planes[p].d    : 0.0f;
+        }
+        glUniform4fv(u.uPlanarPlanes, MAX_PLANAR_PLANES, pl);
+    }
+
     // ── Texture bindings (both paths) ────────────────────────────────────────
     // Bind each map to its fixed texture unit.  Sampler uniforms were set once in
     // LoadShaders() so only the GL_TEXTURE* state needs to change per draw call.
@@ -164,8 +194,7 @@ static void UploadModelUniformsCached(
     glActiveTexture(GL_TEXTURE5); glBindTexture(GL_TEXTURE_CUBE_MAP,hasEnv      ? mi.envTexID       : 0);
     glActiveTexture(GL_TEXTURE6); glBindTexture(GL_TEXTURE_2D,      hasGloss    ? mi.glossTexID    : 0);
     glActiveTexture(GL_TEXTURE7); glBindTexture(GL_TEXTURE_2D,      hasEmissive ? mi.emissiveTexID : 0);
-    // t8: shadow depth map for PCF — bind when present, zero when absent.
-    glActiveTexture(GL_TEXTURE8); glBindTexture(GL_TEXTURE_2D,      mi.shadowTexID != 0 ? mi.shadowTexID : 0);
+    // t8/t9 shadow maps are per-frame state bound by RenderShadowPassGL() - not touched here.
     glActiveTexture(GL_TEXTURE0); // Leave unit 0 active (conventional default)
 }
 
@@ -194,6 +223,12 @@ static void UploadModelUniformsDynamic(GLuint prog,
     if (lG  >= 0) glUniform1i(lG,  TEXTURE_UNIT_GLOSS);
     if (lEM >= 0) glUniform1i(lEM, TEXTURE_UNIT_EMISSIVE);
     if (lS  >= 0) glUniform1i(lS,  TEXTURE_UNIT_SHADOW);
+    GLint lLS = loc("localShadowMaps");
+    if (lLS >= 0) glUniform1i(lLS, TEXTURE_UNIT_LOCAL_SHADOW);
+    GLint lSP = loc("sceneProbe");
+    if (lSP >= 0) glUniform1i(lSP, TEXTURE_UNIT_SCENE_PROBE);
+    GLint lPL = loc("planarMap");
+    if (lPL >= 0) glUniform1i(lPL, TEXTURE_UNIT_PLANAR);
 
     // Bind model textures to the matching units.
     bool hasDiffuse  = !mi.textureIDs.empty()    && mi.textureIDs[0]    != 0;
@@ -212,9 +247,216 @@ static void UploadModelUniformsDynamic(GLuint prog,
     glActiveTexture(GL_TEXTURE5); glBindTexture(GL_TEXTURE_CUBE_MAP,hasEnv      ? mi.envTexID       : 0);
     glActiveTexture(GL_TEXTURE6); glBindTexture(GL_TEXTURE_2D,      hasGloss      ? mi.glossTexID    : 0);
     glActiveTexture(GL_TEXTURE7); glBindTexture(GL_TEXTURE_2D,      hasEmissive   ? mi.emissiveTexID : 0);
-    // t8: shadow depth map for PCF — bind when present, zero when absent.
-    glActiveTexture(GL_TEXTURE8); glBindTexture(GL_TEXTURE_2D,      mi.shadowTexID != 0 ? mi.shadowTexID : 0);
+    // t8/t9 shadow maps are per-frame state bound by RenderShadowPassGL() - not touched here.
     glActiveTexture(GL_TEXTURE0);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Render-pipeline diagnostics (render thread only).
+//   GLStageCheck    - drains glGetError after a pipeline stage and reports each distinct (stage, error)
+//                     pair ONCE, so a GL error from the shadow / reflection / planar passes is visible in
+//                     DebugLog.txt (WARNING level, also in Release) without flooding it every frame.
+//   GLStageLogState - logs the shadow / reflection / planar state whenever it changes.
+// ---------------------------------------------------------------------------------------------------------------
+static int GLFreeVideoMemoryMB();                                               // Defined below GLStageCheck
+
+static void GLStageCheck(const wchar_t* stage)
+{
+    static std::set<std::pair<std::wstring, unsigned>> reported;
+    for (int guard = 0; guard < 8; ++guard)
+    {
+        const GLenum err = glGetError();
+        if (err == GL_NO_ERROR) break;
+        if (reported.insert({ stage, static_cast<unsigned>(err) }).second)
+            Debug::logDiagMessage(LogLevel::LOG_WARNING,
+                L"[OpenGLRenderer] GL error 0x%04X after stage: %ls (logged once, free VRAM=%d MB)", static_cast<unsigned>(err), stage, GLFreeVideoMemoryMB());
+    }
+}
+
+// NVIDIA-only free-VRAM readout (GL_NVX_gpu_memory_info); returns -1 when unsupported.
+static int GLFreeVideoMemoryMB()
+{
+    static int supported = -1;
+    if (supported < 0)
+    {
+        supported = 0;
+        GLint n = 0;
+        glGetIntegerv(GL_NUM_EXTENSIONS, &n);
+        for (GLint i = 0; i < n; ++i)
+        {
+            const char* e = reinterpret_cast<const char*>(glGetStringi(GL_EXTENSIONS, i));
+            if (e && strcmp(e, "GL_NVX_gpu_memory_info") == 0) { supported = 1; break; }
+        }
+        glGetError();
+    }
+    if (!supported) return -1;
+    GLint kb = 0;
+    glGetIntegerv(0x9049, &kb);                                                 // GL_GPU_MEM_INFO_CURRENT_AVAILABLE_VIDMEM_NVX
+    return static_cast<int>(kb / 1024);
+}
+
+static void GLStageLogState(bool shadowsOn, int casters, bool probeOn, bool captureReady, bool planarOn)
+{
+    static int lastSig = -1;
+    const int sig = (shadowsOn ? 1 : 0) | (probeOn ? 2 : 0) | (captureReady ? 4 : 0) | (planarOn ? 8 : 0) | (casters << 4);
+    if (sig == lastSig) return;
+    lastSig = sig;
+    Debug::logDiagMessage(LogLevel::LOG_WARNING,
+        L"[OpenGLRenderer] Pipeline state: shadows=%d casters=%d sky probe=%d live capture=%d planar=%d free VRAM=%d MB",
+        shadowsOn ? 1 : 0, casters, probeOn ? 1 : 0, captureReady ? 1 : 0, planarOn ? 1 : 0, GLFreeVideoMemoryMB());
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Shadow depth passes + per-frame shadow binding (UBO binding 6, units 8 / 9).
+// `lights` MUST be the exact vector uploaded to the GlobalLightBuffer UBO so
+// lightShadowInfo[i] lines up with globalLights[i] in ModelPixel.glsl.
+// Always uploads the ShadowBuffer UBO (useShadowMap = 0 when shadows are off).
+// ---------------------------------------------------------------------------------------------------------------
+void OpenGLRenderer::RenderShadowPassGL(const std::vector<LightStruct>& lights)
+{
+    m_shadowFrame.enabled = false;
+    m_shadowFrame.views.clear();
+
+    if (m_shadowResourcesReady && threadManager.threadVars.bLoaderTaskFinished.load())
+    {
+        // Gather world-space bounding spheres of every shadow-casting mesh.
+        // VAOs are created lazily by the main loop below, so a model drawn for the
+        // first time casts from its second frame onwards.
+        m_shadowCasters.clear();
+        m_shadowCasterModels.clear();
+        for (int i = 0; i < MAX_SCENE_MODELS; ++i)
+        {
+            Model& m = scene.scene_models[i];
+            if (!m.m_isLoaded || m.bIsDestroyed) continue;
+            ModelInfo& mi = m.m_modelInfo;
+            if (mi.bIsTransformProxy || mi.bIsTransformOnly || !mi.castShadows) continue;
+            if (mi.VAO == 0 || mi.indices.empty()) continue;
+            if (!ModelComputeShadowBounds(mi)) continue;
+
+            const float scale[3] = { mi.scale.x, mi.scale.y, mi.scale.z };
+            ShadowCaster c{};
+            ShadowMakeWorldSphere(mi.shadowBoundsCenter, mi.shadowBoundsRadius, scale, &mi.worldMatrix.m[0][0], c);
+            m_shadowCasters.push_back(c);
+            m_shadowCasterModels.push_back(i);
+        }
+
+        const glm::vec3 cp = myCamera.GetPosition();
+        const float camPos[3] = { cp.x, cp.y, cp.z };
+        BuildShadowFrame(lights, m_shadowCasters, camPos, m_shadowFrame);
+    }
+
+    if (m_shadowFrame.enabled)
+    {
+        // Save the state the depth passes change.
+        GLint prevFBO = 0;
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevFBO);
+        GLint prevVP[4] = { 0, 0, 0, 0 };
+        glGetIntegerv(GL_VIEWPORT, prevVP);
+        const GLboolean cullWasOn    = glIsEnabled(GL_CULL_FACE);
+        const GLboolean scissorWasOn = glIsEnabled(GL_SCISSOR_TEST);
+
+        glDisable(GL_CULL_FACE);                                                // single-sided geometry still casts
+        glDisable(GL_SCISSOR_TEST);
+        glEnable(GL_DEPTH_TEST);
+        glDepthFunc(GL_LESS);
+        glDepthMask(GL_TRUE);
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(2.0f, 4.0f);                                            // slope-scaled + constant depth bias
+
+        glBindFramebuffer(GL_FRAMEBUFFER, m_shadowFBO);
+        glUseProgram(m_shadowProgram);
+
+        for (const ShadowView& view : m_shadowFrame.views)
+        {
+            const bool isDir = (view.target == SHADOW_TARGET_DIRECTIONAL);
+            if (isDir)
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, m_shadowDirTex, 0);
+            else
+                glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, m_shadowLocalTex, 0, view.target);
+
+            const int size = isDir ? m_shadowDirSize : m_shadowLocalSize;
+            glViewport(0, 0, size, size);
+            glClear(GL_DEPTH_BUFFER_BIT);
+
+            for (size_t c = 0; c < m_shadowCasters.size(); ++c)
+            {
+                if (!ShadowViewAffectsCaster(view, m_shadowCasters[c])) continue;
+                ModelInfo& mi = scene.scene_models[m_shadowCasterModels[c]].m_modelInfo;
+
+                float wlvp[16];
+                ShadowMat4Mul(&mi.worldMatrix.m[0][0], view.viewProj, wlvp);
+                // Raw row-major upload; GL reads column-major = transpose = column-vector form.
+                glUniformMatrix4fv(m_shadowLocWorldLVP, 1, GL_FALSE, wlvp);
+                glUniform3f(m_shadowLocScale, mi.scale.x, mi.scale.y, mi.scale.z);
+
+                glBindVertexArray(mi.VAO);
+                glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mi.indices.size()), GL_UNSIGNED_INT, nullptr);
+            }
+        }
+
+        glBindVertexArray(0);
+        glUseProgram(0);
+        glDisable(GL_POLYGON_OFFSET_FILL);
+
+        // Restore the main pass.
+        glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevFBO));
+        glViewport(prevVP[0], prevVP[1], prevVP[2], prevVP[3]);
+        if (cullWasOn)    glEnable(GL_CULL_FACE);
+        if (scissorWasOn) glEnable(GL_SCISSOR_TEST);
+    }
+
+    // ShadowBuffer UBO (binding 6) for this frame.
+    {
+        ShadowBufferData sb;
+        ShadowPackGPU(m_shadowFrame, false, sb);                                // raw row-major for GLSL
+        GLuint shadowUBO = m_uniformBuffers[UNIFORM_SHADOW_BUFFER].bufferID;
+        if (shadowUBO != 0 && m_uniformBuffers[UNIFORM_SHADOW_BUFFER].isAllocated)
+        {
+            glBindBuffer(GL_UNIFORM_BUFFER, shadowUBO);
+            glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(ShadowBufferData), &sb);
+            glBindBuffer(GL_UNIFORM_BUFFER, 0);
+            glBindBufferBase(GL_UNIFORM_BUFFER, GLSL_BINDING_SHADOW_BUFFER, shadowUBO);
+        }
+    }
+
+    // Units 8 / 9 stay bound for every model drawn this frame (the per-model unbind loop skips them).
+    glActiveTexture(GL_TEXTURE0 + TEXTURE_UNIT_SHADOW);
+    glBindTexture(GL_TEXTURE_2D, m_shadowDirTex);
+    glActiveTexture(GL_TEXTURE0 + TEXTURE_UNIT_LOCAL_SHADOW);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, m_shadowLocalTex);
+    glActiveTexture(GL_TEXTURE0);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// PlanarPlanGL - registers every reflector's plane for this frame and decides whether the planar array is
+// active (see "Planar Reflections" in Lights.h).  Runs BEFORE RenderShadowPassGL so the ShadowBuffer UBO
+// already carries the planes.
+// ---------------------------------------------------------------------------------------------------------------
+void OpenGLRenderer::PlanarPlanGL()
+{
+    PlanarBeginPlan();
+
+    if (config.myConfig.planarEnabled && threadManager.threadVars.bLoaderTaskFinished.load())
+    {
+        const glm::vec3 cp = myCamera.GetPosition();
+        const float camPos[3] = { cp.x, cp.y, cp.z };
+        for (int i = 0; i < MAX_SCENE_MODELS; ++i)
+        {
+            Model& m = scene.scene_models[i];
+            m.m_modelInfo.planarPlaneIndex = -1;
+            if (!m.m_isLoaded || m.bIsDestroyed || m.m_modelInfo.bIsTransformProxy || m.m_modelInfo.bIsTransformOnly) continue;
+            if (!ModelIsPlanarReflector(m.m_modelInfo)) continue;
+            const float scale[3] = { m.m_modelInfo.scale.x, m.m_modelInfo.scale.y, m.m_modelInfo.scale.z };
+            ModelPlanarRegister(m.m_modelInfo, &m.m_modelInfo.worldMatrix.m[0][0], scale, camPos);
+        }
+    }
+
+    if (g_planarFrame.planeCount > 0 && m_planarTex == 0 && !m_planarFailed)
+        CreatePlanarResourcesGL();
+
+    GLint vp[4] = { 0, 0, 1, 1 };
+    glGetIntegerv(GL_VIEWPORT, vp);
+    PlanarFrameBegin(m_planarTex != 0, static_cast<float>(vp[2]), static_cast<float>(vp[3]));
 }
 
 inline void OpenGLRenderer::RenderGamePlay(float deltaTime)
@@ -273,6 +515,22 @@ inline void OpenGLRenderer::RenderGamePlay(float deltaTime)
         }
     }
 
+    GLStageCheck(L"start of RenderGamePlay");
+
+    // Planar reflection planning: registers reflector planes + decides active BEFORE the ShadowBuffer UBO is uploaded.
+    PlanarPlanGL();
+    GLStageCheck(L"PlanarPlanGL");
+
+    // Scene reflection probe (unit 10).  Must run BEFORE RenderShadowPassGL: that uploads the
+    // ShadowBuffer UBO, which carries the reflection scale / mip range.
+    UpdateReflectionProbeGL(allLights, deltaTime);
+    GLStageCheck(L"UpdateReflectionProbeGL");
+
+    // Shadow depth passes (same light vector/order as the UBO above), then the
+    // ShadowBuffer UBO + units 8/9 for the model loop below.
+    RenderShadowPassGL(allLights);
+    GLStageCheck(L"RenderShadowPassGL");
+
     // Build view/proj as Matrix4x4 for model info.
     // CONVENTION (must match mi.worldMatrix): all ModelInfo matrices are stored in
     // DX row-vector convention (row-major memory), exactly like the XMMATRIX stubs
@@ -296,216 +554,393 @@ inline void OpenGLRenderer::RenderGamePlay(float deltaTime)
     glPolygonMode(GL_FRONT_AND_BACK, bWireframeMode ? GL_LINE : GL_FILL);
 #endif
 
-    for (int i = 0; i < MAX_SCENE_MODELS; ++i)
+    // Draws every scene model with the given camera.  Used by the main pass and by the planar
+    // mirror pass (mirrorPass = true skips reflector surfaces and passes dt = 0).
+    auto drawModels = [&](const glm::mat4& view, const glm::mat4& proj, const glm::vec3& camPos,
+                          const Matrix4x4& viewMat4, const Matrix4x4& projMat4, const XMFLOAT3& camPosF3,
+                          bool mirrorPass, float dt)
     {
-        if (!scene.scene_models[i].m_isLoaded) continue;
-        if (scene.scene_models[i].m_modelInfo.bIsTransformProxy) continue;
-        if (scene.scene_models[i].m_modelInfo.vertices.empty()) continue;
-
-        ModelInfo& mi = scene.scene_models[i].m_modelInfo;
-        mi.fxActive        = false;
-        mi.viewMatrix      = viewMat4;
-        mi.projectionMatrix = projMat4;
-        mi.cameraPosition  = camPosF3;
-
-        // Choose shader: prefer per-model, fall back to renderer's built-in 3D shader
-        const bool useBuiltin = (mi.shaderProgram == 0 || mi.shaderProgram == m_3dShaderProgram.programID);
-        GLuint prog = useBuiltin ? m_3dShaderProgram.programID : mi.shaderProgram;
-        if (prog == 0) {
-            scene.scene_models[i].Render(deltaTime);
-            continue;
-        }
-
-        glUseProgram(prog);
-
-        // ── ConstantBuffer UBO (GLSL binding 0) ──────────────────────────────
-        // Upload world/view/proj/camPos/scale per-model so the vertex shader sees
-        // the correct transforms.  XMMATRIX = Matrix4x4 in OpenGL builds.
+        for (int i = 0; i < MAX_SCENE_MODELS; ++i)
         {
-            ConstantBuffer cb{};
-            cb.worldMatrix      = mi.worldMatrix;
-            cb.viewMatrix       = mi.viewMatrix;
-            cb.projectionMatrix = mi.projectionMatrix;
-            cb.cameraPosition   = { camPos.x, camPos.y, camPos.z };
-            cb.modelScale       = mi.scale;
-            GLuint cbUBO = m_uniformBuffers[UNIFORM_VIEW_MATRIX].bufferID;
-            if (cbUBO != 0) {
-                glBindBuffer(GL_UNIFORM_BUFFER, cbUBO);
-                glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(ConstantBuffer), &cb);
-                glBindBuffer(GL_UNIFORM_BUFFER, 0);
+            if (!scene.scene_models[i].m_isLoaded) continue;
+            if (scene.scene_models[i].m_modelInfo.bIsTransformProxy) continue;
+            if (scene.scene_models[i].m_modelInfo.vertices.empty()) continue;
+
+            ModelInfo& mi = scene.scene_models[i].m_modelInfo;
+            if (mirrorPass && ModelIsPlanarReflector(mi)) continue;                 // a reflector never reflects itself
+            mi.fxActive        = false;
+            mi.viewMatrix      = viewMat4;
+            mi.projectionMatrix = projMat4;
+            mi.cameraPosition  = camPosF3;
+
+            // Choose shader: prefer per-model, fall back to renderer's built-in 3D shader
+            const bool useBuiltin = (mi.shaderProgram == 0 || mi.shaderProgram == m_3dShaderProgram.programID);
+            GLuint prog = useBuiltin ? m_3dShaderProgram.programID : mi.shaderProgram;
+            if (prog == 0) {
+                scene.scene_models[i].Render(dt);
+                continue;
             }
-        }
 
-        // ── MaterialBuffer UBO (GLSL binding 4) ──────────────────────────────
-        // Upload PBR material properties and texture-presence flags so the
-        // fragment shader samples the correct maps and applies the right colours.
-        {
-            bool hasDiffuse  = !mi.textureIDs.empty()    && mi.textureIDs[0]    != 0;
-            bool hasNormal   = !mi.normalMapIDs.empty()  && mi.normalMapIDs[0]  != 0;
-            bool hasMetallic = mi.useMetallicMap         && mi.metallicTexID    != 0;
-            bool hasRoughness= mi.useRoughnessMap        && mi.roughnessTexID   != 0;
-            bool hasAO       = mi.useAOMap               && mi.aoTexID          != 0;
-            bool hasEnv      = mi.useEnvironmentMap      && mi.envTexID         != 0;
-            bool hasGloss    = mi.useGlossMap            && mi.glossTexID       != 0;
-            bool hasEmissive = mi.useEmissiveMap         && mi.emissiveTexID    != 0;
+            glUseProgram(prog);
 
-            // Resolve the first parsed material as active — mirrors DX11 Model::Render()
-            // which reads m_materials.begin()->second into the b4 material buffer.
-            // Without this the GL path rendered every model with hardcoded white Kd,
-            // losing all solid-colour materials and PBR scalars from the importers.
-            const Material* srcMat = nullptr;
-            if (!scene.scene_models[i].m_materials.empty())
-                srcMat = &(scene.scene_models[i].m_materials.begin()->second);
-
-            GLMaterialUBO mat{};
-            if (srcMat)
+            // ── ConstantBuffer UBO (GLSL binding 0) ──────────────────────────────
+            // Upload world/view/proj/camPos/scale per-model so the vertex shader sees
+            // the correct transforms.  XMMATRIX = Matrix4x4 in OpenGL builds.
             {
-                mat.Ka[0] = srcMat->Ka.x; mat.Ka[1] = srcMat->Ka.y; mat.Ka[2] = srcMat->Ka.z;
-                mat.Kd[0] = srcMat->Kd.x; mat.Kd[1] = srcMat->Kd.y; mat.Kd[2] = srcMat->Kd.z;
-                mat.Ks[0] = srcMat->Ks.x; mat.Ks[1] = srcMat->Ks.y; mat.Ks[2] = srcMat->Ks.z;
-                mat.Ns               = srcMat->Ns;
-                mat.Metallic         = srcMat->Metallic;
-                mat.Roughness        = srcMat->Roughness;
-                mat.ReflectionStrength = srcMat->Reflection;
-                mat.EmissiveFactor[0]= srcMat->emissiveFactor.x;
-                mat.EmissiveFactor[1]= srcMat->emissiveFactor.y;
-                mat.EmissiveFactor[2]= srcMat->emissiveFactor.z;
-                mat.EmissiveStrength = srcMat->emissiveStrength;
+                ConstantBuffer cb{};
+                cb.worldMatrix      = mi.worldMatrix;
+                cb.viewMatrix       = mi.viewMatrix;
+                cb.projectionMatrix = mi.projectionMatrix;
+                cb.cameraPosition   = { camPos.x, camPos.y, camPos.z };
+                cb.modelScale       = mi.scale;
+                GLuint cbUBO = m_uniformBuffers[UNIFORM_VIEW_MATRIX].bufferID;
+                if (cbUBO != 0) {
+                    glBindBuffer(GL_UNIFORM_BUFFER, cbUBO);
+                    glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(ConstantBuffer), &cb);
+                    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+                }
             }
+
+            // ── MaterialBuffer UBO (GLSL binding 4) ──────────────────────────────
+            // Upload PBR material properties and texture-presence flags so the
+            // fragment shader samples the correct maps and applies the right colours.
+            {
+                bool hasDiffuse  = !mi.textureIDs.empty()    && mi.textureIDs[0]    != 0;
+                bool hasNormal   = !mi.normalMapIDs.empty()  && mi.normalMapIDs[0]  != 0;
+                bool hasMetallic = mi.useMetallicMap         && mi.metallicTexID    != 0;
+                bool hasRoughness= mi.useRoughnessMap        && mi.roughnessTexID   != 0;
+                bool hasAO       = mi.useAOMap               && mi.aoTexID          != 0;
+                bool hasEnv      = mi.useEnvironmentMap      && mi.envTexID         != 0;
+                bool hasGloss    = mi.useGlossMap            && mi.glossTexID       != 0;
+                bool hasEmissive = mi.useEmissiveMap         && mi.emissiveTexID    != 0;
+
+                // Resolve the first parsed material as active — mirrors DX11 Model::Render()
+                // which reads m_materials.begin()->second into the b4 material buffer.
+                // Without this the GL path rendered every model with hardcoded white Kd,
+                // losing all solid-colour materials and PBR scalars from the importers.
+                const Material* srcMat = nullptr;
+                if (!scene.scene_models[i].m_materials.empty())
+                    srcMat = &(scene.scene_models[i].m_materials.begin()->second);
+
+                GLMaterialUBO mat{};
+                if (srcMat)
+                {
+                    mat.Ka[0] = srcMat->Ka.x; mat.Ka[1] = srcMat->Ka.y; mat.Ka[2] = srcMat->Ka.z;
+                    mat.Kd[0] = srcMat->Kd.x; mat.Kd[1] = srcMat->Kd.y; mat.Kd[2] = srcMat->Kd.z;
+                    mat.Ks[0] = srcMat->Ks.x; mat.Ks[1] = srcMat->Ks.y; mat.Ks[2] = srcMat->Ks.z;
+                    mat.Ns               = srcMat->Ns;
+                    mat.Metallic         = srcMat->Metallic;
+                    mat.Roughness        = srcMat->Roughness;
+                    mat.ReflectionStrength = srcMat->Reflection;
+                    mat.EmissiveFactor[0]= srcMat->emissiveFactor.x;
+                    mat.EmissiveFactor[1]= srcMat->emissiveFactor.y;
+                    mat.EmissiveFactor[2]= srcMat->emissiveFactor.z;
+                    mat.EmissiveStrength = srcMat->emissiveStrength * config.myConfig.EmissionScale();
+                }
+                else
+                {
+                    // No parsed material — same defaults as the DX11 fallback branch.
+                    mat.Ka[0] = 0.1f;  mat.Ka[1] = 0.1f;  mat.Ka[2] = 0.1f;
+                    mat.Kd[0] = 0.8f;  mat.Kd[1] = 0.8f;  mat.Kd[2] = 0.8f;
+                    mat.Ks[0] = 1.0f;  mat.Ks[1] = 1.0f;  mat.Ks[2] = 1.0f;
+                    mat.Ns               = 16.0f;
+                    mat.Metallic         = mi.metallic;
+                    mat.Roughness        = mi.roughness;
+                    mat.ReflectionStrength = mi.reflectionStrength;
+                    mat.EmissiveFactor[0]= 0.0f; mat.EmissiveFactor[1] = 0.0f; mat.EmissiveFactor[2] = 0.0f;
+                    mat.EmissiveStrength = config.myConfig.EmissionScale();
+                }
+
+                // Derive ambient from base colour so each material keeps its own hue.
+                // GLTF has no Ka concept — a fraction of Kd is PBR-correct and prevents
+                // every material from reading as flat grey (mirrors DX11 Model::Render).
+                if (mat.Ka[0] <= 0.0001f && mat.Ka[1] <= 0.0001f && mat.Ka[2] <= 0.0001f)
+                {
+                    mat.Ka[0] = mat.Kd[0] * 0.15f;
+                    mat.Ka[1] = mat.Kd[1] * 0.15f;
+                    mat.Ka[2] = mat.Kd[2] * 0.15f;
+                }
+
+                mat.useMetallicMap   = hasMetallic  ? 1.0f : 0.0f;
+                mat.useRoughnessMap  = hasRoughness ? 1.0f : 0.0f;
+                mat.useAOMap         = hasAO        ? 1.0f : 0.0f;
+                mat.useEnvMap        = hasEnv       ? 1.0f : 0.0f;
+                // NormalScale <= 0 tells the shader to skip normal-map sampling entirely.
+                mat.NormalScale      = hasNormal    ? 1.0f : -1.0f;
+                // useDiffuseMap: honour the importer's decision (solid-colour materials use
+                // Kd directly) but never enable sampling when no texture is bound — the
+                // same belt-and-suspenders guard as DX12 RenderDX12 (resource must exist).
+                mat.useDiffuseMap    = (mi.useDiffuseMap && hasDiffuse) ? 1.0f : 0.0f;
+                mat.useGlossMap      = hasGloss     ? 1.0f : 0.0f;
+                mat.useEmissiveMap   = hasEmissive  ? 1.0f : 0.0f;
+                mat.receiveShadows   = mi.receiveShadows ? 1.0f : 0.0f;
+                // Planar reflection: only reflector surfaces mix in the mirror render (0 = none).
+                const bool planarOn  = g_planarFrame.active && mi.planarPlaneIndex >= 0 && ModelIsPlanarReflector(mi);
+                mat.planarStrength   = planarOn ? std::clamp(mi.planarStrength, 0.0f, 1.0f) : 0.0f;
+                mat.planarIndex      = planarOn ? static_cast<float>(mi.planarPlaneIndex) : 0.0f;
+
+                GLuint matUBO = m_uniformBuffers[UNIFORM_MATERIAL_BUFFER].bufferID;
+                if (matUBO != 0 && m_uniformBuffers[UNIFORM_MATERIAL_BUFFER].isAllocated) {
+                    glBindBuffer(GL_UNIFORM_BUFFER, matUBO);
+                    glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(GLMaterialUBO), &mat);
+                    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+                }
+            }
+
+            // ── EnvBuffer UBO (GLSL binding 5) ───────────────────────────────────
+            // Upload per-model environment properties (intensity, tint, Fresnel F0).
+            // Mirrors DX11 Model::UpdateEnvironmentBuffer() — uses ModelInfo fields
+            // set by SetEnvironmentProperties() or defaulted to safe dielectric values.
+            {
+                GLEnvUBO env = {};
+                env.envIntensity   = mi.envIntensity;
+                env.envTint[0]     = mi.envTint.x;
+                env.envTint[1]     = mi.envTint.y;
+                env.envTint[2]     = mi.envTint.z;
+                env.mipLODBias     = mi.mipLODBias;
+                env.fresnel0       = mi.fresnel0;
+                GLuint envUBO = m_uniformBuffers[UNIFORM_ENVIRONMENT_BUFFER].bufferID;
+                if (envUBO != 0 && m_uniformBuffers[UNIFORM_ENVIRONMENT_BUFFER].isAllocated) {
+                    glBindBuffer(GL_UNIFORM_BUFFER, envUBO);
+                    glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(GLEnvUBO), &env);
+                    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+                }
+            }
+
+            // ShadowBuffer UBO (GLSL binding 6) is per-FRAME state uploaded once by
+            // RenderShadowPassGL(); the per-model receive flag travels in MaterialBuffer.
+
+            // ── Texture bindings + (for built-in) legacy sampler path ─────────────
+            GLStageCheck(L"model UBO uploads");
+            if (useBuiltin && m_uniforms3D.populated)
+                UploadModelUniformsCached(m_uniforms3D, view, proj, camPos, mi.worldMatrix, allLights, lightCount, mi);
             else
-            {
-                // No parsed material — same defaults as the DX11 fallback branch.
-                mat.Ka[0] = 0.1f;  mat.Ka[1] = 0.1f;  mat.Ka[2] = 0.1f;
-                mat.Kd[0] = 0.8f;  mat.Kd[1] = 0.8f;  mat.Kd[2] = 0.8f;
-                mat.Ks[0] = 1.0f;  mat.Ks[1] = 1.0f;  mat.Ks[2] = 1.0f;
-                mat.Ns               = 16.0f;
-                mat.Metallic         = mi.metallic;
-                mat.Roughness        = mi.roughness;
-                mat.ReflectionStrength = mi.reflectionStrength;
-                mat.EmissiveFactor[0]= 0.0f; mat.EmissiveFactor[1] = 0.0f; mat.EmissiveFactor[2] = 0.0f;
-                mat.EmissiveStrength = 1.0f;
+                UploadModelUniformsDynamic(prog, view, proj, camPos, mi.worldMatrix, allLights, lightCount, mi);
+            GLStageCheck(L"model texture binding");
+
+            // Lazy VAO creation: Upload() leaves VAO=0 so that the VAO is built here
+            // on the render thread (render context). VAOs are NOT shared between GL
+            // contexts; creating them on the loader context causes an access violation
+            // in nvoglv64.dll when the render thread calls glBindVertexArray.
+            // VBO/EBO are buffer objects and ARE shared — safe to use here directly.
+            if (mi.VAO == 0 && mi.VBO != 0 && !mi.indices.empty()) {
+                // Vertex struct layout (OpenGL path, Includes.h non-DX):
+                //   float position[3]  → offset  0, 12 bytes
+                //   float normal[3]    → offset 12, 12 bytes
+                //   float texCoord[2]  → offset 24,  8 bytes
+                //   float tangent[4]   → offset 32, 16 bytes  (xyz=tangent, w=handedness for bitangent)
+                // Total stride = 48 bytes.  Shader loc 3 expects vec4 (aTangent).
+                constexpr GLsizei kStride = (3 + 3 + 2 + 4) * sizeof(float); // 48 bytes
+                glGenVertexArrays(1, &mi.VAO);
+                glBindVertexArray(mi.VAO);
+                glBindBuffer(GL_ARRAY_BUFFER,         mi.VBO);
+                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mi.EBO);
+                glEnableVertexAttribArray(0); glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, kStride, (void*)0);                     // position
+                glEnableVertexAttribArray(1); glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, kStride, (void*)(3 * sizeof(float)));  // normal
+                glEnableVertexAttribArray(2); glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, kStride, (void*)(6 * sizeof(float)));  // texCoord
+                glEnableVertexAttribArray(3); glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, kStride, (void*)(8 * sizeof(float)));  // tangent (vec4)
+                glBindVertexArray(0);
             }
 
-            // Derive ambient from base colour so each material keeps its own hue.
-            // GLTF has no Ka concept — a fraction of Kd is PBR-correct and prevents
-            // every material from reading as flat grey (mirrors DX11 Model::Render).
-            if (mat.Ka[0] <= 0.0001f && mat.Ka[1] <= 0.0001f && mat.Ka[2] <= 0.0001f)
-            {
-                mat.Ka[0] = mat.Kd[0] * 0.15f;
-                mat.Ka[1] = mat.Kd[1] * 0.15f;
-                mat.Ka[2] = mat.Kd[2] * 0.15f;
+            GLStageCheck(L"model VAO creation");
+
+            // Bind model's geometry buffers and issue draw call
+            if (mi.VAO != 0 && !mi.indices.empty()) {
+                glBindVertexArray(mi.VAO);
+                glDrawElements(GL_TRIANGLES,
+                               static_cast<GLsizei>(mi.indices.size()),
+                               GL_UNSIGNED_INT, nullptr);
+                glBindVertexArray(0);
+                GLStageCheck(L"model glDrawElements");
             }
 
-            mat.useMetallicMap   = hasMetallic  ? 1.0f : 0.0f;
-            mat.useRoughnessMap  = hasRoughness ? 1.0f : 0.0f;
-            mat.useAOMap         = hasAO        ? 1.0f : 0.0f;
-            mat.useEnvMap        = hasEnv       ? 1.0f : 0.0f;
-            // NormalScale <= 0 tells the shader to skip normal-map sampling entirely.
-            mat.NormalScale      = hasNormal    ? 1.0f : -1.0f;
-            // useDiffuseMap: honour the importer's decision (solid-colour materials use
-            // Kd directly) but never enable sampling when no texture is bound — the
-            // same belt-and-suspenders guard as DX12 RenderDX12 (resource must exist).
-            mat.useDiffuseMap    = (mi.useDiffuseMap && hasDiffuse) ? 1.0f : 0.0f;
-            mat.useGlossMap      = hasGloss     ? 1.0f : 0.0f;
-            mat.useEmissiveMap   = hasEmissive  ? 1.0f : 0.0f;
-
-            GLuint matUBO = m_uniformBuffers[UNIFORM_MATERIAL_BUFFER].bufferID;
-            if (matUBO != 0 && m_uniformBuffers[UNIFORM_MATERIAL_BUFFER].isAllocated) {
-                glBindBuffer(GL_UNIFORM_BUFFER, matUBO);
-                glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(GLMaterialUBO), &mat);
-                glBindBuffer(GL_UNIFORM_BUFFER, 0);
+            glUseProgram(0);
+            // Unbind the per-model texture units (t0-t7) to prevent stale bindings.
+            // Units 8/9 hold the frame's shadow maps (bound once by RenderShadowPassGL) and stay bound.
+            for (int tu = 7; tu >= 0; --tu) {
+                glActiveTexture(GL_TEXTURE0 + tu);
+                glBindTexture(GL_TEXTURE_2D, 0);
+                glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
             }
-        }
+            glActiveTexture(GL_TEXTURE0);
 
-        // ── EnvBuffer UBO (GLSL binding 5) ───────────────────────────────────
-        // Upload per-model environment properties (intensity, tint, Fresnel F0).
-        // Mirrors DX11 Model::UpdateEnvironmentBuffer() — uses ModelInfo fields
-        // set by SetEnvironmentProperties() or defaulted to safe dielectric values.
-        {
-            GLEnvUBO env = {};
-            env.envIntensity   = mi.envIntensity;
-            env.envTint[0]     = mi.envTint.x;
-            env.envTint[1]     = mi.envTint.y;
-            env.envTint[2]     = mi.envTint.z;
-            env.mipLODBias     = mi.mipLODBias;
-            env.fresnel0       = mi.fresnel0;
-            GLuint envUBO = m_uniformBuffers[UNIFORM_ENVIRONMENT_BUFFER].bufferID;
-            if (envUBO != 0 && m_uniformBuffers[UNIFORM_ENVIRONMENT_BUFFER].isAllocated) {
-                glBindBuffer(GL_UNIFORM_BUFFER, envUBO);
-                glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(GLEnvUBO), &env);
-                glBindBuffer(GL_UNIFORM_BUFFER, 0);
-            }
+            scene.scene_models[i].Render(dt);
         }
+    };
 
-        // ── ShadowBuffer UBO (GLSL binding 6) ────────────────────────────────
-        // Upload per-model shadow parameters.  Mirrors DX11 Model::Render() which
-        // writes useShadowMap=(shadowSRV!=null), bias=0.001, strength=0.8, size=2048.
-        // useShadowMap=0 leaves shadow rendering disabled until a shadow pass provides t8.
-        {
-            GLShadowUBO shadow = {};
-            shadow.shadowBias     = 0.001f;                             // depth bias — prevents shadow acne
-            shadow.shadowStrength = 0.8f;                               // shadow darkness multiplier
-            shadow.useShadowMap   = (mi.shadowTexID != 0) ? 1.0f : 0.0f;  // enable only when t8 is present
-            shadow.shadowMapSize  = 2048.0f;                            // PCF texel-offset denominator
-            GLuint shadowUBO = m_uniformBuffers[UNIFORM_SHADOW_BUFFER].bufferID;
-            if (shadowUBO != 0 && m_uniformBuffers[UNIFORM_SHADOW_BUFFER].isAllocated) {
-                glBindBuffer(GL_UNIFORM_BUFFER, shadowUBO);
-                glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(GLShadowUBO), &shadow);
-                glBindBuffer(GL_UNIFORM_BUFFER, 0);
-            }
-        }
-
-        // ── Texture bindings + (for built-in) legacy sampler path ─────────────
-        if (useBuiltin && m_uniforms3D.populated)
-            UploadModelUniformsCached(m_uniforms3D, view, proj, camPos, mi.worldMatrix, allLights, lightCount, mi);
-        else
-            UploadModelUniformsDynamic(prog, view, proj, camPos, mi.worldMatrix, allLights, lightCount, mi);
-
-        // Lazy VAO creation: Upload() leaves VAO=0 so that the VAO is built here
-        // on the render thread (render context). VAOs are NOT shared between GL
-        // contexts; creating them on the loader context causes an access violation
-        // in nvoglv64.dll when the render thread calls glBindVertexArray.
-        // VBO/EBO are buffer objects and ARE shared — safe to use here directly.
-        if (mi.VAO == 0 && mi.VBO != 0 && !mi.indices.empty()) {
-            // Vertex struct layout (OpenGL path, Includes.h non-DX):
-            //   float position[3]  → offset  0, 12 bytes
-            //   float normal[3]    → offset 12, 12 bytes
-            //   float texCoord[2]  → offset 24,  8 bytes
-            //   float tangent[4]   → offset 32, 16 bytes  (xyz=tangent, w=handedness for bitangent)
-            // Total stride = 48 bytes.  Shader loc 3 expects vec4 (aTangent).
-            constexpr GLsizei kStride = (3 + 3 + 2 + 4) * sizeof(float); // 48 bytes
-            glGenVertexArrays(1, &mi.VAO);
-            glBindVertexArray(mi.VAO);
-            glBindBuffer(GL_ARRAY_BUFFER,         mi.VBO);
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mi.EBO);
-            glEnableVertexAttribArray(0); glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, kStride, (void*)0);                     // position
-            glEnableVertexAttribArray(1); glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, kStride, (void*)(3 * sizeof(float)));  // normal
-            glEnableVertexAttribArray(2); glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, kStride, (void*)(6 * sizeof(float)));  // texCoord
-            glEnableVertexAttribArray(3); glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, kStride, (void*)(8 * sizeof(float)));  // tangent (vec4)
-            glBindVertexArray(0);
-        }
-
-        // Bind model's geometry buffers and issue draw call
-        if (mi.VAO != 0 && !mi.indices.empty()) {
-            glBindVertexArray(mi.VAO);
-            glDrawElements(GL_TRIANGLES,
-                           static_cast<GLsizei>(mi.indices.size()),
-                           GL_UNSIGNED_INT, nullptr);
-            glBindVertexArray(0);
-        }
-
-        glUseProgram(0);
-        // Unbind all texture units used by the 3D shader (t0-t8) to prevent stale bindings.
-        // t8 is the shadow depth map; unbind both TEXTURE_2D and TEXTURE_CUBE_MAP for safety.
-        for (int tu = 8; tu >= 0; --tu) {
-            glActiveTexture(GL_TEXTURE0 + tu);
-            glBindTexture(GL_TEXTURE_2D, 0);
-            glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
-        }
+    // ---- Planar reflection mirror renders (see "Planar Reflections" in Lights.h) ----
+    {
+        // The planar array must not be bound while one of its layers is the FBO colour attachment.
+        glActiveTexture(GL_TEXTURE0 + TEXTURE_UNIT_PLANAR);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
         glActiveTexture(GL_TEXTURE0);
 
-        scene.scene_models[i].Render(deltaTime);
+        if (g_planarFrame.active && g_planarFrame.renderThisFrame && m_planarTex != 0)
+        {
+            GLint mainVP[4] = { 0, 0, 1, 1 };
+            glGetIntegerv(GL_VIEWPORT, mainVP);
+            GLint prevFBO = 0;
+            glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevFBO);
+            const GLboolean scissorWasOn = glIsEnabled(GL_SCISSOR_TEST);
+
+            glBindFramebuffer(GL_FRAMEBUFFER, m_planarFBO);
+            glViewport(0, 0, m_planarW, m_planarH);
+            glDisable(GL_SCISSOR_TEST);
+            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+            glDepthMask(GL_TRUE);
+
+            const float camArr[3] = { camPos.x, camPos.y, camPos.z };
+            for (int plane = 0; plane < g_planarFrame.planeCount; ++plane)
+            {
+                glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, m_planarTex, 0, plane);
+                glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+                // Mirrored camera: raw float[16] row-vector layout == glm / Matrix4x4 bytes.
+                float mv[16], mp[16], rcam[3];
+                PlanarBuildCamera(&viewMat4.m[0][0], &projMat4.m[0][0], camArr,
+                                  g_planarFrame.planes[plane].n, g_planarFrame.planes[plane].d, false, mv, mp, rcam);
+                Matrix4x4 mvM, mpM;
+                std::memcpy(&mvM.m[0][0], mv, sizeof(mv));
+                std::memcpy(&mpM.m[0][0], mp, sizeof(mp));
+                glm::mat4 gv, gp;
+                std::memcpy(&gv[0][0], mv, sizeof(mv));
+                std::memcpy(&gp[0][0], mp, sizeof(mp));
+                drawModels(gv, gp, glm::vec3(rcam[0], rcam[1], rcam[2]), mvM, mpM,
+                           XMFLOAT3{ rcam[0], rcam[1], rcam[2] }, true, 0.0f);
+            }
+
+            glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevFBO));
+            glViewport(mainVP[0], mainVP[1], mainVP[2], mainVP[3]);
+            if (scissorWasOn) glEnable(GL_SCISSOR_TEST);
+            g_planarFrame.hasImage = true;
+        }
+
+        if (g_planarFrame.active && g_planarFrame.hasImage)
+        {
+            glActiveTexture(GL_TEXTURE0 + TEXTURE_UNIT_PLANAR);
+            glBindTexture(GL_TEXTURE_2D_ARRAY, m_planarTex);
+            glActiveTexture(GL_TEXTURE0);
+        }
     }
+
+    // ---- Live scene capture into the reflection cube (see "Live scene capture" in Lights.h) ----
+    // One face per frame: the face starts as a blit of the sky probe's face, every model is drawn over it
+    // with a 90 degree camera at the capture point, and after the sixth face the mips are regenerated.
+    if (g_reflectionFrame.active && m_reflTex != 0 && config.myConfig.reflectionLive)
+    {
+        if (m_capTex == 0 && !m_capFailed)
+            CreateCaptureResourcesGL();
+
+        int  capFace = 0;
+        bool capLast = false;
+        const float capCamArr[3] = { camPos.x, camPos.y, camPos.z };
+        if (m_capTex != 0 && ReflectionCaptureNext(deltaTime, capCamArr, capFace, capLast))
+        {
+            // Unit 10 -> sky while a face of the capture cube is the render target.
+            glActiveTexture(GL_TEXTURE0 + TEXTURE_UNIT_SCENE_PROBE);
+            glBindTexture(GL_TEXTURE_CUBE_MAP, m_reflTex);
+            glActiveTexture(GL_TEXTURE0);
+
+            GLint prevDrawFBO = 0, prevReadFBO = 0;
+            glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevDrawFBO);
+            glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevReadFBO);
+            GLint capMainVP[4] = { 0, 0, 1, 1 };
+            glGetIntegerv(GL_VIEWPORT, capMainVP);
+            const GLboolean capCullWasOn    = glIsEnabled(GL_CULL_FACE);
+            const GLboolean capScissorWasOn = glIsEnabled(GL_SCISSOR_TEST);
+            const int capSize = m_reflProbe.size;
+
+            // Base: sky face -> capture face.
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, m_capReadFBO);
+            glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_CUBE_MAP_POSITIVE_X + capFace, m_reflTex, 0);
+            glReadBuffer(GL_COLOR_ATTACHMENT0);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_capFBO);
+            glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_CUBE_MAP_POSITIVE_X + capFace, m_capTex, 0);
+            glDisable(GL_SCISSOR_TEST);
+            glBlitFramebuffer(0, 0, capSize, capSize, 0, 0, capSize, capSize, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+
+            // Models over it.  Culling is off: the Y-flipped projection reverses the winding.
+            glBindFramebuffer(GL_FRAMEBUFFER, m_capFBO);
+            glViewport(0, 0, capSize, capSize);
+            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+            glDepthMask(GL_TRUE);
+            glClear(GL_DEPTH_BUFFER_BIT);
+            glDisable(GL_CULL_FACE);
+
+            float capV[16], capP[16];
+            const float capNear = std::max(static_cast<float>(config.myConfig.nearPlane), 0.05f);
+            const float capFar  = std::max(static_cast<float>(config.myConfig.farPlane), capNear + 1.0f);
+            ReflectionCaptureFaceCamera(capFace, g_reflectionCapture.origin, capNear, capFar, false, true, capV, capP);
+            Matrix4x4 capVM, capPM;
+            std::memcpy(&capVM.m[0][0], capV, sizeof(capV));
+            std::memcpy(&capPM.m[0][0], capP, sizeof(capP));
+            glm::mat4 capGV, capGP;
+            std::memcpy(&capGV[0][0], capV, sizeof(capV));
+            std::memcpy(&capGP[0][0], capP, sizeof(capP));
+            const glm::vec3 capOrigin(g_reflectionCapture.origin[0], g_reflectionCapture.origin[1], g_reflectionCapture.origin[2]);
+
+            const bool planarWasActive = g_planarFrame.active;                  // screen-space planar mix is meaningless in a cube face
+            g_planarFrame.active = false;
+            drawModels(capGV, capGP, capOrigin, capVM, capPM,
+                       XMFLOAT3{ capOrigin.x, capOrigin.y, capOrigin.z }, false, 0.0f);
+            g_planarFrame.active = planarWasActive;
+
+            if (capCullWasOn) glEnable(GL_CULL_FACE);
+            if (capScissorWasOn) glEnable(GL_SCISSOR_TEST);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(prevDrawFBO));
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(prevReadFBO));
+            glViewport(capMainVP[0], capMainVP[1], capMainVP[2], capMainVP[3]);
+
+            if (capLast)
+            {
+                glBindTexture(GL_TEXTURE_CUBE_MAP, m_capTex);
+                glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
+                glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+                g_reflectionCapture.ready = true;
+            }
+        }
+
+        // Unit 10: the capture cube once a full cycle exists, otherwise the sky cube.
+        glActiveTexture(GL_TEXTURE0 + TEXTURE_UNIT_SCENE_PROBE);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, (g_reflectionCapture.ready && m_capTex) ? m_capTex : m_reflTex);
+        glActiveTexture(GL_TEXTURE0);
+    }
+    else
+    {
+        g_reflectionCapture.ready = false;
+    }
+
+    GLStageCheck(L"reflection capture / planar passes");
+
+    // ---- Main pass ----
+    // The shadow, planar and capture passes all rebind framebuffers and change viewport / mask /
+    // cull state.  Each one restores what it touched, but re-assert the main-pass state here so a
+    // leak from any of them can never blank the 3D scene.
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(0, 0, m_renderTargetWidth, m_renderTargetHeight);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glDepthMask(GL_TRUE);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS);
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    if (config.myConfig.BackCulling) {
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_BACK);
+        glFrontFace(GL_CW);
+    } else {
+        glDisable(GL_CULL_FACE);
+    }
+    glUseProgram(0);
+    glBindVertexArray(0);
+    glActiveTexture(GL_TEXTURE0);
+
+    GLStageLogState(m_shadowFrame.enabled, static_cast<int>(m_shadowCasters.size()),
+                    g_reflectionFrame.active, g_reflectionCapture.ready, g_planarFrame.active);
+
+    drawModels(view, proj, camPos, viewMat4, projMat4, camPosF3, false, deltaTime);
+
+    GLStageCheck(L"main model pass");
 
 #if defined(_DEBUG_RENDER_WIREFRAME_)
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);

@@ -136,6 +136,16 @@ public:
     static void SetLogLevel(LogLevel level);
     static bool LOG_IF_FAILED(HRESULT hr, const LPCWSTR msg);
 
+    // Release-visible diagnostics.
+    // Used for WARNING / ERROR / CRITICAL / TERMINATION messages that were previously compiled
+    // out of Release builds behind subsystem _DEBUG_XXX_ flags.  These are logged in EVERY build
+    // (log file, OutputDebugString and the in-game console) but NEVER show a dialog or quit the
+    // application, because these call sites already recover from the failure themselves.
+    // Identical consecutive messages are collapsed into a "repeated N times" line so a warning
+    // raised every frame cannot flood the log.
+    static void logDiagMessage(LogLevel level, const wchar_t* format, ...);
+    static void logDiagLevelMessage(LogLevel level, const std::wstring& message);
+
     // Inserts a dated log message at the top of a given log file
     static void Insert_Into_Log_File(const std::wstring& filename, const std::wstring& lineMsg);
 
@@ -155,6 +165,10 @@ private:
     // Truncates (or creates) the named log file to zero bytes.
     // Called once from the constructor before any logging thread is active.
     static void ClearLogFile(const std::wstring& filename);
+
+    // Shared output path for logLevelMessage and logDiagLevelMessage.
+    // bAllowFatalUI == false suppresses the error dialog / PostQuitMessage / ExitProcess.
+    static void EmitMessage(LogLevel level, const std::wstring& message, bool bAllowFatalUI);
 };
 
 // Do this as this is a singleton class.

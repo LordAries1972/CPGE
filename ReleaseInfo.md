@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.1.1955*
+*Current Build Version: v0.1.1956*
 
 ---
 
@@ -54,6 +54,8 @@ lets make this Engine great!
 
 #### 2026
 
+- [October 2026](#october-2026---shadows-reflections--engine-merge)
+  - [09](#october-09-2026)
 - [July 2026](#july-2026---screen-recorder--2d-systems)
   - [02](#july-02-2026) · [03](#july-03-2026) · [07](#july-07-2026) · [08](#july-08-2026)
 - [June 2026](#june-2026---opengl-pipeline-fixes)
@@ -4332,6 +4334,75 @@ Excluded / preserved by design: TSOO's `GAME_NAME`/`GAME_NAME_W` ("TSOO"), `MY_W
 Excluded / preserved by design, same as July 07: TSOO's identity constants (`MY_WINDOW_CLASS_NAME`/`MY_WINDOW_TITLE`/`lpDEFAULT_NAME`) and its `thevoid.xm`/`electro2.xm` test track filenames — CPGE keeps its own values and `test1.mod`/`test2.mptm` placeholders. `GameConfig.cfg`, `BuildInfo.h`, `Version.id`, and TSOO's own `ReleaseInfo.md` were never read from or written to. `GAME_NAME` in `CMakeLists.txt`/`Includes.h` confirmed still `"CPGE"` (no drift).
 
 *See: [`DX12Renderer.h`](DX12Renderer.h), [`DX12Renderer.cpp`](DX12Renderer.cpp), [`DX12RenderFrame.cpp`](DX12RenderFrame.cpp), [`DX11Renderer.cpp`](DX11Renderer.cpp), [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`Models.cpp`](Models.cpp), [`DX12Models.cpp`](DX12Models.cpp), [`FXManager.cpp`](FXManager.cpp), [`Renderer.h`](Renderer.h), [`GUITemplates.h`](GUITemplates.h), [`GUITemplates.cpp`](GUITemplates.cpp), [`ConsoleWindow.cpp`](ConsoleWindow.cpp), [`main.cpp`](main.cpp)*
+
+### October 2026 - Shadows, Reflections & Engine Merge
+
+#### October 09, 2026
+
+**Engine merge from TSOO (all engine-level work done since the July 08 merge).** TSOO's `PROJECT_ONLY_CODE`-guarded game content was excluded. **UNVERIFIED: none of this was built or run on any renderer** (this machine does not compile). Expect first-build shader and compile errors on the four renderers, and check the DX12 root-signature changes first.
+
+**Shadows, reflections and display (all four renderers, DX11 / DX12 / OpenGL / Vulkan):**
+
+- **Real-time shadow mapping:** 1 directional + 8 spot + 4 point shadow-casting lights, 3x3 PCF, each global light darkened by its own map. A shared planner in `Lights.h/.cpp` (`BuildShadowFrame`, `ShadowPackGPU`) fills one GPU block, `ShadowBufferData` (2368 bytes), uploaded at `b6` (DX) / binding 6 (GL) / the set 2 shadow UBO (Vulkan). Directional map at `t8`, spot slices and point cube faces in one 32-slice array at `t9`. Each renderer has a depth-only pass with slope-scaled bias. `LightStruct::_pad4` became `castShadows`; `MaterialGPU` gained `receiveShadows`. DX12 root signature: the model texture table is now `t0-t7`, root parameter 8 is the shadow / sky-probe / planar SRV table and `b6` is a per-frame ring.
+- **Vulkan lighting port:** the Vulkan 3D shader now uses the full scene light list (up to 8 directional / point / spot lights) with the same light model as DX and OpenGL. The old `lights[0]` push constant is gone (Vulkan scenes, including Linux Vulkan, will look different).
+- **Scene reflections:** a procedural sky probe cube (mip chain for roughness) at `t10` / unit 10 / set 2 binding 4, optional live scene capture (one cube face per frame), and planar mirror reflections (`t11` / unit 11 / set 2 binding 5, up to 4 planes) for models tagged `_mirror`, `_water` or `_planar` (or `ModelInfo::planarReflector`). Nothing reflects until a mesh is tagged. Each renderer plans reflections and the probe BEFORE the shadow pass because both feed `b6`.
+- **Brightness / Contrast:** `ApplyDisplayAdjust` runs at the end of every model pixel shader (clamp 0-1, contrast about 0.5, then brightness). A zeroed buffer reads as neutral. 3D models only, not GUI, sprites or video.
+- **Emission settings:** `Config::EmissionScale()` (enabled x intensity 0-3 x runtime pulse) scales the authored emissive strength on the CPU in every renderer. New FXManager `EmissionPulsator(seconds)` / `StopEmissionPulsator(id)` fades emission in and out in a loop, never exceeding the user's intensity setting; the title scene starts it and every scene exit stops it.
+- **Anti-aliasing / MSAA:** `aa` / `msaa` / `msaaSamples` (2 / 4 / 8) config group with real MSAA code on all four renderers: DX11 off-screen MS target + resolve (swap chain stays 1-sample for D2D), DX12 MS colour/depth + resolve, OpenGL WGL multisample pixel format (Windows only; GLX/EGL not done), Vulkan multisampled render pass with resolve. Needs a restart to change. Most likely first-run problems: DX11 debug layer sample mismatches, fade/overlay after resolve, GL pixel-format fallback.
+- **Shader sources and binaries (copied with the user's explicit approval, normally off-limits):** `Assets/Shaders/ModelPixel.hlsl`, `DX12NativeModelPixel.hlsl`, `ModelPixel.glsl` and the root `ModelPixel.glsl`, plus the six compiled `.cso` files. The CPGE `lightClip.w` guard in `SampleDirShadow` of `ModelPixel.hlsl` was kept (so that `.cso` is one small edit behind its source until rebuilt). The Vulkan shader is inline in `VULKAN_Renderer.cpp`.
+- **New settings (Video tab, `GameConfig.cfg`, optional keys, deliberately NOT in the config checksum so existing configs are not reset):** `shadowsEnabled`, `shadowQuality`, `maxSpotShadows`, `maxPointShadows`, `shadowDistance`, `reflectionsEnabled`, `reflectionQuality`, `reflectionStrength`, `reflectionBlur`, `reflectionUpdate`, `reflectionLive`, `planarEnabled`, `planarQuality`, `planarStrength`, `planarDistortion`, `planarUpdate`, `planarMaxPlanes`, `brightness`, `contrast`, `emissionEnabled`, `emissionIntensity`, `msaaSamples`. `GameConfig.cfg` itself was not touched; the loader supplies defaults.
+- **Import and cache:** FBX `CastShadow` / `ReceiveShadow` / light `CastShadows` are honoured and default to ON when absent (FBX SDK default; Blender omits unchanged defaults); glTF models and lights always cast. `CACHE_VERSION` 1 -> 2 (cast/receive flags), so an old `cache.dat` is rejected as a miss and rebuilt once.
+
+**DX12 title pipeline and frame pacing:**
+
+- **New `DX12TitlePipeline.h/.cpp`:** the `SCENE_GAMETITLE` backdrop (zooming background, company logo, 3D starfield, fireworks and the strobing title logo) is native D3D12 on the one open command list; Direct2D draws only text and GUI. The legacy D2D pre-pass, the dead off-screen composite branches and the old sprite2D functions in `DX12Renderer.cpp` were removed. Root cause of the 38-40 fps title screen: the looping title zoom kept the legacy D2D pre-pass active every frame (read from the CPU log, not profiled).
+- **CPU/GPU race fixes (frames in flight):** the particle buffer, camera (`b0`) and global-light (`b3`) buffers, and every model's `b0`/`b1`/`b4` buffers are now one 256-byte slice per frame in flight.
+- **Pacing and profiling:** the frame-latency waitable is waited at the TOP of the frame; a closer list returns the back buffer to PRESENT; debug builds record D3D12 timestamp queries (`DX12GpuProfiler`) and the F12 capture logs `GPU (...)` lines (backdrop / shadows / reflections / models / title logo / overlay). `Renderer.h` frame-timing structs carry the new GPU fields.
+- **Model geometry in VRAM:** DX12 vertex/index buffers moved from an UPLOAD heap to DEFAULT (VRAM) heaps filled by a staged copy + fence. Large meshes were read across PCIe on every draw, including once per shadow view. Per-pass constant-buffer slots (`RenderDX12(..., cbSlot)`) keep planar / capture passes from clobbering the main pass.
+- **DX12 reflection fix:** the `b5` EnvBuffer `envTint` was initialised to zero and never rewritten on the native path, which hid all reflections; it now starts at 1.
+- **ShaderManager:** on DX12 `CompileHLSL` no longer creates D3D11 shader objects through the `ID3D12Device` (E_INVALIDARG); on OpenGL the HLSL default programs are skipped.
+- **Build wiring:** `DX12TitlePipeline.cpp` added to `CMakeLists.txt`. **`CrossPlatformGameEngine.vcxproj` and its `.filters` were NOT touched (protected file): add `<ClCompile Include="DX12TitlePipeline.cpp" />` and `<ClInclude Include="DX12TitlePipeline.h" />` by hand, plus the two matching `.filters` entries, or the Visual Studio build will fail to link.**
+- The title star count constant (`kTitleStarCount`, 80) and firework particle count (48) are unchanged on every renderer.
+
+**GUI:**
+
+- **Exclusive pointer capture:** one control owns a press (topmost interactive control under the cursor, found by `GUIWindow::FindPressTarget`) until the button is released, so a drag can no longer pick up a second control. `HandleMouseClick` gained a `bool pressEdge` parameter derived in `GUIManager` from the held flag (`m_prevLeftDown`).
+- **GUI sweep:** ComboBox dropdowns are now hit-tested (items were never selectable), scroll with the wheel, highlight the hovered row (`hoverIndex`), draw a scroll thumb and close on click-away; the dropdown is drawn after the clip pop. The 1 s click cooldown applies to Buttons only. HSlider / Scrollbar values update in one place (callbacks fired twice per event before) with a shared `HSLIDER_KNOB_WIDTH`. `HandleChar` drops control characters (< 32, 127) and types into the focused `TextInput`; Backspace clamps the cursor. Enter always routes to `guiManager.HandleEnter()` (it was console-only, which broke Enter-to-confirm in file dialogs). `WrapText` rewritten (it put one character per line; currently unused).
+- **Disabled controls:** new `GUIControl::isDisabled` (input blocked, dim overlay on HSlider / ToggleSlider). The Video tab locks child rows when their parent toggle is off (AA / MSAA, Shadows, Reflections, Live, Planar, Emission).
+- **FXManager `ScrollColours`:** `StartScrollColours(image, seconds, reverse)` / `StopScrollColours` / `IsScrollColoursActive` / `RenderScrollColours` scroll a gradient image sideways with wrapping, backed by the new pure virtual `Renderer::Blit2DScrollingObjectToSize()` implemented in all four renderers; GUI controls whose texture is being scrolled draw through it. Also new: `FXManager::GetImageZoomLevel(img)`, and firework rockets get a random explosion speed (1-2x).
+
+**Diagnostics and logging:**
+
+- **Release diagnostics:** about 1,000 WARNING / ERROR / CRITICAL calls across 36 files were moved out of their `_DEBUG_XXX_` guards and renamed to the new `Debug::logDiagMessage` / `logDiagLevelMessage`. They are logged in every build (file, `OutputDebugString`, in-game console) but NEVER show a dialog or quit, and are throttled per unique message (first occurrence, then one summary line per 1,000 repeats, table capped at 512). INFO / DEBUG calls stay guarded. 35 calls were deliberately left guarded (D3D12 debug layer, PIXSHADER debug buffers, `CheckOpenGLError` blocks that contain `return`, and similar). Behaviour change: calls that were guarded and now run never show a dialog or quit, even in Debug.
+- **Log formatting:** `FormatLogMessage` in `Debug.cpp` sizes its buffer exactly so long messages (GLSL info logs) cannot trip the 2048-wchar `vswprintf_s` assert. OpenGL shader compile / link errors are logged as wstrings.
+- Several empty `catch (...) {}` blocks now log a warning (FXManager completion callbacks, GUIFileDialog `ScanDirectory`, GUIWindows quit-confirm buttons, OpenGL / Vulkan camera view rebuild).
+- Release-build fixes that surfaced from re-enabling those calls: `Models.cpp` `Model::Render` used an undeclared `dx11`, and two `GLTFAnimator` calls passed printf arguments to a wstring-only logger. A latent identical bug in the DX12 "Frame latency waitable acquired" INFO call is left as is (it only compiles with `_DEBUG_DX12RENDERER_` off).
+
+**SceneManager and models:**
+
+- **New scene API:** `ClearSceneBuffer()`, `InjectModelIntoScene(id or name, Coords)`, `RemoveModelFromScene(id or name)` and `ClearSceneModelSlot()`. Injection places a GPU-ready cached model (with primitive children) at world coordinates; removal also stops and removes its glTF / FBX animation instances. Slot wiping uses a `rep stosb` fast zero (`FastAsmZero`, `memset` fallback off x86) and never frees GPU resources shared with the `models[]` cache.
+- **`ModelInfo`:** `castShadows`, `receiveShadows`, local bounds, `planarReflector` / `planarStrength` / `planarHeightOffset` / `planarPlaneIndex`, and the inline helpers `ModelComputeShadowBounds`, `ModelIsPlanarReflector`, `ModelComputePlanarLocalPlane`, `ModelPlanarRegister`.
+- **OpenGL model upload:** buffer upload is verified (GL error and size check) and `glFinish()`ed on the loader context before the render context uses the objects; model creation now fails cleanly if the allocation failed.
+
+**Music and audio:**
+
+- **MP3 + tracker coexistence:** the "define exactly one music player" `#error` now covers the tracker players only, so `__USE_MP3PLAYER__` may be enabled together with ONE tracker player. The `#elif` chains in `Includes.h`, `main.cpp` and `IOLoaderThread.cpp` became independent `#if` blocks, `Load_Music(wchar_t* name)` now takes the file (relative to `AssetsDir`), and `IOLoaderThread.cpp` gained a `LoadMusicFile()` adapter (an empty name means the default tune). CPGE's own selection is unchanged (`__USE_MODPLAYER__`, MP3 off); with MP3 enabled the title loader expects `loader.mp3` in `Assets/`.
+- **`WinMediaPlayer`:** the MP3 player honours the Music Volume and Play Music settings (`applyPlayMusic`, `ConfigMusicVolume`), waits (bounded to 2 s) for the media item to be ready before `Play()` or queues the request until `MFP_EVENT_TYPE_MEDIAITEM_SET`, and fades re-read the volume every step. `main.cpp` applies the volume and Play Music to the global `::player` on config apply. `main.cpp` also changed the `SwitchToGameIntro()` fade to `FadeToImage(1.0f, 0.06f)` (the July 08 `StopAllFX()` race caveat is still open and still unverified).
+
+**Build scripts:** `cmake-build.bat`, `Linux/cmake-build.sh` and `Linux/cmake-build-android.sh` gain a `help` directive (`-h`, `--help`, and `/?` on Windows) listing every directive, configuration, ABI and environment variable. `shaderc_shared.dll` (release) was added next to the existing debug copy for Vulkan runtime GLSL compilation.
+
+**Documentation updated in the same task:** `Docs/FXManager-Example-Usage.md` (ScrollColours, EmissionPulsator, `GetImageZoomLevel`, firework speed, DX12 title pipeline note), `Docs/GUIManager-Example-Usage.md` (exclusive capture, press edge, Buttons-only cooldown, `isDisabled`, ComboBox dropdown behaviour, text/Enter routing), `Docs/Light-Example-Usage.md` (Shadow Mapping, Scene Reflections and Planar Mirrors, Emission, Vulkan lighting change), `Docs/Model-Example-Usage.md` (shadow / planar / emission flags, DX12 VRAM geometry), `Docs/SceneManager-Example-Usage.md` (inject / remove / clear API, cache version) and the new `Docs/Shadowing-Plan.md` design document.
+
+**Excluded / preserved by design:**
+
+- TSOO `PROJECT_ONLY_CODE`: the level 1-30 setup table, per-level music / scene loading and the Sun direction / `castShadows` tweak in `IOLoaderThread.cpp`; the commander-profile config keys in `Configuration.h/.cpp`; `CreateUserProfileWindow` in `GUIWindows.cpp`; portrait image IDs. Also left in TSOO: the `IMG_VGRADIENT1` image and `vertgradient1.png`, the TSOO music filenames, `__USE_MP3PLAYER__` selection, the loader Sun position change, `docs/story-line.txt`, and `VulkanRenderer.h`.
+- Identity: `MY_WINDOW_CLASS_NAME`, `MY_WINDOW_TITLE`, `lpDEFAULT_NAME`, `GAME_NAME` (`CMakeLists.txt`, `Includes.h`) and the commented-out `PROJECT_ONLY_CODE` define are unchanged.
+- Never touched: `*.vcxproj*`, `GameConfig.cfg`, `BuildInfo.h`, `Version.id`, `cache.dat`, `help.dat`, install scripts, `build/`, every other `Assets/` file and every `.mp4`. TSOO's own `ReleaseInfo.md` was only read.
+- The temporary `[DX12 DIAG]` logging block in `RenderShadowPassDX12` was removed from CPGE's copy of `DX12RenderFrame.cpp` (it remains in TSOO).
+
+**Known open items:** the pre-existing `_PROJECT_ONLY_CODE_` typo still dead-codes `SCENE_LEVEL_SETUP` in `IOLoaderThread.cpp`; the July 08 `FadeToImage` / `StopAllFX()` race is unresolved; the live-capture cube-face orientation (per API) and the oblique planar clip maths are derived on paper only.
+
+*See: [`Lights.h`](Lights.h), [`Lights.cpp`](Lights.cpp), [`Models.h`](Models.h), [`Configuration.h`](Configuration.h), [`DX11Renderer.cpp`](DX11Renderer.cpp), [`DXRenderFrame.cpp`](DXRenderFrame.cpp), [`DX12Renderer.cpp`](DX12Renderer.cpp), [`DX12RenderFrame.cpp`](DX12RenderFrame.cpp), [`DX12Models.cpp`](DX12Models.cpp), [`DX12TitlePipeline.cpp`](DX12TitlePipeline.cpp), [`DX12TitlePipeline.h`](DX12TitlePipeline.h), [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp), [`OpenGLModels.cpp`](OpenGLModels.cpp), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`FXManager.cpp`](FXManager.cpp), [`FXManager.h`](FXManager.h), [`GUIManager.cpp`](GUIManager.cpp), [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp), [`SceneManager.cpp`](SceneManager.cpp), [`Debug.cpp`](Debug.cpp), [`WinMediaPlayer.cpp`](WinMediaPlayer.cpp), [`IOLoaderThread.cpp`](IOLoaderThread.cpp), [`main.cpp`](main.cpp), [`Includes.h`](Includes.h), [`Renderer.h`](Renderer.h), [`ShaderManager.cpp`](ShaderManager.cpp)*
 
 ---
 

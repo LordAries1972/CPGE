@@ -1314,7 +1314,9 @@ void GUIManager::CreateQuitConfirmDialog()
                     #endif
                 });
         }
-        catch (...) {}
+        catch (...) {
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Quit confirm OK button - unknown exception in handler");
+        }
     };
     dlgWin->AddControl(okBtn);
 
@@ -1339,7 +1341,9 @@ void GUIManager::CreateQuitConfirmDialog()
             soundManager.PlayImmediateSFX(SFX_ID::SFX_BEEP);
             RemoveWindow(windowName);
         }
-        catch (...) {}
+        catch (...) {
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Quit confirm CANCEL button - unknown exception in handler");
+        }
     };
     dlgWin->AddControl(cancelBtn);
 

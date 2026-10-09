@@ -1461,10 +1461,8 @@ XMLParseResult XMLParser::ParseFile(const std::string& filepath, XMLDocument& ou
         XMLParseResult r;
         r.error = XMLParseError::FILE_NOT_FOUND;
         r.description = "Cannot open file: " + filepath;
-        #ifdef _DEBUG_XMLPARSER_
-        debug.logLevelMessage(LogLevel::LOG_WARNING,
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
             L"XMLParser: " + WidenForXMLLog(r.description));
-        #endif
         return r;
     }
     std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(file)), {});
@@ -1479,10 +1477,8 @@ XMLParseResult XMLParser::ParseFile(const std::wstring& filepath, XMLDocument& o
         XMLParseResult r;
         r.error = XMLParseError::FILE_NOT_FOUND;
         r.description = "Cannot open file";
-        #ifdef _DEBUG_XMLPARSER_
-        debug.logLevelMessage(LogLevel::LOG_WARNING,
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
             L"XMLParser: Cannot open wide-path file: " + filepath);
-        #endif
         return r;
     }
     std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(file)), {});
@@ -1511,10 +1507,8 @@ XMLParseResult XMLParser::ParseFileSAX(const std::string& filepath, const XMLSAX
         XMLParseResult r;
         r.error = XMLParseError::FILE_NOT_FOUND;
         r.description = "Cannot open file: " + filepath;
-        #ifdef _DEBUG_XMLPARSER_
-        debug.logLevelMessage(LogLevel::LOG_WARNING,
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
             L"XMLParser SAX: " + WidenForXMLLog(r.description));
-        #endif
         return r;
     }
     std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(file)), {});
@@ -1529,10 +1523,8 @@ XMLParseResult XMLParser::ParseFileSAX(const std::wstring& filepath, const XMLSA
         XMLParseResult r;
         r.error = XMLParseError::FILE_NOT_FOUND;
         r.description = "Cannot open file";
-        #ifdef _DEBUG_XMLPARSER_
-        debug.logLevelMessage(LogLevel::LOG_WARNING,
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
             L"XMLParser SAX: Cannot open wide-path file: " + filepath);
-        #endif
         return r;
     }
     std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(file)), {});
@@ -1853,11 +1845,9 @@ bool XMLParser::SetError(ParseState& state, XMLParseError code, const std::strin
         if (state.callbacks && state.callbacks->onError)
             state.callbacks->onError(code, state.line, state.col, desc);
 
-        #ifdef _DEBUG_XMLPARSER_
-        debug.logDebugMessage(LogLevel::LOG_WARNING,
+        debug.logDiagMessage(LogLevel::LOG_WARNING,
             L"XMLParser: Parse error %d at line %d, column %d: %hs",
             static_cast<int>(code), state.line, state.col, desc.c_str());
-        #endif
     }
     return false;
 }
@@ -2782,10 +2772,8 @@ bool XMLSerializer::WriteToFile(const XMLDocument& doc, const std::string& filep
     std::ofstream file(filepath, std::ios::binary);
     if (!file.is_open())
     {
-        #ifdef _DEBUG_XMLPARSER_
-        debug.logLevelMessage(LogLevel::LOG_WARNING,
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
             L"XMLSerializer: Cannot write to file: " + WidenForXMLLog(filepath));
-        #endif
         return false;
     }
     file.write(xml.c_str(), static_cast<std::streamsize>(xml.size()));
@@ -2798,10 +2786,8 @@ bool XMLSerializer::WriteToFile(const XMLDocument& doc, const std::wstring& file
     std::ofstream file(filepath, std::ios::binary);
     if (!file.is_open())
     {
-        #ifdef _DEBUG_XMLPARSER_
-        debug.logLevelMessage(LogLevel::LOG_WARNING,
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
             L"XMLSerializer: Cannot write to wide-path file: " + filepath);
-        #endif
         return false;
     }
     file.write(xml.c_str(), static_cast<std::streamsize>(xml.size()));

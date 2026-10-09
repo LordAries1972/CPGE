@@ -86,9 +86,7 @@ void CurvedPath2D::AddPoint(const PhysicsVector2D& point)
     // Ensure we don't exceed maximum path coordinates
     if (coordinates.size() >= MAX_PATH_COORDINATES)
     {
-#if defined(_DEBUG_PHYSICS_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[Physics] Maximum path coordinates reached, ignoring additional points");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[Physics] Maximum path coordinates reached, ignoring additional points");
         return;
     }
     
@@ -269,9 +267,7 @@ void CurvedPath3D::AddPoint(const PhysicsVector3D& point)
     // Ensure we don't exceed maximum path coordinates
     if (coordinates.size() >= MAX_PATH_COORDINATES)
     {
-#if defined(_DEBUG_PHYSICS_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[Physics] Maximum path coordinates reached, ignoring additional points");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[Physics] Maximum path coordinates reached, ignoring additional points");
         return;
     }
     
@@ -489,9 +485,7 @@ void PhysicsBody::SetMass(float newMass)
     // Ensure mass is positive
     if (newMass <= 0.0f)
     {
-#if defined(_DEBUG_PHYSICS_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[Physics] Attempting to set non-positive mass, using default value");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[Physics] Attempting to set non-positive mass, using default value");
         newMass = 1.0f;
     }
     
@@ -561,9 +555,7 @@ void CollisionManifold::AddContact(const ContactPoint& contact)
     // Ensure we don't exceed maximum contact points
     if (contacts.size() >= MAX_COLLISION_CONTACTS)
     {
-#if defined(_DEBUG_PHYSICS_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[Physics] Maximum collision contacts reached");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[Physics] Maximum collision contacts reached");
         return;
     }
     
@@ -779,9 +771,7 @@ bool Physics::Initialize()
    // Check if already initialized to prevent double initialization
    if (m_bIsInitialized.load())
    {
-#if defined(_DEBUG_PHYSICS_)
-       debug.logLevelMessage(LogLevel::LOG_WARNING, L"[Physics] Already initialized - skipping");
-#endif
+       debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[Physics] Already initialized - skipping");
        return true;
    }
    
@@ -812,9 +802,7 @@ bool Physics::Initialize()
        // Initialize exception handler if not already done
        if (!m_exceptionHandler.Initialize())
        {
-#if defined(_DEBUG_PHYSICS_)
-           debug.logLevelMessage(LogLevel::LOG_WARNING, L"[Physics] ExceptionHandler initialization failed, continuing without it");
-#endif
+           debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[Physics] ExceptionHandler initialization failed, continuing without it");
        }
        
        // Initialize physics-specific precalculations
@@ -932,9 +920,7 @@ void Physics::Update(float deltaTime)
    // Ensure physics system is initialized
    if (!m_bIsInitialized.load())
    {
-#if defined(_DEBUG_PHYSICS_)
-       debug.logLevelMessage(LogLevel::LOG_WARNING, L"[Physics] Update called before initialization");
-#endif
+       debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[Physics] Update called before initialization");
        return;
    }
    
@@ -1040,9 +1026,7 @@ CurvedPath2D Physics::CreateCurvedPath2D(const std::vector<PhysicsVector2D>& con
    // Validate input parameters
    if (controlPoints.size() < 2)
    {
-#if defined(_DEBUG_PHYSICS_)
-       debug.logLevelMessage(LogLevel::LOG_WARNING, L"[Physics] Need at least 2 control points for curved path");
-#endif
+       debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[Physics] Need at least 2 control points for curved path");
        return path;
    }
    
@@ -1119,9 +1103,7 @@ CurvedPath3D Physics::CreateCurvedPath3D(const std::vector<PhysicsVector3D>& con
    // Validate input parameters
    if (controlPoints.size() < 2)
    {
-#if defined(_DEBUG_PHYSICS_)
-       debug.logLevelMessage(LogLevel::LOG_WARNING, L"[Physics] Need at least 2 control points for curved path");
-#endif
+       debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[Physics] Need at least 2 control points for curved path");
        return path;
    }
    
@@ -1637,9 +1619,7 @@ void Physics::RemoveGravityField(int index)
        }
        else
        {
-#if defined(_DEBUG_PHYSICS_)
-           debug.logDebugMessage(LogLevel::LOG_WARNING, L"[Physics] Invalid gravity field index: %d", index);
-#endif
+           debug.logDiagMessage(LogLevel::LOG_WARNING, L"[Physics] Invalid gravity field index: %d", index);
        }
    }
    catch (const std::exception& e)
@@ -2696,9 +2676,7 @@ std::vector<PhysicsBody> Physics::CreateRagdoll(const std::vector<PhysicsVector3
         // Validate input
         if (jointPositions.empty() || connections.empty())
         {
-#if defined(_DEBUG_PHYSICS_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[Physics] Invalid ragdoll parameters - empty positions or connections");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[Physics] Invalid ragdoll parameters - empty positions or connections");
             return ragdollBodies;
         }
 
@@ -2772,9 +2750,7 @@ void Physics::AddRagdollJoint(const RagdollJoint& joint)
         }
         else
         {
-#if defined(_DEBUG_PHYSICS_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[Physics] Maximum ragdoll joints reached, ignoring additional joint");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[Physics] Maximum ragdoll joints reached, ignoring additional joint");
         }
     }
     catch (const std::exception& e)
@@ -2803,9 +2779,7 @@ void Physics::RemoveRagdollJoint(int index)
         }
         else
         {
-#if defined(_DEBUG_PHYSICS_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[Physics] Invalid ragdoll joint index: %d", index);
-#endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"[Physics] Invalid ragdoll joint index: %d", index);
         }
     }
     catch (const std::exception& e)
@@ -3022,9 +2996,7 @@ PhysicsVector3D Physics::CalculateTrajectoryToTarget(const PhysicsVector3D& star
         if (discriminant < 0.0f)
         {
             // Target unreachable with given speed, return high-angle trajectory
-#if defined(_DEBUG_PHYSICS_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[Physics] Target unreachable with given launch speed");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[Physics] Target unreachable with given launch speed");
 
             // Calculate direction and use 45-degree angle
             PhysicsVector3D direction = displacement.Normalized();
@@ -3589,9 +3561,7 @@ void Physics::ResolveCollisionResponse(CollisionManifold& manifold)
     // Ensure we have valid bodies and contacts
     if (!manifold.bodyA || !manifold.bodyB || manifold.contacts.empty())
     {
-#if defined(_DEBUG_PHYSICS_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[Physics] ResolveCollisionResponse called with invalid manifold");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[Physics] ResolveCollisionResponse called with invalid manifold");
         return;
     }
 

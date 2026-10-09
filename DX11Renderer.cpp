@@ -94,6 +94,7 @@ void DX11Renderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
     CreateDeviceAndSwapChain(hwnd);
     CreateDirect2DResources();
     CreateRenderTargetViews();
+    ChooseMsaaSampleCount();            // Before the depth buffer + pipeline states, which depend on the sample count
     CreateDepthStencilBuffer();
     SetupViewport();
     SetupPipelineStates();
@@ -141,6 +142,10 @@ void DX11Renderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
         debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"DX11Renderer: Failed to create global light buffer.");
         return;
     }
+
+    // Shadow maps + depth-pass pipeline (non-fatal: shadows stay off if this fails).
+    if (!CreateShadowResources())
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX11Renderer: Shadow resources unavailable - rendering without shadows.");
 
 #if defined(_DEBUG_RENDERER_) && defined(_DEBUG) && defined(_DEBUG_PIXSHADER_)
     // Create Debug Constant Buffer
@@ -575,6 +580,48 @@ void DX11Renderer::Blit2DAtlasTile(BlitObj2DIndexType iIndex, int iTileIndex, in
     rt->DrawBitmap(bitmap.Get(), dest, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, src);
 }
 
+// Stretches the image to iWidth x iHeight while shifting its sampled content HORIZONTALLY by
+// scrollFraction * bitmap-width pixels, wrapping around the bitmap width, so the image's own
+// colour banding appears to travel sideways across the fixed destination rect. Drawn as two
+// DrawBitmap calls (right part of the source at the left of the dest, wrapped left part after
+// it). reverseDirection=false travels left->right, true travels right->left.
+void DX11Renderer::Blit2DScrollingObjectToSize(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float scrollFraction, bool reverseDirection)
+{
+    if (int(iIndex) < 0 || int(iIndex) >= MAX_TEXTURE_BUFFERS) return;
+
+    ComPtr<ID2D1Bitmap>       bitmap = m_d2dTextures[int(iIndex)];
+    ComPtr<ID2D1RenderTarget> rt     = m_d2dRenderTarget;
+    if (!bitmap || !rt) return;
+
+    D2D1_SIZE_F bmpSize = bitmap->GetSize();
+    int bmpW = static_cast<int>(bmpSize.width);
+    int bmpH = static_cast<int>(bmpSize.height);
+    if (bmpW <= 0 || bmpH <= 0 || iWidth <= 0 || iHeight <= 0) return;
+
+    float wrappedFrac = scrollFraction - std::floor(scrollFraction);
+    // xOffFrac is the fraction of the source width sampled at the destination's LEFT edge.
+    float xOffFrac = reverseDirection ? wrappedFrac : (1.0f - wrappedFrac);
+    xOffFrac -= std::floor(xOffFrac);
+    int xOff = static_cast<int>(xOffFrac * static_cast<float>(bmpW));
+
+    int srcW1 = bmpW - xOff;
+    float scaleX = static_cast<float>(iWidth) / static_cast<float>(bmpW);
+    int destW1 = static_cast<int>(srcW1 * scaleX);
+
+    // Part 1: source columns [xOff, bmpW) drawn at the left of the destination rect
+    D2D1_RECT_F src1  = D2D1::RectF((float)xOff, 0.0f, (float)bmpW, (float)bmpH);
+    D2D1_RECT_F dest1 = D2D1::RectF((float)iX, (float)iY, (float)(iX + destW1), (float)(iY + iHeight));
+    rt->DrawBitmap(bitmap.Get(), dest1, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, src1);
+
+    // Part 2: wrapped source columns [0, xOff) drawn to the right of part 1, filling the remainder
+    if (destW1 < iWidth)
+    {
+        D2D1_RECT_F src2  = D2D1::RectF(0.0f, 0.0f, (float)xOff, (float)bmpH);
+        D2D1_RECT_F dest2 = D2D1::RectF((float)(iX + destW1), (float)iY, (float)(iX + iWidth), (float)(iY + iHeight));
+        rt->DrawBitmap(bitmap.Get(), dest2, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, src2);
+    }
+}
+
 void DX11Renderer::Cleanup() {
     // Prevent double-cleanup which can cause use-after-free on COM resources.
     if (bHasCleanedUp) {
@@ -587,9 +634,7 @@ void DX11Renderer::Cleanup() {
     // Acquire an exclusive shutdown lock so no other code can manipulate DirectX resources during cleanup.
     ThreadLockHelper shutdownLock(threadManager, "exclusive_renderer_shutdown", 5000);
     if (!shutdownLock.IsLocked()) {
-        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[RENDERER] Cleanup() - Failed to acquire exclusive shutdown lock");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_CRITICAL, L"[RENDERER] Cleanup() - Failed to acquire exclusive shutdown lock");
         return;
     }
 
@@ -603,9 +648,7 @@ void DX11Renderer::Cleanup() {
             WaitToFinishThenPauseThread();                              // Safely pause renderer thread and flush GPU work
         }
         catch (...) {
-            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[RENDERER] Cleanup() - Exception while pausing renderer thread");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[RENDERER] Cleanup() - Exception while pausing renderer thread");
         }
     #endif
 
@@ -615,9 +658,7 @@ void DX11Renderer::Cleanup() {
         threadManager.TerminateThread(THREAD_LOADER);                   // Join loader thread safely
     }
     catch (...) {
-        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[RENDERER] Cleanup() - Exception while terminating loader thread");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[RENDERER] Cleanup() - Exception while terminating loader thread");
     }
 
     // Request the renderer thread to stop and join it next.
@@ -627,9 +668,7 @@ void DX11Renderer::Cleanup() {
             threadManager.TerminateThread(THREAD_RENDERER);             // Join render thread safely
         }
         catch (...) {
-            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[RENDERER] Cleanup() - Exception while terminating renderer thread");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[RENDERER] Cleanup() - Exception while terminating renderer thread");
         }
     #endif
 
@@ -691,11 +730,22 @@ void DX11Renderer::Cleanup() {
         m_renderTargetView.Reset();
         m_depthStencilView.Reset();
         m_depthStencilBuffer.Reset();
+        m_msaaRTV.Reset();
+        m_msaaColorTex.Reset();
+        m_msaaBgSRV.Reset();
+        m_msaaBgTex.Reset();
+        m_msaaBlitVS.Reset();
+        m_msaaBlitPS.Reset();
+        m_msaaBlitDS.Reset();
+        m_msaaBlitRS.Reset();
 
         // Release pipeline state objects and constant buffers.
         m_wireframeState.Reset();
         m_globalLightBuffer.Reset();
         m_cameraConstantBuffer.Reset();
+        ReleaseShadowResources();
+        ReleaseReflectionResources();
+        ReleasePlanarResources();
 
         // Only ever included during development debugging.
         #if defined(_DEBUG_RENDERER_) && defined(_DEBUG) && defined(_DEBUG_RENDER_WIREFRAME_)
@@ -818,8 +868,11 @@ void DX11Renderer::CreateDeviceAndSwapChain(HWND hwnd) {
     swapDesc.Width = 0; // Automatic sizing
     swapDesc.Height = 0;
     swapDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-    swapDesc.SampleDesc.Count = config.myConfig.msaaEnabled ? 4 : 1;
-    swapDesc.SampleDesc.Quality = config.myConfig.msaaEnabled ? (DXGI_STANDARD_MULTISAMPLE_QUALITY_PATTERN - 1) : 0;    
+    // The flip-model swap chain below only accepts 1 sample (a multisampled flip swap chain makes
+    // CreateSwapChainForHwnd fail), so the back buffer is always single-sample here.
+    // MSAA is done with an offscreen multisampled target resolved into this back buffer (see CreateMsaaTargets).
+    swapDesc.SampleDesc.Count = 1;
+    swapDesc.SampleDesc.Quality = 0;
     swapDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     swapDesc.BufferCount = config.myConfig.buffering ? 3 : 2;   // 3=triple / 2=double per config
     swapDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
@@ -1464,18 +1517,14 @@ bool DX11Renderer::Resize(uint32_t width, uint32_t height)
     // Acquire comprehensive resize lock to prevent conflicts with other subsystems
     ThreadLockHelper comprehensiveResizeLock(threadManager, "comprehensive_resize_lock", 5000);
     if (!comprehensiveResizeLock.IsLocked()) {
-        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RESIZE] Could not acquire comprehensive resize lock - aborting resize operation");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[RESIZE] Could not acquire comprehensive resize lock - aborting resize operation");
         return false;
     }
 
     // Acquire exclusive DirectX access lock to prevent concurrent DirectX usage (render thread, loader thread, etc.)
     ThreadLockHelper exclusiveDirectXLock(threadManager, "exclusive_directx_access", 10000);
     if (!exclusiveDirectXLock.IsLocked()) {
-        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RESIZE] Could not acquire exclusive DirectX lock - aborting resize operation");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[RESIZE] Could not acquire exclusive DirectX lock - aborting resize operation");
         return false;
     }
 
@@ -1488,9 +1537,7 @@ bool DX11Renderer::Resize(uint32_t width, uint32_t height)
 
     // Validate critical DirectX interfaces
     if (!m_swapChain || !m_d3dDevice || !m_d3dContext) {
-        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[RESIZE] Missing critical DirectX interfaces - cannot resize");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_CRITICAL, L"[RESIZE] Missing critical DirectX interfaces - cannot resize");
         return false;
     }
 
@@ -1500,9 +1547,7 @@ bool DX11Renderer::Resize(uint32_t width, uint32_t height)
 
     // Validate resize parameters
     if (width < 1 || height < 1) {
-        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[RESIZE] Invalid dimensions - skipping resize");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[RESIZE] Invalid dimensions - skipping resize");
         return false;
     }
 
@@ -1604,9 +1649,7 @@ bool DX11Renderer::Resize(uint32_t width, uint32_t height)
 
         HRESULT hr = m_swapChain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0);
         if (FAILED(hr)) {
-            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"[RESIZE] ResizeBuffers failed with HRESULT: 0x%08X", hr);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_CRITICAL, L"[RESIZE] ResizeBuffers failed with HRESULT: 0x%08X", hr);
             throw std::runtime_error("DirectX ResizeBuffers operation failed");
         }
 
@@ -1618,17 +1661,13 @@ bool DX11Renderer::Resize(uint32_t width, uint32_t height)
         ComPtr<ID3D11Texture2D> backBuffer;
         hr = m_swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
         if (FAILED(hr)) {
-            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"[RESIZE] Failed to get new back buffer: 0x%08X", hr);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_CRITICAL, L"[RESIZE] Failed to get new back buffer: 0x%08X", hr);
             throw std::runtime_error("Failed to retrieve new back buffer");
         }
 
         hr = m_d3dDevice->CreateRenderTargetView(backBuffer.Get(), nullptr, m_renderTargetView.GetAddressOf());
         if (FAILED(hr)) {
-            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"[RESIZE] Failed to create new render target view: 0x%08X", hr);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_CRITICAL, L"[RESIZE] Failed to create new render target view: 0x%08X", hr);
             throw std::runtime_error("Failed to create new render target view");
         }
 
@@ -1666,7 +1705,7 @@ bool DX11Renderer::Resize(uint32_t width, uint32_t height)
             debug.logLevelMessage(LogLevel::LOG_INFO, L"[RESIZE] Step 10: Binding new render targets");
         #endif
 
-        m_d3dContext->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
+        BindMainRenderTargets();
 
         // Restore pipeline states cleared by ClearState() so models render again
         #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
@@ -1699,9 +1738,7 @@ bool DX11Renderer::Resize(uint32_t width, uint32_t height)
         #endif
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"[RESIZE] Exception occurred during resize operation: %hs", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_CRITICAL, L"[RESIZE] Exception occurred during resize operation: %hs", e.what());
 
         // Roll back internal dimensions on failure
         iOrigWidth = oldWidth;
@@ -1727,9 +1764,7 @@ void DX11Renderer::WaitToFinishThenPauseThread() {
     // Step 1: Acquire exclusive DirectX access lock to prevent concurrent operations
     ThreadLockHelper exclusiveDirectXLock(threadManager, "exclusive_directx_access", 10000);
     if (!exclusiveDirectXLock.IsLocked()) {
-        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] WaitToFinishThenPauseThread() - Failed to acquire exclusive DirectX lock");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] WaitToFinishThenPauseThread() - Failed to acquire exclusive DirectX lock");
         return;
     }
 
@@ -1754,9 +1789,7 @@ void DX11Renderer::WaitToFinishThenPauseThread() {
 
     // Step 3: Check if we timed out waiting for renderer
     if (waitAttempts >= maxWaitAttempts) {
-        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[RENDERER] WaitToFinishThenPauseThread() - Timeout waiting for renderer to finish, forcing pause");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[RENDERER] WaitToFinishThenPauseThread() - Timeout waiting for renderer to finish, forcing pause");
     } else {
         #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
             debug.logDebugMessage(LogLevel::LOG_INFO, L"[RENDERER] WaitToFinishThenPauseThread() - Renderer completed after %d wait cycles", waitAttempts);
@@ -1774,9 +1807,7 @@ void DX11Renderer::WaitToFinishThenPauseThread() {
             #endif
         }
         catch (const std::exception& e) {
-            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERER] WaitToFinishThenPauseThread() - Exception during context flush: %hs", e.what());
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[RENDERER] WaitToFinishThenPauseThread() - Exception during context flush: %hs", e.what());
         }
     }
 
@@ -1789,9 +1820,7 @@ void DX11Renderer::WaitToFinishThenPauseThread() {
         #endif
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERER] WaitToFinishThenPauseThread() - Exception during GPU wait: %hs", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[RENDERER] WaitToFinishThenPauseThread() - Exception during GPU wait: %hs", e.what());
     }
 
     // Step 6: Pause the renderer thread safely
@@ -1814,9 +1843,7 @@ void DX11Renderer::WaitToFinishThenPauseThread() {
         }
         
         if (pauseVerifyAttempts >= maxPauseVerifyAttempts) {
-            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[RENDERER] WaitToFinishThenPauseThread() - Thread pause verification timeout");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[RENDERER] WaitToFinishThenPauseThread() - Thread pause verification timeout");
         } else {
             #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
                 debug.logDebugMessage(LogLevel::LOG_INFO, L"[RENDERER] WaitToFinishThenPauseThread() - Thread successfully paused after %d verification cycles", pauseVerifyAttempts);
@@ -1865,9 +1892,7 @@ void DX11Renderer::ResumeLoader(bool isResizing)
     // Acquire a loader control lock to prevent races with shutdown and other loader control paths.
     ThreadLockHelper loaderControlLock(threadManager, "loader_control_operation", 5000);
     if (!loaderControlLock.IsLocked()) {
-        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[LOADER] ResumeLoader() - Failed to acquire loader control lock");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[LOADER] ResumeLoader() - Failed to acquire loader control lock");
         return;
     }
 
@@ -1903,9 +1928,7 @@ void DX11Renderer::ResumeLoader(bool isResizing)
     }
     catch (const std::exception& e)
     {
-        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[LOADER] ResumeLoader() - Exception: %hs", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[LOADER] ResumeLoader() - Exception: %hs", e.what());
     }
 }
 
@@ -2174,6 +2197,10 @@ void DX11Renderer::CreateRenderTargetViews() {
 }
 
 void DX11Renderer::CreateDepthStencilBuffer() {
+    // MSAA colour target + background copy first: if it cannot be created the sample count drops to 1,
+    // and the depth buffer below must match that.  No-op while MSAA is off.
+    CreateMsaaTargets(static_cast<UINT>(m_renderTargetWidth), static_cast<UINT>(m_renderTargetHeight));
+
     // Use the same dimensions and multisample settings as the render target view
     D3D11_TEXTURE2D_DESC depthDesc = {};
     depthDesc.Width = m_renderTargetWidth;  // Use the same width as the render target
@@ -2181,8 +2208,9 @@ void DX11Renderer::CreateDepthStencilBuffer() {
     depthDesc.MipLevels = 1;
     depthDesc.ArraySize = 1;
     depthDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-    depthDesc.SampleDesc.Count = m_renderTargetSampleCount; // Use the same sample count
-    depthDesc.SampleDesc.Quality = m_renderTargetSampleQuality; // Use the same sample quality
+    // The depth buffer matches the 3D pass target: the MSAA colour target when MSAA is on, else the back buffer.
+    depthDesc.SampleDesc.Count = m_msaaSampleCount;
+    depthDesc.SampleDesc.Quality = (m_msaaSampleCount > 1) ? m_msaaQuality : 0;
     depthDesc.Usage = D3D11_USAGE_DEFAULT;
     depthDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
 
@@ -2199,6 +2227,641 @@ void DX11Renderer::CreateDepthStencilBuffer() {
         ThrowError("Failed to create depth stencil view.");
         return;
     }
+
+}
+
+// ---------------------------------------------------------------------------------------------------
+// MSAA (Video settings: Anti-Aliasing + MSAA + MSAA Samples)
+// ---------------------------------------------------------------------------------------------------
+
+// Picks the largest supported sample count <= the requested one (2/4/8) for both the colour and depth
+// formats.  Leaves m_msaaSampleCount = 1 when AA/MSAA is off or nothing is supported.
+void DX11Renderer::ChooseMsaaSampleCount()
+{
+    m_msaaSampleCount = 1;
+    m_msaaQuality = 0;
+    if (!m_d3dDevice || !config.myConfig.antiAliasingEnabled || !config.myConfig.msaaEnabled)
+        return;
+
+    const UINT want = static_cast<UINT>(std::clamp(config.myConfig.msaaSamples, 2, 8));
+    for (UINT s = want; s >= 2; s >>= 1)
+    {
+        UINT qColor = 0, qDepth = 0;
+        if (SUCCEEDED(m_d3dDevice->CheckMultisampleQualityLevels(DXGI_FORMAT_B8G8R8A8_UNORM, s, &qColor)) && qColor > 0 &&
+            SUCCEEDED(m_d3dDevice->CheckMultisampleQualityLevels(DXGI_FORMAT_D24_UNORM_S8_UINT, s, &qDepth)) && qDepth > 0)
+        {
+            m_msaaSampleCount = s;
+            m_msaaQuality = 0;      // standard pattern; quality level 0 is always valid when the count is supported
+            break;
+        }
+    }
+
+    if (m_msaaSampleCount == 1)
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX11Renderer: MSAA requested but no supported multisample count was found; rendering 1 sample.");
+    else
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"DX11Renderer: MSAA enabled: %ux (requested %ux)", m_msaaSampleCount, want);
+}
+
+// Blit pipeline used to copy the (single-sample) D2D background into the MSAA target.
+bool DX11Renderer::CreateMsaaBlitResources()
+{
+    if (m_msaaBlitVS && m_msaaBlitPS && m_msaaBlitDS && m_msaaBlitRS) return true;
+    if (!m_d3dDevice) return false;
+
+    static const char kVS[] =
+        "float4 main(uint id : SV_VertexID) : SV_Position\n"
+        "{\n"
+        "    float2 uv = float2((id << 1) & 2, id & 2);\n"
+        "    return float4(uv * float2(2.0f, -2.0f) + float2(-1.0f, 1.0f), 0.0f, 1.0f);\n"
+        "}\n";
+    static const char kPS[] =
+        "Texture2D<float4> srcTex : register(t0);\n"
+        "float4 main(float4 pos : SV_Position) : SV_Target\n"
+        "{\n"
+        "    return srcTex.Load(int3(int2(pos.xy), 0));\n"
+        "}\n";
+
+    ComPtr<ID3DBlob> vsBlob, psBlob, err;
+    HRESULT hr = D3DCompile(kVS, sizeof(kVS) - 1, "MsaaBlitVS", nullptr, nullptr, "main", "vs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &vsBlob, &err);
+    if (FAILED(hr))
+    {
+        if (err) debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX11Renderer] MSAA blit VS compile error: %hs", static_cast<const char*>(err->GetBufferPointer()));
+        return false;
+    }
+    err.Reset();
+    hr = D3DCompile(kPS, sizeof(kPS) - 1, "MsaaBlitPS", nullptr, nullptr, "main", "ps_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &psBlob, &err);
+    if (FAILED(hr))
+    {
+        if (err) debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX11Renderer] MSAA blit PS compile error: %hs", static_cast<const char*>(err->GetBufferPointer()));
+        return false;
+    }
+    if (FAILED(m_d3dDevice->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &m_msaaBlitVS))) return false;
+    if (FAILED(m_d3dDevice->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &m_msaaBlitPS))) return false;
+
+    D3D11_DEPTH_STENCIL_DESC dsd = {};
+    dsd.DepthEnable = FALSE;
+    dsd.StencilEnable = FALSE;
+    if (FAILED(m_d3dDevice->CreateDepthStencilState(&dsd, &m_msaaBlitDS))) return false;
+
+    D3D11_RASTERIZER_DESC rd = {};
+    rd.FillMode = D3D11_FILL_SOLID;
+    rd.CullMode = D3D11_CULL_NONE;
+    rd.DepthClipEnable = TRUE;
+    if (FAILED(m_d3dDevice->CreateRasterizerState(&rd, &m_msaaBlitRS))) return false;
+
+    return true;
+}
+
+// (Re)creates the multisampled colour target and the single-sample background copy.  Called whenever the
+// depth buffer is rebuilt (initial create + every resize / display-mode change path).
+bool DX11Renderer::CreateMsaaTargets(UINT width, UINT height)
+{
+    m_msaaRTV.Reset();
+    m_msaaColorTex.Reset();
+    m_msaaBgSRV.Reset();
+    m_msaaBgTex.Reset();
+
+    if (m_msaaSampleCount <= 1 || !m_d3dDevice || width == 0 || height == 0)
+        return false;
+
+    auto fallBackToSingleSample = [this]() {
+        // Without the MSAA target the depth buffer must be single-sample again, so the caller keeps a
+        // consistent (non-MSAA) pipeline.  Subsequent resizes stay single-sample.
+        m_msaaRTV.Reset(); m_msaaColorTex.Reset(); m_msaaBgSRV.Reset(); m_msaaBgTex.Reset();
+        m_msaaSampleCount = 1; m_msaaQuality = 0;
+    };
+
+    if (!CreateMsaaBlitResources())
+    {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX11Renderer: MSAA blit resources failed; falling back to 1 sample.");
+        fallBackToSingleSample();
+        return false;
+    }
+
+    D3D11_TEXTURE2D_DESC td = {};
+    td.Width = width;
+    td.Height = height;
+    td.MipLevels = 1;
+    td.ArraySize = 1;
+    td.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    td.SampleDesc.Count = m_msaaSampleCount;
+    td.SampleDesc.Quality = m_msaaQuality;
+    td.Usage = D3D11_USAGE_DEFAULT;
+    td.BindFlags = D3D11_BIND_RENDER_TARGET;
+    HRESULT hr = m_d3dDevice->CreateTexture2D(&td, nullptr, &m_msaaColorTex);
+    if (SUCCEEDED(hr)) hr = m_d3dDevice->CreateRenderTargetView(m_msaaColorTex.Get(), nullptr, &m_msaaRTV);
+    if (FAILED(hr))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX11Renderer: MSAA colour target creation failed (0x%08X); falling back to 1 sample.", hr);
+        fallBackToSingleSample();
+        return false;
+    }
+
+    D3D11_TEXTURE2D_DESC bd = {};
+    bd.Width = width;
+    bd.Height = height;
+    bd.MipLevels = 1;
+    bd.ArraySize = 1;
+    bd.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    bd.SampleDesc.Count = 1;
+    bd.Usage = D3D11_USAGE_DEFAULT;
+    bd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    hr = m_d3dDevice->CreateTexture2D(&bd, nullptr, &m_msaaBgTex);
+    if (SUCCEEDED(hr)) hr = m_d3dDevice->CreateShaderResourceView(m_msaaBgTex.Get(), nullptr, &m_msaaBgSRV);
+    if (FAILED(hr))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX11Renderer: MSAA background copy creation failed (0x%08X); falling back to 1 sample.", hr);
+        fallBackToSingleSample();
+        return false;
+    }
+    return true;
+}
+
+// Binds the target of the 3D pass: the MSAA colour target when active, else the back buffer.
+void DX11Renderer::BindMainRenderTargets()
+{
+    if (!m_d3dContext) return;
+    if (UsingMsaa())
+        m_d3dContext->OMSetRenderTargets(1, m_msaaRTV.GetAddressOf(), m_depthStencilView.Get());
+    else
+        m_d3dContext->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
+}
+
+// Start of the MSAA 3D pass.  The D2D background has already been drawn to the back buffer; copy it and
+// blit it into the MSAA target so the 3D scene composes over it, then leave the MSAA target + depth bound.
+void DX11Renderer::BeginMsaaScenePass()
+{
+    if (!UsingMsaa() || !m_d3dContext || !m_swapChain) { BindMainRenderTargets(); return; }
+
+    ComPtr<ID3D11Texture2D> backBuffer;
+    if (FAILED(m_swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer))))
+    {
+        BindMainRenderTargets();
+        return;
+    }
+
+    ID3D11DeviceContext* ctx = m_d3dContext.Get();
+    ctx->OMSetRenderTargets(0, nullptr, nullptr);
+    ctx->CopyResource(m_msaaBgTex.Get(), backBuffer.Get());
+
+    // Save the state the blit touches
+    ComPtr<ID3D11BlendState>        oldBlend;   FLOAT oldBlendFactor[4] = {}; UINT oldSampleMask = 0xffffffff;
+    ComPtr<ID3D11DepthStencilState> oldDS;      UINT oldStencilRef = 0;
+    ComPtr<ID3D11RasterizerState>   oldRS;
+    ComPtr<ID3D11InputLayout>       oldLayout;
+    ComPtr<ID3D11VertexShader>      oldVS;
+    ComPtr<ID3D11PixelShader>       oldPS;
+    ComPtr<ID3D11ShaderResourceView> oldSRV0;
+    D3D11_PRIMITIVE_TOPOLOGY        oldTopo = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED;
+    ctx->OMGetBlendState(&oldBlend, oldBlendFactor, &oldSampleMask);
+    ctx->OMGetDepthStencilState(&oldDS, &oldStencilRef);
+    ctx->RSGetState(&oldRS);
+    ctx->IAGetInputLayout(&oldLayout);
+    ctx->IAGetPrimitiveTopology(&oldTopo);
+    ctx->VSGetShader(&oldVS, nullptr, nullptr);
+    ctx->PSGetShader(&oldPS, nullptr, nullptr);
+    ctx->PSGetShaderResources(0, 1, &oldSRV0);
+
+    ctx->OMSetRenderTargets(1, m_msaaRTV.GetAddressOf(), m_depthStencilView.Get());
+    ctx->OMSetBlendState(nullptr, nullptr, 0xffffffff);
+    ctx->OMSetDepthStencilState(m_msaaBlitDS.Get(), 0);
+    ctx->RSSetState(m_msaaBlitRS.Get());
+    ctx->IASetInputLayout(nullptr);
+    ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ctx->VSSetShader(m_msaaBlitVS.Get(), nullptr, 0);
+    ctx->PSSetShader(m_msaaBlitPS.Get(), nullptr, 0);
+    ctx->PSSetShaderResources(0, 1, m_msaaBgSRV.GetAddressOf());
+    ctx->Draw(3, 0);
+
+    // Restore
+    ID3D11ShaderResourceView* nullSRV = nullptr;
+    ctx->PSSetShaderResources(0, 1, oldSRV0 ? oldSRV0.GetAddressOf() : &nullSRV);
+    ctx->PSSetShader(oldPS.Get(), nullptr, 0);
+    ctx->VSSetShader(oldVS.Get(), nullptr, 0);
+    ctx->IASetInputLayout(oldLayout.Get());
+    ctx->IASetPrimitiveTopology(oldTopo);
+    ctx->RSSetState(oldRS.Get());
+    ctx->OMSetDepthStencilState(oldDS.Get(), oldStencilRef);
+    ctx->OMSetBlendState(oldBlend.Get(), oldBlendFactor, oldSampleMask);
+}
+
+// End of the MSAA 3D pass: resolve into the back buffer (overwrites it; the background was blitted into the
+// MSAA target, so nothing is lost) and rebind the back buffer without depth for the D2D overlay / fade passes.
+void DX11Renderer::ResolveMsaaScenePass()
+{
+    if (!UsingMsaa() || !m_d3dContext || !m_swapChain) return;
+
+    ComPtr<ID3D11Texture2D> backBuffer;
+    if (FAILED(m_swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer)))) return;
+
+    ID3D11DeviceContext* ctx = m_d3dContext.Get();
+    ctx->OMSetRenderTargets(0, nullptr, nullptr);
+    ctx->ResolveSubresource(backBuffer.Get(), 0, m_msaaColorTex.Get(), 0, DXGI_FORMAT_B8G8R8A8_UNORM);
+    // The depth buffer is multisampled, so it cannot be bound together with the single-sample back buffer.
+    ctx->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), nullptr);
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Shadow mapping resources (see Lights.h for the shared planner / GPU layout).
+//   t8 : directional depth map   (R32_TYPELESS, DSV D32_FLOAT, SRV R32_FLOAT)
+//   t9 : spot / point depth array (MAX_LOCAL_SHADOW_SLICES slices, one DSV per slice)
+// Sizes come from config.myConfig.shadowQuality and are fixed until the next Initialize().
+// Failure is non-fatal: m_shadowResourcesReady stays false and shaders see useShadowMap = 0.
+// ---------------------------------------------------------------------------------------------------
+bool DX11Renderer::CreateShadowResources()
+{
+    ReleaseShadowResources();
+    if (!m_d3dDevice) return false;
+
+    m_shadowDirSize   = ShadowDirMapSizeFromConfig();
+    m_shadowLocalSize = ShadowLocalMapSizeFromConfig();
+
+    HRESULT hr;
+
+    // --- Directional depth map ---
+    D3D11_TEXTURE2D_DESC td = {};
+    td.Width            = static_cast<UINT>(m_shadowDirSize);
+    td.Height           = static_cast<UINT>(m_shadowDirSize);
+    td.MipLevels        = 1;
+    td.ArraySize        = 1;
+    td.Format           = DXGI_FORMAT_R32_TYPELESS;
+    td.SampleDesc.Count = 1;
+    td.Usage            = D3D11_USAGE_DEFAULT;
+    td.BindFlags        = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
+    hr = m_d3dDevice->CreateTexture2D(&td, nullptr, &m_shadowDirTex);
+    if (FAILED(hr)) { debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX11Renderer] Shadow: directional map creation failed (0x%08X)", hr); return false; }
+
+    D3D11_DEPTH_STENCIL_VIEW_DESC dsvd = {};
+    dsvd.Format        = DXGI_FORMAT_D32_FLOAT;
+    dsvd.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+    hr = m_d3dDevice->CreateDepthStencilView(m_shadowDirTex.Get(), &dsvd, &m_shadowDirDSV);
+    if (FAILED(hr)) { debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX11Renderer] Shadow: directional DSV failed (0x%08X)", hr); return false; }
+
+    D3D11_SHADER_RESOURCE_VIEW_DESC srvd = {};
+    srvd.Format                    = DXGI_FORMAT_R32_FLOAT;
+    srvd.ViewDimension             = D3D11_SRV_DIMENSION_TEXTURE2D;
+    srvd.Texture2D.MipLevels       = 1;
+    hr = m_d3dDevice->CreateShaderResourceView(m_shadowDirTex.Get(), &srvd, &m_shadowDirSRV);
+    if (FAILED(hr)) { debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX11Renderer] Shadow: directional SRV failed (0x%08X)", hr); return false; }
+
+    // --- Spot / point depth array ---
+    td.Width     = static_cast<UINT>(m_shadowLocalSize);
+    td.Height    = static_cast<UINT>(m_shadowLocalSize);
+    td.ArraySize = MAX_LOCAL_SHADOW_SLICES;
+    hr = m_d3dDevice->CreateTexture2D(&td, nullptr, &m_shadowLocalTex);
+    if (FAILED(hr)) { debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX11Renderer] Shadow: local array creation failed (0x%08X)", hr); return false; }
+
+    for (int s = 0; s < MAX_LOCAL_SHADOW_SLICES; ++s)
+    {
+        D3D11_DEPTH_STENCIL_VIEW_DESC adsv = {};
+        adsv.Format                         = DXGI_FORMAT_D32_FLOAT;
+        adsv.ViewDimension                  = D3D11_DSV_DIMENSION_TEXTURE2DARRAY;
+        adsv.Texture2DArray.MipSlice        = 0;
+        adsv.Texture2DArray.FirstArraySlice = static_cast<UINT>(s);
+        adsv.Texture2DArray.ArraySize       = 1;
+        hr = m_d3dDevice->CreateDepthStencilView(m_shadowLocalTex.Get(), &adsv, &m_shadowLocalDSV[s]);
+        if (FAILED(hr)) { debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX11Renderer] Shadow: local DSV %d failed (0x%08X)", s, hr); return false; }
+    }
+
+    D3D11_SHADER_RESOURCE_VIEW_DESC asrv = {};
+    asrv.Format                         = DXGI_FORMAT_R32_FLOAT;
+    asrv.ViewDimension                  = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+    asrv.Texture2DArray.MipLevels       = 1;
+    asrv.Texture2DArray.FirstArraySlice = 0;
+    asrv.Texture2DArray.ArraySize       = MAX_LOCAL_SHADOW_SLICES;
+    hr = m_d3dDevice->CreateShaderResourceView(m_shadowLocalTex.Get(), &asrv, &m_shadowLocalSRV);
+    if (FAILED(hr)) { debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX11Renderer] Shadow: local SRV failed (0x%08X)", hr); return false; }
+
+    // --- Depth-only vertex shader: clip = float4(pos * scale, 1) * (World * LightViewProj) ---
+    static const char kShadowVS[] =
+        "cbuffer ShadowPassCB : register(b0)\n"
+        "{\n"
+        "    float4x4 worldLightVP;\n"
+        "    float4   modelScale;\n"
+        "};\n"
+        "float4 main(float3 pos : POSITION) : SV_POSITION\n"
+        "{\n"
+        "    return mul(float4(pos * modelScale.xyz, 1.0f), worldLightVP);\n"
+        "}\n";
+
+    ComPtr<ID3DBlob> vsBlob, errBlob;
+    hr = D3DCompile(kShadowVS, sizeof(kShadowVS) - 1, "ShadowDepthVS", nullptr, nullptr,
+                    "main", "vs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &vsBlob, &errBlob);
+    if (FAILED(hr))
+    {
+        if (errBlob)
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX11Renderer] Shadow VS compile error: %hs",
+                static_cast<const char*>(errBlob->GetBufferPointer()));
+        return false;
+    }
+    hr = m_d3dDevice->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &m_shadowVS);
+    if (FAILED(hr)) { debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX11Renderer] Shadow VS creation failed (0x%08X)", hr); return false; }
+
+    // Only POSITION is read; stride comes from IASetVertexBuffers (sizeof(Vertex)).
+    D3D11_INPUT_ELEMENT_DESC layout[] = {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+    };
+    hr = m_d3dDevice->CreateInputLayout(layout, 1, vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &m_shadowInputLayout);
+    if (FAILED(hr)) { debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX11Renderer] Shadow input layout failed (0x%08X)", hr); return false; }
+
+    // --- Constant buffers ---
+    D3D11_BUFFER_DESC cbd = {};
+    cbd.Usage          = D3D11_USAGE_DYNAMIC;
+    cbd.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
+    cbd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    cbd.ByteWidth      = 80;                                                        // float4x4 + float4
+    hr = m_d3dDevice->CreateBuffer(&cbd, nullptr, &m_shadowPassCB);
+    if (FAILED(hr)) { debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX11Renderer] Shadow pass CB failed (0x%08X)", hr); return false; }
+
+    cbd.ByteWidth      = static_cast<UINT>(sizeof(ShadowBufferData));               // 2288 (multiple of 16)
+    hr = m_d3dDevice->CreateBuffer(&cbd, nullptr, &m_shadowFrameCB);
+    if (FAILED(hr)) { debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX11Renderer] Shadow frame CB failed (0x%08X)", hr); return false; }
+
+    // --- Rasterizer: slope-scaled bias, no culling (single-sided geometry still casts) ---
+    D3D11_RASTERIZER_DESC rd = {};
+    rd.FillMode             = D3D11_FILL_SOLID;
+    rd.CullMode             = D3D11_CULL_NONE;
+    rd.DepthClipEnable      = TRUE;
+    rd.DepthBias            = 1000;                                                  // D32_FLOAT: scaled by 2^(exp(z)-23)
+    rd.DepthBiasClamp       = 0.0f;
+    rd.SlopeScaledDepthBias = 1.5f;
+    hr = m_d3dDevice->CreateRasterizerState(&rd, &m_shadowRasterState);
+    if (FAILED(hr)) { debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX11Renderer] Shadow rasterizer failed (0x%08X)", hr); return false; }
+
+    // --- s2: PCF comparison sampler (outside the map = lit) ---
+    D3D11_SAMPLER_DESC sd = {};
+    sd.Filter         = D3D11_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
+    sd.AddressU       = D3D11_TEXTURE_ADDRESS_BORDER;
+    sd.AddressV       = D3D11_TEXTURE_ADDRESS_BORDER;
+    sd.AddressW       = D3D11_TEXTURE_ADDRESS_BORDER;
+    sd.BorderColor[0] = sd.BorderColor[1] = sd.BorderColor[2] = sd.BorderColor[3] = 1.0f;
+    sd.ComparisonFunc = D3D11_COMPARISON_LESS_EQUAL;
+    sd.MaxLOD         = 0.0f;
+    hr = m_d3dDevice->CreateSamplerState(&sd, &m_shadowCmpSampler);
+    if (FAILED(hr)) { debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX11Renderer] Shadow sampler failed (0x%08X)", hr); return false; }
+
+    m_shadowResourcesReady = true;
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"[DX11Renderer] Shadow resources created (dir %d, local %d x %d slices)",
+        m_shadowDirSize, m_shadowLocalSize, MAX_LOCAL_SHADOW_SLICES);
+    return true;
+}
+
+void DX11Renderer::ReleaseShadowResources()
+{
+    m_shadowResourcesReady = false;
+    m_shadowDirSRV.Reset();
+    m_shadowDirDSV.Reset();
+    m_shadowDirTex.Reset();
+    for (auto& dsv : m_shadowLocalDSV) dsv.Reset();
+    m_shadowLocalSRV.Reset();
+    m_shadowLocalTex.Reset();
+    m_shadowVS.Reset();
+    m_shadowInputLayout.Reset();
+    m_shadowPassCB.Reset();
+    m_shadowFrameCB.Reset();
+    m_shadowRasterState.Reset();
+    m_shadowCmpSampler.Reset();
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Scene reflection probe (see "Scene Reflections" in Lights.h).
+// Rebuilds the CPU sky cube when the lighting changed, uploads every face/mip with
+// UpdateSubresource and publishes g_reflectionFrame for Model::Render + ShadowPackGPU.
+// Failure is non-fatal: the probe stays off and models keep their per-model environment maps.
+// ---------------------------------------------------------------------------------------------------
+void DX11Renderer::UpdateReflectionProbe(const std::vector<LightStruct>& lights, float deltaTime)
+{
+    ID3D11DeviceContext* ctx = m_d3dContext.Get();
+    if (!ctx || !m_d3dDevice) return;
+
+    const bool changed = ReflectionProbeUpdate(lights, deltaTime, m_reflProbe);
+
+    if (m_reflProbe.size > 0 && (!m_reflTex || (changed && m_reflUploadedVersion != m_reflProbe.version)))
+    {
+        if (!m_reflTex)
+        {
+            D3D11_TEXTURE2D_DESC td = {};
+            td.Width            = static_cast<UINT>(m_reflProbe.size);
+            td.Height           = static_cast<UINT>(m_reflProbe.size);
+            td.MipLevels        = static_cast<UINT>(m_reflProbe.mipCount);
+            td.ArraySize        = 6;
+            td.Format           = DXGI_FORMAT_R8G8B8A8_UNORM;
+            td.SampleDesc.Count = 1;
+            td.Usage            = D3D11_USAGE_DEFAULT;
+            td.BindFlags        = D3D11_BIND_SHADER_RESOURCE;
+            td.MiscFlags        = D3D11_RESOURCE_MISC_TEXTURECUBE;
+            HRESULT hr = m_d3dDevice->CreateTexture2D(&td, nullptr, &m_reflTex);
+            if (SUCCEEDED(hr))
+            {
+                D3D11_SHADER_RESOURCE_VIEW_DESC srvd = {};
+                srvd.Format                  = td.Format;
+                srvd.ViewDimension           = D3D11_SRV_DIMENSION_TEXTURECUBE;
+                srvd.TextureCube.MipLevels       = td.MipLevels;
+                srvd.TextureCube.MostDetailedMip = 0;
+                hr = m_d3dDevice->CreateShaderResourceView(m_reflTex.Get(), &srvd, &m_reflSRV);
+            }
+            if (FAILED(hr))
+            {
+                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX11Renderer] Reflection probe creation failed (0x%08X)", hr);
+                m_reflSRV.Reset();
+                m_reflTex.Reset();
+                ReflectionFrameSet(m_reflProbe, false);
+                return;
+            }
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[DX11Renderer] Reflection probe created (%d px, %d mips)",
+                m_reflProbe.size, m_reflProbe.mipCount);
+        }
+
+        for (int f = 0; f < 6; ++f)
+        {
+            for (int mip = 0; mip < m_reflProbe.mipCount; ++mip)
+            {
+                const std::vector<uint8_t>& px = m_reflProbe.data[f][mip];
+                if (px.empty()) continue;
+                const UINT sub = D3D11CalcSubresource(static_cast<UINT>(mip), static_cast<UINT>(f), static_cast<UINT>(m_reflProbe.mipCount));
+                ctx->UpdateSubresource(m_reflTex.Get(), sub, nullptr, px.data(),
+                                       static_cast<UINT>(ReflectionMipSize(m_reflProbe.size, mip) * 4), 0);
+            }
+        }
+        m_reflUploadedVersion = m_reflProbe.version;
+    }
+
+    ReflectionFrameSet(m_reflProbe, m_reflTex != nullptr);
+
+    // t10 stays bound for every model drawn this frame (models never touch it).  Bind it even
+    // when the probe is off so a stale SRV from an earlier scene is never left in the slot.
+    const bool liveReady = g_reflectionCapture.ready && config.myConfig.reflectionLive && m_capSRV;
+    ID3D11ShaderResourceView* probeSRV = (g_reflectionFrame.active && m_reflSRV) ? (liveReady ? m_capSRV.Get() : m_reflSRV.Get()) : nullptr;
+    ctx->PSSetShaderResources(SLOT_sceneProbe, 1, &probeSRV);
+}
+
+bool DX11Renderer::CreateCaptureResources()
+{
+    ReleaseCaptureResources();
+    if (!m_d3dDevice || m_reflProbe.size <= 0) return false;
+
+    const UINT size = static_cast<UINT>(m_reflProbe.size);
+    D3D11_TEXTURE2D_DESC td = {};
+    td.Width            = size;
+    td.Height           = size;
+    td.MipLevels        = static_cast<UINT>(m_reflProbe.mipCount);
+    td.ArraySize        = 6;
+    td.Format           = DXGI_FORMAT_R8G8B8A8_UNORM;
+    td.SampleDesc.Count = 1;
+    td.Usage            = D3D11_USAGE_DEFAULT;
+    td.BindFlags        = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    td.MiscFlags        = D3D11_RESOURCE_MISC_TEXTURECUBE | D3D11_RESOURCE_MISC_GENERATE_MIPS;
+    HRESULT hr = m_d3dDevice->CreateTexture2D(&td, nullptr, &m_capTex);
+    if (SUCCEEDED(hr))
+    {
+        D3D11_SHADER_RESOURCE_VIEW_DESC srvd = {};
+        srvd.Format                      = td.Format;
+        srvd.ViewDimension               = D3D11_SRV_DIMENSION_TEXTURECUBE;
+        srvd.TextureCube.MostDetailedMip = 0;
+        srvd.TextureCube.MipLevels       = td.MipLevels;
+        hr = m_d3dDevice->CreateShaderResourceView(m_capTex.Get(), &srvd, &m_capSRV);
+    }
+    for (int f = 0; f < 6 && SUCCEEDED(hr); ++f)
+    {
+        D3D11_RENDER_TARGET_VIEW_DESC rd = {};
+        rd.Format                         = td.Format;
+        rd.ViewDimension                  = D3D11_RTV_DIMENSION_TEXTURE2DARRAY;
+        rd.Texture2DArray.MipSlice        = 0;
+        rd.Texture2DArray.FirstArraySlice = static_cast<UINT>(f);
+        rd.Texture2DArray.ArraySize       = 1;
+        hr = m_d3dDevice->CreateRenderTargetView(m_capTex.Get(), &rd, &m_capRTV[f]);
+    }
+    if (SUCCEEDED(hr))
+    {
+        D3D11_TEXTURE2D_DESC dd = {};
+        dd.Width            = size;
+        dd.Height           = size;
+        dd.MipLevels        = 1;
+        dd.ArraySize        = 1;
+        dd.Format           = DXGI_FORMAT_D32_FLOAT;
+        dd.SampleDesc.Count = 1;
+        dd.Usage            = D3D11_USAGE_DEFAULT;
+        dd.BindFlags        = D3D11_BIND_DEPTH_STENCIL;
+        hr = m_d3dDevice->CreateTexture2D(&dd, nullptr, &m_capDepthTex);
+        if (SUCCEEDED(hr)) hr = m_d3dDevice->CreateDepthStencilView(m_capDepthTex.Get(), nullptr, &m_capDSV);
+    }
+    if (FAILED(hr))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX11Renderer] Live reflection capture creation failed (0x%08X)", hr);
+        ReleaseCaptureResources();
+        m_capFailed = true;
+        return false;
+    }
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"[DX11Renderer] Live reflection capture created (%d px)", m_reflProbe.size);
+    return true;
+}
+
+void DX11Renderer::ReleaseCaptureResources()
+{
+    m_capDSV.Reset();
+    m_capDepthTex.Reset();
+    for (auto& rtv : m_capRTV) rtv.Reset();
+    m_capSRV.Reset();
+    m_capTex.Reset();
+    m_capFailed = false;
+    g_reflectionCapture.ready = false;
+}
+
+void DX11Renderer::ReleaseReflectionResources()
+{
+    ReleaseCaptureResources();
+    ReflectionCaptureReset();
+    g_reflectionFrame.active  = false;
+    m_reflSRV.Reset();
+    m_reflTex.Reset();
+    m_reflProbe = ReflectionProbe{};
+    m_reflUploadedVersion = 0;
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Planar reflection target (see "Planar Reflections" in Lights.h).  Created lazily the first time a
+// reflector model exists, at the config planarQuality size (fixed until the next video restart).
+// Failure is non-fatal: reflectors simply render without the mirror image.
+// ---------------------------------------------------------------------------------------------------
+bool DX11Renderer::CreatePlanarResources()
+{
+    ReleasePlanarResources();
+    if (!m_d3dDevice) return false;
+
+    m_planarW = PlanarWidthFromConfig();
+    m_planarH = PlanarHeightFromConfig();
+
+    // One array slice per reflection plane.
+    D3D11_TEXTURE2D_DESC td = {};
+    td.Width            = static_cast<UINT>(m_planarW);
+    td.Height           = static_cast<UINT>(m_planarH);
+    td.MipLevels        = 1;
+    td.ArraySize        = MAX_PLANAR_PLANES;
+    td.Format           = DXGI_FORMAT_R8G8B8A8_UNORM;
+    td.SampleDesc.Count = 1;
+    td.Usage            = D3D11_USAGE_DEFAULT;
+    td.BindFlags        = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    HRESULT hr = m_d3dDevice->CreateTexture2D(&td, nullptr, &m_planarColorTex);
+    for (int s = 0; s < MAX_PLANAR_PLANES && SUCCEEDED(hr); ++s)
+    {
+        D3D11_RENDER_TARGET_VIEW_DESC rd = {};
+        rd.Format                         = td.Format;
+        rd.ViewDimension                  = D3D11_RTV_DIMENSION_TEXTURE2DARRAY;
+        rd.Texture2DArray.MipSlice        = 0;
+        rd.Texture2DArray.FirstArraySlice = static_cast<UINT>(s);
+        rd.Texture2DArray.ArraySize       = 1;
+        hr = m_d3dDevice->CreateRenderTargetView(m_planarColorTex.Get(), &rd, &m_planarRTV[s]);
+    }
+    if (SUCCEEDED(hr))
+    {
+        D3D11_SHADER_RESOURCE_VIEW_DESC sd = {};
+        sd.Format                         = td.Format;
+        sd.ViewDimension                  = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+        sd.Texture2DArray.MostDetailedMip = 0;
+        sd.Texture2DArray.MipLevels       = 1;
+        sd.Texture2DArray.FirstArraySlice = 0;
+        sd.Texture2DArray.ArraySize       = MAX_PLANAR_PLANES;
+        hr = m_d3dDevice->CreateShaderResourceView(m_planarColorTex.Get(), &sd, &m_planarSRV);
+    }
+
+    if (SUCCEEDED(hr))
+    {
+        // One depth buffer shared by all planes (cleared at the start of every plane's pass).
+        D3D11_TEXTURE2D_DESC dd = {};
+        dd.Width            = static_cast<UINT>(m_planarW);
+        dd.Height           = static_cast<UINT>(m_planarH);
+        dd.MipLevels        = 1;
+        dd.ArraySize        = 1;
+        dd.Format           = DXGI_FORMAT_D32_FLOAT;
+        dd.SampleDesc.Count = 1;
+        dd.Usage            = D3D11_USAGE_DEFAULT;
+        dd.BindFlags        = D3D11_BIND_DEPTH_STENCIL;
+        hr = m_d3dDevice->CreateTexture2D(&dd, nullptr, &m_planarDepthTex);
+        if (SUCCEEDED(hr)) hr = m_d3dDevice->CreateDepthStencilView(m_planarDepthTex.Get(), nullptr, &m_planarDSV);
+    }
+
+    if (FAILED(hr))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[DX11Renderer] Planar reflection target creation failed (0x%08X)", hr);
+        ReleasePlanarResources();
+        m_planarFailed = true;
+        return false;
+    }
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"[DX11Renderer] Planar reflection target created (%d x %d x %d planes)",
+        m_planarW, m_planarH, MAX_PLANAR_PLANES);
+    return true;
+}
+
+void DX11Renderer::ReleasePlanarResources()
+{
+    g_planarFrame.active = false;
+    g_planarFrame.hasImage = false;
+    m_planarDSV.Reset();
+    m_planarDepthTex.Reset();
+    m_planarSRV.Reset();
+    for (auto& rtv : m_planarRTV) rtv.Reset();
+    m_planarColorTex.Reset();
+    m_planarFailed = false;
 }
 
 void DX11Renderer::SetupViewport() {
@@ -2238,7 +2901,8 @@ void DX11Renderer::SetupPipelineStates() {
     rasterDesc.SlopeScaledDepthBias = 0.0f;
     rasterDesc.DepthClipEnable = true;                          // Enable depth clipping
     rasterDesc.ScissorEnable = false;                           // No scissor test
-    rasterDesc.MultisampleEnable = config.myConfig.msaaEnabled; // MSAA from config
+    // Multisample rasterization only means something when the render target really is multisampled
+    rasterDesc.MultisampleEnable = config.myConfig.antiAliasingEnabled && config.myConfig.msaaEnabled && m_msaaSampleCount > 1;
     rasterDesc.AntialiasedLineEnable = config.myConfig.antiAliasingEnabled;
 
     // Create rasterizer state
@@ -2361,9 +3025,7 @@ void DX11Renderer::LoadShaders() {
 
     if (!hasModelProgram && !hasGameplayModelProgram)
     {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[DX11Renderer] LoadShaders() failed - neither ModelProgram nor GameplayModelProgram exists in ShaderManager.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[DX11Renderer] LoadShaders() failed - neither ModelProgram nor GameplayModelProgram exists in ShaderManager.");
 
         // Uh Oh! - You have done something wrong here!
         ThrowError("Required shader program 'ModelProgram' (or fallback 'GameplayModelProgram') not available from ShaderManager");
@@ -2558,6 +3220,9 @@ bool DX11Renderer::SetFullScreen(void)
             return false;
         }
 
+        // Recreate the MSAA colour target first (it may fall back to 1 sample), then the depth buffer to match
+        CreateMsaaTargets(static_cast<UINT>(fullscreenWidth), static_cast<UINT>(fullscreenHeight));
+
         // Recreate depth buffer
         D3D11_TEXTURE2D_DESC depthDesc = {};
         depthDesc.Width = fullscreenWidth;                                      // Set depth buffer width
@@ -2565,7 +3230,8 @@ bool DX11Renderer::SetFullScreen(void)
         depthDesc.MipLevels = 1;                                                // Single mip level
         depthDesc.ArraySize = 1;                                                // Single array element
         depthDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;                      // 24-bit depth, 8-bit stencil
-        depthDesc.SampleDesc.Count = 1;                                         // No multisampling
+        depthDesc.SampleDesc.Count = m_msaaSampleCount;                         // Matches the 3D pass target (1 = no MSAA)
+        depthDesc.SampleDesc.Quality = (m_msaaSampleCount > 1) ? m_msaaQuality : 0;
         depthDesc.Usage = D3D11_USAGE_DEFAULT;                                  // Default usage
         depthDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;                         // Bind as depth-stencil
 
@@ -2596,7 +3262,7 @@ bool DX11Renderer::SetFullScreen(void)
         m_d3dContext->RSSetViewports(1, &vp);                                   // Set the viewport
 
         // Bind the new render target and depth stencil
-        m_d3dContext->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
+        BindMainRenderTargets();
 
         // Update rendering dimensions
         iOrigWidth           = fullscreenWidth;                                 // Update width
@@ -2658,9 +3324,7 @@ bool DX11Renderer::SetFullExclusive(uint32_t width, uint32_t height)
     // Check if already in fullscreen transition to prevent race conditions
     if (bFullScreenTransition.load()) {
         // Log warning that transition is already in progress
-        #if defined(_DEBUG_RENDERER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[RENDERER] Fullscreen transition already in progress");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[RENDERER] Fullscreen transition already in progress");
         return false;
     }
 
@@ -2693,11 +3357,9 @@ bool DX11Renderer::SetFullExclusive(uint32_t width, uint32_t height)
 
         LONG cdsResult = ChangeDisplaySettingsEx(nullptr, &dm, nullptr, CDS_FULLSCREEN, nullptr);
         if (cdsResult != DISP_CHANGE_SUCCESSFUL) {
-            #if defined(_DEBUG_RENDERER_)
-                debug.logDebugMessage(LogLevel::LOG_WARNING,
-                    L"[RENDERER] ChangeDisplaySettingsEx to %dx%d failed (code %ld) - continuing",
-                    width, height, cdsResult);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING,
+                L"[RENDERER] ChangeDisplaySettingsEx to %dx%d failed (code %ld) - continuing",
+                width, height, cdsResult);
         }
     }
 
@@ -2724,9 +3386,7 @@ bool DX11Renderer::SetFullExclusive(uint32_t width, uint32_t height)
         HRESULT hr = m_swapChain->GetContainingOutput(&output);
         if (FAILED(hr)) {
             // Log error if we cannot get the containing output for the swap chain
-            #if defined(_DEBUG_RENDERER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to get containing output for swap chain");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to get containing output for swap chain");
             // Clear transition flags on failure
             bFullScreenTransition.store(false);
             threadManager.threadVars.bSettingFullScreen.store(false);
@@ -2738,9 +3398,7 @@ bool DX11Renderer::SetFullExclusive(uint32_t width, uint32_t height)
         hr = output->GetDesc(&outputDesc);
         if (FAILED(hr)) {
             // Log error if we cannot get the output description
-            #if defined(_DEBUG_RENDERER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to get output description");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to get output description");
             // Clear transition flags on failure
             bFullScreenTransition.store(false);
             threadManager.threadVars.bSettingFullScreen.store(false);
@@ -2755,9 +3413,7 @@ bool DX11Renderer::SetFullExclusive(uint32_t width, uint32_t height)
         hr = output->GetDisplayModeList(format, 0, &numModes, nullptr);
         if (FAILED(hr) || numModes == 0) {
             // Log error if we cannot enumerate display modes
-            #if defined(_DEBUG_RENDERER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to enumerate display modes");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to enumerate display modes");
             // Clear transition flags on failure
             bFullScreenTransition.store(false);
             threadManager.threadVars.bSettingFullScreen.store(false);
@@ -2771,9 +3427,7 @@ bool DX11Renderer::SetFullExclusive(uint32_t width, uint32_t height)
         hr = output->GetDisplayModeList(format, 0, &numModes, displayModes.data());
         if (FAILED(hr)) {
             // Log error if we cannot get the display mode list
-            #if defined(_DEBUG_RENDERER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to get display mode list");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to get display mode list");
             // Clear transition flags on failure
             bFullScreenTransition.store(false);
             threadManager.threadVars.bSettingFullScreen.store(false);
@@ -2900,6 +3554,9 @@ bool DX11Renderer::SetFullExclusive(uint32_t width, uint32_t height)
             return false;
         }
 
+        // Recreate the MSAA colour target first (it may fall back to 1 sample), then the depth buffer to match
+        CreateMsaaTargets(static_cast<UINT>(closestMode.Width), static_cast<UINT>(closestMode.Height));
+
         // Recreate depth stencil buffer with the new resolution
         D3D11_TEXTURE2D_DESC depthDesc = {};
         depthDesc.Width = closestMode.Width;                        // Set depth buffer width to closest mode width
@@ -2907,7 +3564,8 @@ bool DX11Renderer::SetFullExclusive(uint32_t width, uint32_t height)
         depthDesc.MipLevels = 1;                                    // Single mip level for depth buffer
         depthDesc.ArraySize = 1;                                    // Single array element
         depthDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;          // 24-bit depth, 8-bit stencil format
-        depthDesc.SampleDesc.Count = 1;                             // No multisampling for compatibility
+        depthDesc.SampleDesc.Count = m_msaaSampleCount;             // Matches the 3D pass target (1 = no MSAA)
+        depthDesc.SampleDesc.Quality = (m_msaaSampleCount > 1) ? m_msaaQuality : 0;
         depthDesc.Usage = D3D11_USAGE_DEFAULT;                      // Default usage for GPU access
         depthDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;             // Bind as depth-stencil buffer
 
@@ -2915,9 +3573,7 @@ bool DX11Renderer::SetFullExclusive(uint32_t width, uint32_t height)
         hr = m_d3dDevice->CreateTexture2D(&depthDesc, nullptr, m_depthStencilBuffer.GetAddressOf());
         if (FAILED(hr)) {
             // Log error if creating depth stencil buffer fails
-            #if defined(_DEBUG_RENDERER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to create depth stencil buffer after resize");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] Failed to create depth stencil buffer after resize");
             // Clear resizing and transition flags on failure
             threadManager.threadVars.bIsResizing.store(false);
             bFullScreenTransition.store(false);
@@ -2948,7 +3604,7 @@ bool DX11Renderer::SetFullExclusive(uint32_t width, uint32_t height)
         m_d3dContext->RSSetViewports(1, &vp);                       // Set the viewport in the rendering context
 
         // Bind the new render target and depth stencil to the output merger stage
-        m_d3dContext->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
+        BindMainRenderTargets();
 
         // Update rendering dimensions to reflect the actual resolution achieved
         iOrigWidth           = closestMode.Width;                   // Update internal width tracking
@@ -3139,6 +3795,9 @@ bool DX11Renderer::SetWindowedScreen(void)
             return false;
         }
 
+        // Recreate the MSAA colour target first (it may fall back to 1 sample), then the depth buffer to match
+        CreateMsaaTargets(static_cast<UINT>(windowedWidth), static_cast<UINT>(windowedHeight));
+
         // Recreate depth buffer
         D3D11_TEXTURE2D_DESC depthDesc = {};
         depthDesc.Width = windowedWidth;                                        // Set depth buffer width
@@ -3146,7 +3805,8 @@ bool DX11Renderer::SetWindowedScreen(void)
         depthDesc.MipLevels = 1;                                                // Single mip level
         depthDesc.ArraySize = 1;                                                // Single array element
         depthDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;                      // 24-bit depth, 8-bit stencil
-        depthDesc.SampleDesc.Count = 1;                                         // No multisampling
+        depthDesc.SampleDesc.Count = m_msaaSampleCount;                         // Matches the 3D pass target (1 = no MSAA)
+        depthDesc.SampleDesc.Quality = (m_msaaSampleCount > 1) ? m_msaaQuality : 0;
         depthDesc.Usage = D3D11_USAGE_DEFAULT;                                  // Default usage
         depthDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;                         // Bind as depth-stencil
 
@@ -3177,7 +3837,7 @@ bool DX11Renderer::SetWindowedScreen(void)
         m_d3dContext->RSSetViewports(1, &vp);                                   // Set the viewport
 
         // Bind the new render target and depth stencil
-        m_d3dContext->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
+        BindMainRenderTargets();
 
         // Update rendering dimensions
         iOrigWidth  = windowedWidth;
@@ -3384,10 +4044,52 @@ bool DX11Renderer::SetDisplayMode(DisplayMode mode, int width, int height, int r
                     debug.logLevelMessage(LogLevel::LOG_WARNING, L"[RENDERER] SetDisplayMode ExclusiveFS: ResizeTarget (step 1) failed — continuing");
 
                 // Step 2 — Take exclusive ownership of the output.
-                hr = m_swapChain->SetFullscreenState(TRUE, output.Get());
+                // DXGI_ERROR_NOT_CURRENTLY_AVAILABLE (0x887A0022) is returned while the window is not yet
+                // visible/foreground (typical during startup), so activate it and retry a few times.
+                for (int attempt = 0; attempt < 10; ++attempt)
+                {
+                    if (!IsWindowVisible(hwnd)) ShowWindow(hwnd, SW_SHOW);
+                    SetForegroundWindow(hwnd);
+                    SetFocus(hwnd);
+
+                    hr = m_swapChain->SetFullscreenState(TRUE, output.Get());
+                    if (hr != DXGI_ERROR_NOT_CURRENTLY_AVAILABLE)
+                        break;
+                    Sleep(100);
+                }
                 if (FAILED(hr))
                 {
-                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERER] SetDisplayMode ExclusiveFS: SetFullscreenState(TRUE) failed");
+                    // Not fatal: the swap chain is still windowed, so rebuild the windowed resources released
+                    // above and carry on in a window instead of closing the application.
+                    debug.logDebugMessage(LogLevel::LOG_WARNING,
+                        L"[RENDERER] SetDisplayMode ExclusiveFS: SetFullscreenState(TRUE) failed (HRESULT 0x%08X) - staying windowed",
+                        static_cast<unsigned int>(hr));
+
+                    HRESULT rhr = m_swapChain->ResizeBuffers(0, 0, 0, DXGI_FORMAT_UNKNOWN, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH);
+                    ComPtr<ID3D11Texture2D> winBuffer;
+                    if (SUCCEEDED(rhr)) rhr = m_swapChain->GetBuffer(0, IID_PPV_ARGS(&winBuffer));
+                    if (SUCCEEDED(rhr)) rhr = m_d3dDevice->CreateRenderTargetView(winBuffer.Get(), nullptr, m_renderTargetView.GetAddressOf());
+                    if (SUCCEEDED(rhr))
+                    {
+                        D3D11_TEXTURE2D_DESC bd = {};
+                        winBuffer->GetDesc(&bd);
+                        m_renderTargetWidth         = static_cast<int>(bd.Width);
+                        m_renderTargetHeight        = static_cast<int>(bd.Height);
+                        m_renderTargetSampleCount   = bd.SampleDesc.Count;
+                        m_renderTargetSampleQuality = bd.SampleDesc.Quality;
+
+                        CreateDepthStencilBuffer();
+                        SetupViewport();
+                        BindMainRenderTargets();
+                        SetupPipelineStates();
+                        CreateDirect2DResources();
+                    }
+                    else
+                    {
+                        debug.logDebugMessage(LogLevel::LOG_ERROR,
+                            L"[RENDERER] SetDisplayMode ExclusiveFS: windowed recovery failed (HRESULT 0x%08X)",
+                            static_cast<unsigned int>(rhr));
+                    }
                     threadManager.threadVars.bIsResizing.store(false);
                     bFullScreenTransition.store(false);
                     threadManager.threadVars.bSettingFullScreen.store(false);
@@ -3455,7 +4157,7 @@ bool DX11Renderer::SetDisplayMode(DisplayMode mode, int width, int height, int r
 
                 CreateDepthStencilBuffer();
                 SetupViewport();
-                m_d3dContext->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
+                BindMainRenderTargets();
                 SetupPipelineStates();
                 CreateDirect2DResources();
 

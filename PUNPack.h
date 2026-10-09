@@ -371,9 +371,7 @@ PackResult PUNPack::PackStruct(const T& structure, CompressionType compressionTy
 
     // Ensure the class is initialized
     if (!m_bIsInitialized.load()) {
-#if defined(_DEBUG_PUNPACK_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] PackStruct called before initialization");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] PackStruct called before initialization");
         return result;
     }
 
@@ -437,11 +435,9 @@ PackResult PUNPack::PackStruct(const T& structure, CompressionType compressionTy
 
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_PUNPACK_)
         std::string errorMsg = e.what();
         std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] PackStruct exception: " + wErrorMsg);
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] PackStruct exception: " + wErrorMsg);
     }
 
     return result;
@@ -458,28 +454,22 @@ UnpackResult PUNPack::UnpackStruct(const PackResult& packedData, T& outputStruct
     // Ensure the class is initialized
     if (!m_bIsInitialized.load()) {
         result.errorMessage = "PUNPack not initialized";
-#if defined(_DEBUG_PUNPACK_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] UnpackStruct called before initialization");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] UnpackStruct called before initialization");
         return result;
     }
 
     // Validate pack result
     if (!ValidatePackResult(packedData)) {
         result.errorMessage = "Invalid pack result data";
-#if defined(_DEBUG_PUNPACK_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] UnpackStruct received invalid pack result");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] UnpackStruct received invalid pack result");
         return result;
     }
 
     // Check if expected size matches
     if (packedData.originalSize != sizeof(T)) {
         result.errorMessage = "Structure size mismatch";
-#if defined(_DEBUG_PUNPACK_)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[PUNPack] Size mismatch - Expected: %zu, Got: %zu",
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[PUNPack] Size mismatch - Expected: %zu, Got: %zu",
             sizeof(T), packedData.originalSize);
-#endif
         return result;
     }
 
@@ -498,10 +488,8 @@ UnpackResult PUNPack::UnpackStruct(const PackResult& packedData, T& outputStruct
         uint32_t verifyChecksum = CalculateChecksum(workingData);
         if (verifyChecksum != packedData.compressedChecksum) {
             result.errorMessage = "Compressed data checksum verification failed";
-#if defined(_DEBUG_PUNPACK_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[PUNPack] Checksum mismatch - Expected: 0x%08X, Got: 0x%08X",
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[PUNPack] Checksum mismatch - Expected: 0x%08X, Got: 0x%08X",
                 packedData.compressedChecksum, verifyChecksum);
-#endif
             return result;
         }
 
@@ -532,10 +520,8 @@ UnpackResult PUNPack::UnpackStruct(const PackResult& packedData, T& outputStruct
         // Verify decompressed data size
         if (decompressedData.size() != packedData.originalSize) {
             result.errorMessage = "Decompressed data size mismatch";
-#if defined(_DEBUG_PUNPACK_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[PUNPack] Decompressed size mismatch - Expected: %zu, Got: %zu",
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[PUNPack] Decompressed size mismatch - Expected: %zu, Got: %zu",
                 packedData.originalSize, decompressedData.size());
-#endif
             return result;
         }
 
@@ -543,10 +529,8 @@ UnpackResult PUNPack::UnpackStruct(const PackResult& packedData, T& outputStruct
         uint32_t originalChecksum = CalculateChecksum(decompressedData);
         if (originalChecksum != packedData.checksum) {
             result.errorMessage = "Original data checksum verification failed";
-#if defined(_DEBUG_PUNPACK_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[PUNPack] Original checksum mismatch - Expected: 0x%08X, Got: 0x%08X",
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[PUNPack] Original checksum mismatch - Expected: 0x%08X, Got: 0x%08X",
                 packedData.checksum, originalChecksum);
-#endif
             return result;
         }
 
@@ -572,11 +556,9 @@ UnpackResult PUNPack::UnpackStruct(const PackResult& packedData, T& outputStruct
     }
     catch (const std::exception& e) {
         result.errorMessage = std::string("Exception during unpacking: ") + e.what();
-#if defined(_DEBUG_PUNPACK_)
         std::string errorMsg = e.what();
         std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] UnpackStruct exception: " + wErrorMsg);
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] UnpackStruct exception: " + wErrorMsg);
     }
 
     return result;

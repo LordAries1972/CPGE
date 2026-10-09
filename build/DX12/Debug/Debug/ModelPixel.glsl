@@ -12,7 +12,8 @@
 //   t5  environmentMap     (samplerCube, binding 5)
 //   t6  glossMap           (sampler2D, binding 6)
 //   t7  emissiveMap        (sampler2D, binding 7)
-//   t8  shadowMap          (sampler2DShadow, binding 8)
+//   t8  shadowMap          (sampler2DShadow, binding 8)       directional light
+//   t9  localShadowMaps    (sampler2DArrayShadow, binding 9)  spot slices + point cube faces
 //
 // Uniform block binding slots mirror HLSL register(bN):
 //   b0  ConstantBuffer     (binding 0)
@@ -46,7 +47,10 @@ uniform sampler2D       aoMap;              // t4
 uniform samplerCube     environmentMap;     // t5
 uniform sampler2D       glossMap;           // t6: gloss/smoothness (roughness = 1 - gloss.r)
 uniform sampler2D       emissiveMap;        // t7: emissive texture (multiplied by EmissiveFactor)
-uniform sampler2DShadow shadowMap;          // t8: shadow depth map (hardware PCF)
+uniform sampler2DShadow shadowMap;          // t8: directional shadow depth map (hardware PCF)
+uniform sampler2DArrayShadow localShadowMaps; // t9: spot slices + point-light cube faces (hardware PCF)
+uniform samplerCube     sceneProbe;         // t10: renderer-owned scene reflection probe (used when the model has no t5 map)
+uniform sampler2DArray  planarMap;          // t11: planar mirror renders, one layer per reflection plane (see Lights.h)
 
 #define MAX_LIGHTS        8
 #define MAX_GLOBAL_LIGHTS 8
@@ -133,9 +137,9 @@ layout(std140, binding = 3) uniform GlobalLightBuffer
 // ── MaterialBuffer (binding 4) ───────────────────────────────────────────────
 layout(std140, binding = 4) uniform MaterialBuffer
 {
-    vec3  Ka;             float _padM1;
-    vec3  Kd;             float _padM2;
-    vec3  Ks;             float _padM3;
+    vec3  Ka;             float ReceiveShadows;   // 1.0 = this model is darkened by shadow maps
+    vec3  Kd;             float PlanarStrength;
+    vec3  Ks;             float PlanarIndex;
     float Ns;
     float Metallic;
     float Roughness;
@@ -162,14 +166,45 @@ layout(std140, binding = 5) uniform EnvBuffer
 };
 
 // ── ShadowBuffer (binding 6) ─────────────────────────────────────────────────
+// MUST match ShadowBufferData in Lights.h (2368 bytes, std140).
+#define MAX_LOCAL_SHADOW_SLICES 32
+#define SHADOW_KIND_NONE        0
+#define SHADOW_KIND_DIRECTIONAL 1
+#define SHADOW_KIND_SPOT        2
+#define SHADOW_KIND_POINT       3
+
 layout(std140, binding = 6) uniform ShadowBuffer
 {
-    mat4  lightViewProj;            // Light view-projection matrix
-    float shadowBias;               // Depth bias to prevent shadow acne
-    float shadowStrength;           // Shadow darkness multiplier [0-1]
-    float useShadowMap;             // 1.0 = shadow map at t8 is active
-    float shadowMapSize;            // Shadow map resolution (e.g. 2048.0) for PCF texel offset
+    mat4  lightViewProj;                            // Directional light view-projection matrix
+    float shadowBias;                               // Directional depth bias to prevent shadow acne
+    float shadowStrength;                           // Shadow darkness multiplier [0-1]
+    float useShadowMap;                             // 1.0 = directional map at t8 is active
+    float shadowMapSize;                            // Directional map resolution for PCF texel offset
+    mat4  localViewProj[MAX_LOCAL_SHADOW_SLICES];   // Spot slices + point cube faces (+X -X +Y -Y +Z -Z)
+    ivec4 lightShadowInfo[MAX_GLOBAL_LIGHTS];       // Per global light: x = SHADOW_KIND_*, y = first slice
+    float localBias;                                // Spot / point depth bias
+    float useLocalShadows;                          // 1.0 = t9 array holds valid slices
+    float localMapSize;                             // Slice resolution for PCF texel offset
+    float displayBrightness;                        // Video settings brightness (1 = neutral)
+    float displayContrast;                          // Video settings contrast   (1 = neutral)
+    float reflectionScale;      // Scene reflection strength (0 = scene probe off)
+    float reflectionMaxMip;     // Highest mip index of the scene probe cube map at unit 5
+    float reflectionBlur;       // Extra mip bias for the scene probe lookup
+    vec4  planarParams;         // x = planar scale (0 = off), y = distortion, zw = 1/screen size
+    vec4  planarPlanes[4];      // Per planar layer: xyz = plane normal (faces the viewer), w = d
 };
+
+// Video settings brightness / contrast.  A zeroed ShadowBuffer (not yet uploaded) reads as neutral.
+// Clamp to displayable range FIRST: emissive / over-lit pixels sit well above 1.0 and would
+// otherwise still clip to white after the adjustment, making the sliders look dead.
+vec3 ApplyDisplayAdjust(vec3 c)
+{
+    float b = (displayBrightness > 0.0) ? displayBrightness : 1.0;
+    float k = (displayContrast   > 0.0) ? displayContrast   : 1.0;
+    c = clamp(c, 0.0, 1.0);
+    c = clamp((c - 0.5) * k + 0.5, 0.0, 1.0);       // contrast around mid-grey
+    return c * b;
+}
 
 #define LIGHT_TYPE_DIRECTIONAL 0
 #define LIGHT_TYPE_POINT       1
@@ -277,9 +312,14 @@ vec3 ProcessLight(LightStruct light, vec3 N, vec3 V, vec3 worldPos,
     return outDiff + outSpec;
 }
 
-// ── PCF Shadow (sampler2DShadow: hardware PCF on supported drivers) ───────────
-// Returns 1.0 = lit, 0.0 = fully shadowed.
-float SampleShadow(vec3 worldPos)
+// ── PCF Shadow (hardware comparison samplers) ────────────────────────────────
+// All helpers return raw visibility: 1.0 = lit, 0.0 = fully shadowed.
+// The light matrices produce D3D-style NDC depth in [0,1]; OpenGL writes window
+// depth as z * 0.5 + 0.5 (default [-1,1] depth range), so the reference is remapped
+// the same way before comparing.  UV: NDC y = -1 is the bottom row in GL (no flip).
+
+// Directional light (unit 8).
+float SampleDirShadow(vec3 worldPos)
 {
     if (useShadowMap < 0.5)
         return 1.0;
@@ -292,12 +332,8 @@ float SampleShadow(vec3 worldPos)
     if (abs(projCoords.x) > 1.0)                    return 1.0;
     if (abs(projCoords.y) > 1.0)                    return 1.0;
 
-    // NDC [-1,1] → texture [0,1]; flip Y for OpenGL clip convention
-    vec2 shadowUV;
-    shadowUV.x = projCoords.x * 0.5 + 0.5;
-    shadowUV.y = projCoords.y * 0.5 + 0.5;   // OpenGL Y is not flipped
-
-    float currentDepth = projCoords.z - shadowBias;
+    vec2  shadowUV     = projCoords.xy * 0.5 + 0.5;
+    float currentDepth = (projCoords.z - shadowBias) * 0.5 + 0.5;
 
     // 3x3 PCF kernel
     float shadow    = 0.0;
@@ -310,9 +346,70 @@ float SampleShadow(vec3 worldPos)
             shadow += texture(shadowMap, vec3(shadowUV + vec2(float(x), float(y)) * texelSize, currentDepth));
         }
     }
-    shadow /= 9.0;
+    return shadow / 9.0;
+}
 
-    return mix(1.0 - shadowStrength, 1.0, shadow);
+// Spot light slice or one point-light cube face (unit 9 array layer).
+float SampleLocalShadow(int slice, vec3 worldPos)
+{
+    if (useLocalShadows < 0.5 || slice < 0 || slice >= MAX_LOCAL_SHADOW_SLICES)
+        return 1.0;
+
+    vec4 lightClip = localViewProj[slice] * vec4(worldPos, 1.0);
+    if (lightClip.w <= 0.0001)                      // Behind the light
+        return 1.0;
+    vec3 projCoords = lightClip.xyz / lightClip.w;
+
+    if (projCoords.z > 1.0 || projCoords.z < 0.0)  return 1.0;
+    if (abs(projCoords.x) > 1.0)                    return 1.0;
+    if (abs(projCoords.y) > 1.0)                    return 1.0;
+
+    vec2  shadowUV     = projCoords.xy * 0.5 + 0.5;
+    float currentDepth = (projCoords.z - localBias) * 0.5 + 0.5;
+    float layer        = float(slice);
+
+    float shadow    = 0.0;
+    float texelSize = 1.0 / max(localMapSize, 1.0);
+    for (int x = -1; x <= 1; ++x)
+    {
+        for (int y = -1; y <= 1; ++y)
+        {
+            vec2 uv = shadowUV + vec2(float(x), float(y)) * texelSize;
+            shadow += texture(localShadowMaps, vec4(uv, layer, currentDepth));
+        }
+    }
+    return shadow / 9.0;
+}
+
+// Point-light cube face from the light-to-pixel vector.  Order MUST match
+// BuildShadowFrame() in Lights.cpp: +X -X +Y -Y +Z -Z.
+int PointShadowFace(vec3 v)
+{
+    vec3 a = abs(v);
+    if (a.x >= a.y && a.x >= a.z)
+        return (v.x >= 0.0) ? 0 : 1;
+    if (a.y >= a.z)
+        return (v.y >= 0.0) ? 2 : 3;
+    return (v.z >= 0.0) ? 4 : 5;
+}
+
+// Final shadow multiplier for global light `li` (1.0 = unshadowed).
+float ShadowForGlobalLight(int li, vec3 lightPos, vec3 worldPos)
+{
+    if (ReceiveShadows < 0.5)
+        return 1.0;
+
+    ivec4 info = lightShadowInfo[li];
+    float vis  = 1.0;
+
+    if (info.x == SHADOW_KIND_DIRECTIONAL)
+        vis = SampleDirShadow(worldPos);
+    else if (info.x == SHADOW_KIND_SPOT)
+        vis = SampleLocalShadow(info.y, worldPos);
+    else if (info.x == SHADOW_KIND_POINT)
+        vis = SampleLocalShadow(info.y + PointShadowFace(worldPos - lightPos), worldPos);
+
+    return mix(1.0 - shadowStrength, 1.0, vis);
 }
 
 // ── Fragment Shader Main ─────────────────────────────────────────────────────
@@ -372,7 +469,22 @@ void main()
     vec3 reflDir = reflect(-V, normalWS);
     float roughMip  = roughnessValue * 5.0 + mipLODBias;
     vec3 envRefl = vec3(0.0);
-    if (useEnvMap > 0.5)
+    // Scene probe: models without their own t5 map reflect the renderer's sky cube (unit 10).
+    // reflectionScale == 0 means the probe is off (Video settings / resource unavailable).
+    bool useProbe = (useEnvMap <= 0.5) && (reflectionScale > 0.0);
+
+    if (useProbe)
+    {
+        // Roughness picks the mip.  Roughness-aware Fresnel keeps rough dielectrics from
+        // over-reflecting at grazing angles.
+        float probeMip = clamp(roughnessValue * reflectionMaxMip + reflectionBlur, 0.0, reflectionMaxMip);
+        vec3  probe    = textureLod(sceneProbe, reflDir, probeMip).rgb;
+        float NoV      = clamp(dot(normalWS, V), 0.0, 1.0);
+        float gloss    = 1.0 - roughnessValue;
+        vec3  Fr       = F0 + (max(vec3(gloss), F0) - F0) * pow(1.0 - NoV, 5.0);
+        envRefl        = probe * envTint * envIntensity * Fr * reflectionScale * aoValue;
+    }
+    else if (useEnvMap > 0.5)
     {
         envRefl  = textureLod(environmentMap, reflDir, roughMip).rgb;
         envRefl *= envTint * envIntensity;
@@ -388,8 +500,10 @@ void main()
 
     if ((numLights == 0 && globalLightCount == 0) || debugMode == 5)
     {
-        if (useEnvMap > 0.5 && debugMode != 5)
+        if ((useEnvMap > 0.5 || useProbe) && debugMode != 5)
             finalColor += envRefl;
+        if (debugMode != 5)
+            finalColor = ApplyDisplayAdjust(finalColor);
         fragColor = vec4(finalColor, albedoColor.a);
         return;
     }
@@ -413,14 +527,19 @@ void main()
         specularAccum += ls;
     }
 
+    // Global lights - each one attenuated by its own shadow map (if it has one).
+    float shadowVisMin = 1.0;                       // For the ShadowsOnly debug view
     for (int gi = 0; gi < globalLightCount; ++gi)
     {
         vec3 ld, ls;
-        directLighting += ProcessLight(globalLights[gi], normalWS, V, vWorldPosition,
-                                       roughnessValue, metallicValue, albedoColor.rgb, F0,
-                                       ld, ls);
-        diffuseAccum  += ld;
-        specularAccum += ls;
+        vec3  contrib = ProcessLight(globalLights[gi], normalWS, V, vWorldPosition,
+                                     roughnessValue, metallicValue, albedoColor.rgb, F0,
+                                     ld, ls);
+        float sh      = ShadowForGlobalLight(gi, globalLights[gi].position, vWorldPosition);
+        shadowVisMin  = min(shadowVisMin, sh);
+        directLighting += contrib * sh;
+        diffuseAccum   += ld * sh;
+        specularAccum  += ls * sh;
     }
 
     // === Debug: separate diffuse / specular visualisation
@@ -432,14 +551,12 @@ void main()
         return;
     }
 
-    // === PCF shadow factor
-    float shadowFactor = SampleShadow(vWorldPosition);
+    // === ShadowsOnly debug mode (darkest shadow factor across all global lights)
+    if (debugMode == 7) { fragColor = vec4(vec3(shadowVisMin), 1.0); return; }
 
-    if (debugMode == 7) { fragColor = vec4(vec3(shadowFactor), 1.0); return; }
-
-    // === Combine: material ambient + per-light ambient + direct (shadow-modulated)
+    // === Combine: material ambient + per-light ambient + direct (already shadow-attenuated per light)
     finalColor += lightAmbient * albedoColor.rgb * aoValue
-               + directLighting * shadowFactor;
+               + directLighting;
 
     // === Emissive
     vec3 emissiveTex = (useEmissiveMap > 0.5) ? texture(emissiveMap, vTexCoord).rgb : vec3(1.0);
@@ -447,11 +564,34 @@ void main()
     finalColor += emissive;
 
     // === Environment reflection
-    if (useEnvMap > 0.5)
+    if (useEnvMap > 0.5 || useProbe)
         finalColor += envRefl;
 
     // Linear output — matches DX12/DX11 which do not apply tone mapping or
     // gamma correction in the shader (the display / sRGB framebuffer handles it).
     // Manual Reinhard + pow(1/2.2) caused over-brightness vs the DX12 reference.
+    // === Planar reflection (reflector surfaces only).  The mirror render uses an x-flipped projection,
+    // so u is mirrored; gl_FragCoord (origin bottom-left) matches the FBO texture orientation.
+    // PlanarIndex picks the layer of the plane this surface reflects.
+    if (PlanarStrength > 0.0 && planarParams.x > 0.0)
+    {
+        int  planarSlice = clamp(int(PlanarIndex + 0.5), 0, 3);
+        vec3 planarN     = planarPlanes[planarSlice].xyz;
+        vec2 planarUV    = gl_FragCoord.xy * planarParams.zw;
+        planarUV.x       = 1.0 - planarUV.x;
+        // Ripple: normal-map detail (normalWS vs the geometric normal) along the plane's two tangents.
+        vec3 planarT1    = normalize(cross(planarN, (abs(planarN.y) < 0.99) ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+        vec3 planarT2    = cross(planarN, planarT1);
+        vec3 planarDelta = normalWS - normalize(vNormal);
+        planarUV        += vec2(dot(planarDelta, planarT1), dot(planarDelta, planarT2)) * (planarParams.y * 0.25);
+        planarUV         = clamp(planarUV, 0.0, 1.0);
+        vec3  planarCol  = textureLod(planarMap, vec3(planarUV, float(planarSlice)), 0.0).rgb;
+        float planarNoV  = clamp(dot(normalWS, V), 0.0, 1.0);
+        float planarW    = clamp(PlanarStrength * planarParams.x * (1.0 - roughnessValue)
+                                 * (0.4 + 0.6 * pow(1.0 - planarNoV, 2.0)), 0.0, 1.0);
+        finalColor = mix(finalColor, planarCol, planarW);
+    }
+
+    finalColor = ApplyDisplayAdjust(finalColor);                // Video settings brightness / contrast
     fragColor = vec4(finalColor, albedoColor.a);
 }

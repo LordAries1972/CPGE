@@ -131,16 +131,12 @@ void Camera::SaveCameraStateForResize()
                 savedCameraState.fieldOfView = currentFov;
             } else {
                 savedCameraState.fieldOfView = 45.0f; // Safe fallback
-                #if defined(_DEBUG_WINSYSTEM_)
-                    debug.logDebugMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid FOV detected (%.2f), using fallback: 45.0", currentFov);
-                #endif
+                debug.logDiagMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid FOV detected (%.2f), using fallback: 45.0", currentFov);
             }
         }
         catch (...) {
             savedCameraState.fieldOfView = 45.0f; // Safe fallback on any exception
-            #if defined(_DEBUG_WINSYSTEM_)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[CAMERA] Exception getting FOV, using fallback: 45.0");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[CAMERA] Exception getting FOV, using fallback: 45.0");
         }
 
         try {
@@ -154,17 +150,13 @@ void Camera::SaveCameraStateForResize()
             } else {
                 savedCameraState.nearPlane = 0.1f;   // Safe fallback
                 savedCameraState.farPlane = 1000.0f; // Safe fallback
-                #if defined(_DEBUG_WINSYSTEM_)
-                    debug.logDebugMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid near/far planes (%.3f/%.3f), using fallbacks", currentNear, currentFar);
-                #endif
+                debug.logDiagMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid near/far planes (%.3f/%.3f), using fallbacks", currentNear, currentFar);
             }
         }
         catch (...) {
             savedCameraState.nearPlane = 0.1f;   // Safe fallback on any exception
             savedCameraState.farPlane = 1000.0f; // Safe fallback on any exception
-            #if defined(_DEBUG_WINSYSTEM_)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[CAMERA] Exception getting near/far planes, using fallbacks");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[CAMERA] Exception getting near/far planes, using fallbacks");
         }
         
         // Mark state as valid
@@ -177,15 +169,11 @@ void Camera::SaveCameraStateForResize()
         #endif
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_WINSYSTEM_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[CAMERA] Exception saving camera state: %hs", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[CAMERA] Exception saving camera state: %hs", e.what());
         savedCameraState.isValid = false;
     }
     catch (...) {
-        #if defined(_DEBUG_WINSYSTEM_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[CAMERA] Unknown exception saving camera state");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[CAMERA] Unknown exception saving camera state");
         savedCameraState.isValid = false;
     }
 }
@@ -198,9 +186,7 @@ void Camera::RestoreCameraStateAfterResize()
     #endif
 
     if (!savedCameraState.isValid) {
-        #if defined(_DEBUG_WINSYSTEM_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[CAMERA] Cannot restore camera state - no valid saved state");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[CAMERA] Cannot restore camera state - no valid saved state");
         return;
     }
 
@@ -209,9 +195,7 @@ void Camera::RestoreCameraStateAfterResize()
 /*
         ThreadLockHelper cameraRestoreLock(threadManager, "camera_restore_operation", 2000);
         if (!cameraRestoreLock.IsLocked()) {
-            #if defined(_DEBUG_WINSYSTEM_)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[CAMERA] Failed to acquire camera restore lock");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[CAMERA] Failed to acquire camera restore lock");
             return;
         }
 */
@@ -246,9 +230,7 @@ void Camera::RestoreCameraStateAfterResize()
             #endif
         }
         else {
-            #if defined(_DEBUG_WINSYSTEM_)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[CAMERA] Using fallback aspect ratio: 16:9");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[CAMERA] Using fallback aspect ratio: 16:9");
         }
 
         // Ensure aspect ratio is within reasonable bounds
@@ -260,9 +242,7 @@ void Camera::RestoreCameraStateAfterResize()
             float fovToRestore = savedCameraState.fieldOfView;
             if (fovToRestore <= 0.0f || fovToRestore >= 180.0f) {
                 fovToRestore = 45.0f; // Safe fallback
-                #if defined(_DEBUG_WINSYSTEM_)
-                    debug.logDebugMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid saved FOV (%.2f), using fallback: 45.0", savedCameraState.fieldOfView);
-                #endif
+                debug.logDiagMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid saved FOV (%.2f), using fallback: 45.0", savedCameraState.fieldOfView);
             }
 
             // Create projection matrix directly instead of using SetFieldOfView() to avoid config dependency
@@ -278,9 +258,7 @@ void Camera::RestoreCameraStateAfterResize()
             #endif
         }
         catch (const std::exception& e) {
-            #if defined(_DEBUG_WINSYSTEM_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[CAMERA] Exception restoring projection: %hs, using defaults", e.what());
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[CAMERA] Exception restoring projection: %hs, using defaults", e.what());
             
             // Create default projection matrix on failure
             constexpr float defaultFov = XMConvertToRadians(45.0f);
@@ -305,9 +283,7 @@ void Camera::RestoreCameraStateAfterResize()
             #endif
         }
         catch (const std::exception& e) {
-            #if defined(_DEBUG_WINSYSTEM_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[CAMERA] Exception updating view matrix: %hs", e.what());
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[CAMERA] Exception updating view matrix: %hs", e.what());
         }
 
         #if defined(_DEBUG_WINSYSTEM_)
@@ -320,15 +296,11 @@ void Camera::RestoreCameraStateAfterResize()
         savedCameraState.isValid = false;
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_WINSYSTEM_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[CAMERA] Exception restoring camera state: %hs", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[CAMERA] Exception restoring camera state: %hs", e.what());
         savedCameraState.isValid = false;
     }
     catch (...) {
-        #if defined(_DEBUG_WINSYSTEM_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[CAMERA] Unknown exception restoring camera state");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[CAMERA] Unknown exception restoring camera state");
         savedCameraState.isValid = false;
     }
 }
@@ -348,10 +320,8 @@ void Camera::JumpTo(float new_x, float new_y, float new_z, int speed, bool Focus
         if (speed <= 0)
         {
             speed = 1; // Default to fastest speed
-            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_WARNING,
-                    L"[Camera] Invalid speed parameter, defaulting to speed=1");
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING,
+                L"[Camera] Invalid speed parameter, defaulting to speed=1");
         }
 
         // Store current position as starting point
@@ -429,10 +399,8 @@ void Camera::JumpTo(float new_x, float new_y, float new_z, int speed, bool Focus
     }
     catch (const std::exception& e) {
         // Handle any exceptions that occur during jump initialization
-        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION,
-                L"[Camera] Exception in JumpTo: %hs", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION,
+            L"[Camera] Exception in JumpTo: %hs", e.what());
 
         // Reset jump state on exception to prevent stuck state
         m_isJumping = false;                                            // Clear jumping flag
@@ -444,10 +412,8 @@ void Camera::JumpTo(float new_x, float new_y, float new_z, int speed, bool Focus
     }
     catch (...) {
         // Handle unknown exceptions
-        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_TERMINATION,
-                L"[Camera] Unknown exception in JumpTo. Resetting jump state");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_TERMINATION,
+            L"[Camera] Unknown exception in JumpTo. Resetting jump state");
 
         // Reset jump state on unknown exception
         m_isJumping = false;                                            // Clear jumping flag
@@ -472,10 +438,8 @@ void Camera::JumpToWithYawPitch(float new_x, float new_y, float new_z, float new
         if (speed <= 0)
         {
             speed = 1; // Default to fastest speed
-            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_WARNING,
-                    L"[Camera] Invalid speed parameter, defaulting to speed=1");
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING,
+                L"[Camera] Invalid speed parameter, defaulting to speed=1");
         }
 
         // Validate and normalize yaw parameter to prevent invalid angles
@@ -490,11 +454,9 @@ void Camera::JumpToWithYawPitch(float new_x, float new_y, float new_z, float new
 
         // Log angle adjustments if they were modified
         if (abs(normalizedYaw - newYaw) > 0.001f || abs(clampedPitch - newPitch) > 0.001f) {
-            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_WARNING,
-                    L"[Camera] Angle adjustments - Original Yaw: %.3f -> %.3f, Original Pitch: %.3f -> %.3f",
-                    newYaw, normalizedYaw, newPitch, clampedPitch);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING,
+                L"[Camera] Angle adjustments - Original Yaw: %.3f -> %.3f, Original Pitch: %.3f -> %.3f",
+                newYaw, normalizedYaw, newPitch, clampedPitch);
         }
 
         // Store current position as starting point for jump animation
@@ -631,10 +593,8 @@ void Camera::JumpToWithYawPitch(float new_x, float new_y, float new_z, float new
     }
     catch (const std::exception& e) {
         // Handle any exceptions that occur during jump initialization
-        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION,
-                L"[Camera] Exception in JumpToWithYawPitch: %hs", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION,
+            L"[Camera] Exception in JumpToWithYawPitch: %hs", e.what());
 
         // Reset jump state on exception to prevent stuck state
         m_isJumping = false;                                               // Clear jumping flag
@@ -642,21 +602,17 @@ void Camera::JumpToWithYawPitch(float new_x, float new_y, float new_z, float new
         m_jumpAnimationTimer = 0.0f;                                       // Reset timer
 
         // Note: Do not reset yaw/pitch on exception as they represent desired new state
-        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING,
-                L"[Camera] Preserving new yaw/pitch state despite exception - Yaw: %.3f, Pitch: %.3f",
-                m_yaw, m_pitch);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING,
+            L"[Camera] Preserving new yaw/pitch state despite exception - Yaw: %.3f, Pitch: %.3f",
+            m_yaw, m_pitch);
 
         // Log the exception using ExceptionHandler (Rule #45)
         exceptionHandler.LogException(e, "Camera::JumpToWithYawPitch");
     }
     catch (...) {
         // Handle unknown exceptions
-        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_TERMINATION,
-                L"[Camera] Unknown exception in JumpToWithYawPitch. Preserving new orientation state");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_TERMINATION,
+            L"[Camera] Unknown exception in JumpToWithYawPitch. Preserving new orientation state");
 
         // Reset jump state on unknown exception but preserve orientation
         m_isJumping = false;                                               // Clear jumping flag
@@ -905,10 +861,8 @@ else
     }
     catch (const std::exception& e) {
         // Handle any exceptions that occur during jump animation
-        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION,
-                L"[Camera] Exception in UpdateJumpAnimation: %hs", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION,
+            L"[Camera] Exception in UpdateJumpAnimation: %hs", e.what());
 
         // Reset jump state on exception to prevent stuck state
         m_isJumping = false;                                            // Clear jumping flag
@@ -920,10 +874,8 @@ else
     }
     catch (...) {
         // Handle unknown exceptions
-        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_TERMINATION,
-                L"[Camera] Unknown exception in UpdateJumpAnimation. Resetting jump state");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_TERMINATION,
+            L"[Camera] Unknown exception in UpdateJumpAnimation. Resetting jump state");
 
         // Reset jump state on unknown exception
         m_isJumping = false;                                            // Clear jumping flag
@@ -949,10 +901,8 @@ void Camera::RotateX(float degrees, int speed, bool FocusOnTarget)
     if (speed <= 0)
     {
         speed = 2; // Default to medium speed for rotations
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                L"[Camera] Invalid speed parameter for RotateX, defaulting to speed=2");
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, 
+            L"[Camera] Invalid speed parameter for RotateX, defaulting to speed=2");
     }
 
     // Check if rotation angle is effectively zero
@@ -1065,10 +1015,8 @@ void Camera::RotateY(float degrees, int speed, bool FocusOnTarget)
     if (speed <= 0)
     {
         speed = 2; // Default to medium speed for rotations
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                L"[Camera] Invalid speed parameter for RotateY, defaulting to speed=2");
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, 
+            L"[Camera] Invalid speed parameter for RotateY, defaulting to speed=2");
     }
 
     // Check if rotation angle is effectively zero
@@ -1181,10 +1129,8 @@ void Camera::RotateZ(float degrees, int speed, bool FocusOnTarget)
     if (speed <= 0)
     {
         speed = 2; // Default to medium speed for rotations
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                L"[Camera] Invalid speed parameter for RotateZ, defaulting to speed=2");
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, 
+            L"[Camera] Invalid speed parameter for RotateZ, defaulting to speed=2");
     }
 
     // Check if rotation angle is effectively zero
@@ -1297,10 +1243,8 @@ void Camera::RotateXYZ(float xDegrees, float yDegrees, float zDegrees, int speed
     if (speed <= 0)
     {
         speed = 2; // Default to medium speed for multi-axis rotations
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING,
-                L"[Camera] Invalid speed parameter for RotateXYZ, defaulting to speed=2");
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING,
+            L"[Camera] Invalid speed parameter for RotateXYZ, defaulting to speed=2");
     }
 
     // Check if all rotation angles are zero (no rotation needed)
@@ -1436,19 +1380,15 @@ void Camera::RotateToOppositeSide(int speed)
     if (speed <= 0)
     {
         speed = 2; // Default to medium speed for opposite side rotation
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                L"[Camera] Invalid speed parameter for RotateToOppositeSide, defaulting to speed=2");
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, 
+            L"[Camera] Invalid speed parameter for RotateToOppositeSide, defaulting to speed=2");
     }
 
     // Check if we're currently jumping - cannot start rotation during active jump
     if (m_isJumping)
     {
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                L"[Camera] Cannot rotate to opposite side while camera is currently jumping");
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, 
+            L"[Camera] Cannot rotate to opposite side while camera is currently jumping");
         return;
     }
 
@@ -1890,30 +1830,24 @@ void Camera::JumpBackHistory(int numOfJumps)
     // Validate input parameters
     if (numOfJumps <= 0)
     {
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING,
-                L"[Camera] Invalid numOfJumps parameter: %d. Must be positive.", numOfJumps);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING,
+            L"[Camera] Invalid numOfJumps parameter: %d. Must be positive.", numOfJumps);
         return;
     }
 
     // Check if we're already jumping - cannot start history jump during active jump
     if (m_isJumping)
     {
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING,
-                L"[Camera] Cannot jump back in history while camera is currently jumping");
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING,
+            L"[Camera] Cannot jump back in history while camera is currently jumping");
         return;
     }
 
     // Check if we have enough history entries
     if (m_jumpHistory.empty())
     {
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING,
-                L"[Camera] No jump history available to go back to");
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING,
+            L"[Camera] No jump history available to go back to");
         return;
     }
 
@@ -1923,11 +1857,9 @@ void Camera::JumpBackHistory(int numOfJumps)
 
     if (actualJumps != numOfJumps)
     {
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING,
-                L"[Camera] Requested %d jumps back, but only %d entries available. Using %d",
-                numOfJumps, maxJumps, actualJumps);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING,
+            L"[Camera] Requested %d jumps back, but only %d entries available. Using %d",
+            numOfJumps, maxJumps, actualJumps);
     }
 
     // Calculate the target history entry index (from the end, going backwards)
@@ -1986,11 +1918,9 @@ void Camera::RemoveForwardHistoryEntries(int fromIndex)
     // Validate the fromIndex parameter
     if (fromIndex < 0 || fromIndex >= static_cast<int>(m_jumpHistory.size()))
     {
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING,
-                L"[Camera] Invalid fromIndex for RemoveForwardHistoryEntries: %d (history size: %d)",
-                fromIndex, static_cast<int>(m_jumpHistory.size()));
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING,
+            L"[Camera] Invalid fromIndex for RemoveForwardHistoryEntries: %d (history size: %d)",
+            fromIndex, static_cast<int>(m_jumpHistory.size()));
         return;
     }
 
@@ -2248,11 +2178,9 @@ void Camera::SetFieldOfView(float fovDegrees)
     // Validate field of view parameter (must be between 1 and 179 degrees)
     if (fovDegrees <= 0.0f || fovDegrees >= 180.0f)
     {
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                L"[Camera] Invalid field of view: %.2f degrees. Clamping to valid range [1.0, 179.0]", 
-                fovDegrees);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, 
+            L"[Camera] Invalid field of view: %.2f degrees. Clamping to valid range [1.0, 179.0]", 
+            fovDegrees);
         
         // Clamp to valid range for perspective projection
         fovDegrees = std::clamp(fovDegrees, 1.0f, 179.0f);
@@ -2269,10 +2197,8 @@ void Camera::SetFieldOfView(float fovDegrees)
         // Fallback to common aspect ratio if configuration is invalid
         aspectRatio = 16.0f / 9.0f;
         
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                L"[Camera] Invalid aspect ratio in config, using fallback: %.3f", aspectRatio);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, 
+            L"[Camera] Invalid aspect ratio in config, using fallback: %.3f", aspectRatio);
     }
     
     // Convert field of view from degrees to radians for DirectX calculation
@@ -2305,11 +2231,9 @@ void Camera::SetUpVector(const XMFLOAT3& newUp)
     
     if (upVectorLength < 0.001f)
     {
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                L"[Camera] Invalid up vector (too close to zero): length=%.6f. Using default Y-up vector", 
-                upVectorLength);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, 
+            L"[Camera] Invalid up vector (too close to zero): length=%.6f. Using default Y-up vector", 
+            upVectorLength);
         
         // Use default Y-up vector when provided vector is invalid
         up = XMFLOAT3(0.0f, 1.0f, 0.0f);
@@ -2347,20 +2271,16 @@ void Camera::SetNearFarPlanes(float nearPlane, float farPlane)
     // Validate near and far plane parameters
     if (nearPlane <= 0.0f)
     {
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                L"[Camera] Invalid near plane: %.3f. Must be positive. Setting to 0.1f", nearPlane);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, 
+            L"[Camera] Invalid near plane: %.3f. Must be positive. Setting to 0.1f", nearPlane);
         nearPlane = 0.1f; // Default minimum near plane distance
     }
     
     if (farPlane <= nearPlane)
     {
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                L"[Camera] Invalid far plane: %.3f. Must be greater than near plane: %.3f. Setting to near + 1000.0f", 
-                farPlane, nearPlane);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, 
+            L"[Camera] Invalid far plane: %.3f. Must be greater than near plane: %.3f. Setting to near + 1000.0f", 
+            farPlane, nearPlane);
         farPlane = nearPlane + 1000.0f; // Set far plane to reasonable distance beyond near plane
     }
     
@@ -2374,10 +2294,8 @@ void Camera::SetNearFarPlanes(float nearPlane, float farPlane)
         // Fallback to common aspect ratio if configuration is invalid
         aspectRatio = 16.0f / 9.0f;
         
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                L"[Camera] Invalid aspect ratio in config, using fallback: %.3f", aspectRatio);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, 
+            L"[Camera] Invalid aspect ratio in config, using fallback: %.3f", aspectRatio);
     }
     
     // Convert field of view from degrees to radians for DirectX calculation
@@ -2415,11 +2333,9 @@ void Camera::UpdateCameraMatrices()
     
     if (distanceToTarget < 0.001f)
     {
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                L"[Camera] Position and target are too close (distance: %.6f). Adjusting target for valid view matrix", 
-                distanceToTarget);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, 
+            L"[Camera] Position and target are too close (distance: %.6f). Adjusting target for valid view matrix", 
+            distanceToTarget);
         
         // Adjust target to be slightly in front of camera position for valid view matrix
         XMVECTOR forwardVector = XMLoadFloat3(&forward);
@@ -2441,40 +2357,32 @@ void Camera::UpdateCameraMatrices()
     {
         currentFov = 45.0f; // Default field of view
         
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                L"[Camera] Invalid FOV in config, using default: %.2f degrees", currentFov);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, 
+            L"[Camera] Invalid FOV in config, using default: %.2f degrees", currentFov);
     }
     
     if (aspectRatio <= 0.0f)
     {
         aspectRatio = 16.0f / 9.0f; // Default aspect ratio
         
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                L"[Camera] Invalid aspect ratio in config, using default: %.3f", aspectRatio);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, 
+            L"[Camera] Invalid aspect ratio in config, using default: %.3f", aspectRatio);
     }
     
     if (nearPlane <= 0.0f)
     {
         nearPlane = 0.1f; // Default near plane
         
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                L"[Camera] Invalid near plane in config, using default: %.3f", nearPlane);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, 
+            L"[Camera] Invalid near plane in config, using default: %.3f", nearPlane);
     }
     
     if (farPlane <= nearPlane)
     {
         farPlane = nearPlane + 1000.0f; // Default far plane
         
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                L"[Camera] Invalid far plane in config, using default: %.3f", farPlane);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, 
+            L"[Camera] Invalid far plane in config, using default: %.3f", farPlane);
     }
     
     // Convert field of view from degrees to radians
@@ -2645,9 +2553,7 @@ void Camera::UpdateProjectionMatrix()
 
     // Validate projection parameters before creating matrix
     if (m_aspectRatio <= 0.0f || m_nearPlane <= 0.0f || m_nearPlane >= m_farPlane || m_fieldOfView <= 0.0f) {
-        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid projection parameters detected, using safe defaults");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid projection parameters detected, using safe defaults");
         
         // Use safe defaults for invalid parameters
         m_aspectRatio = (m_aspectRatio <= 0.0f) ? (16.0f / 9.0f) : m_aspectRatio;      // Default to 16:9 if invalid
@@ -2688,20 +2594,16 @@ void Camera::MoveAroundTarget(bool x, bool y, bool z, bool continuous)
     // Check if at least one axis is selected for rotation
     if (!x && !y && !z)
     {
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                L"[Camera] MoveAroundTarget: No rotation axes selected (X, Y, Z all false)");
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, 
+            L"[Camera] MoveAroundTarget: No rotation axes selected (X, Y, Z all false)");
         return;
     }
 
     // Check if we're currently jumping - cannot start rotation during active jump
     if (m_isJumping)
     {
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                L"[Camera] Cannot start MoveAroundTarget while camera is currently jumping");
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, 
+            L"[Camera] Cannot start MoveAroundTarget while camera is currently jumping");
         return;
     }
 
@@ -2792,29 +2694,23 @@ void Camera::MoveAroundTarget(bool x, bool y, bool z, float rotationSpeed, bool 
     if (rotationSpeed <= 0.0f)
     {
         rotationSpeed = 60.0f; // Default speed in degrees per second
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                L"[Camera] Invalid rotation speed, defaulting to %.1f degrees/second", rotationSpeed);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, 
+            L"[Camera] Invalid rotation speed, defaulting to %.1f degrees/second", rotationSpeed);
     }
 
     // Check if at least one axis is selected for rotation
     if (!x && !y && !z)
     {
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                L"[Camera] MoveAroundTarget: No rotation axes selected (X, Y, Z all false)");
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, 
+            L"[Camera] MoveAroundTarget: No rotation axes selected (X, Y, Z all false)");
         return;
     }
 
     // Check if we're currently jumping - cannot start rotation during active jump
     if (m_isJumping)
     {
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                L"[Camera] Cannot start MoveAroundTarget while camera is currently jumping");
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, 
+            L"[Camera] Cannot start MoveAroundTarget while camera is currently jumping");
         return;
     }
 
@@ -3241,10 +3137,8 @@ void Camera::SetRotationSpeed(float degreesPerSecond)
     if (degreesPerSecond < 0.0f)
     {
         degreesPerSecond = 0.0f; // Clamp to minimum zero
-        #if defined(_DEBUG_CAMERA_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                L"[Camera] Negative rotation speed clamped to 0.0");
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, 
+            L"[Camera] Negative rotation speed clamped to 0.0");
     }
 
     if (!m_isRotatingAroundTarget)
@@ -3343,27 +3237,21 @@ void Camera::UpdateResolution(uint32_t newWidth, uint32_t newHeight, float newAs
 
     // Validate aspect ratio is reasonable
     if (m_aspectRatio <= 0.1f || m_aspectRatio >= 10.0f) {
-        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid aspect ratio %.3f, using fallback 16:9", m_aspectRatio);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid aspect ratio %.3f, using fallback 16:9", m_aspectRatio);
         m_aspectRatio = 16.0f / 9.0f;                                   // Use 16:9 as fallback
     }
 
     // Update near and far planes if they seem invalid
     if (m_nearPlane <= 0.0f || m_nearPlane >= m_farPlane) {
-        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid near/far planes (%.3f/%.3f), resetting to defaults", 
-                m_nearPlane, m_farPlane);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid near/far planes (%.3f/%.3f), resetting to defaults", 
+            m_nearPlane, m_farPlane);
         m_nearPlane = 0.1f;                                             // Default near plane
         m_farPlane = 1000.0f;                                           // Default far plane
     }
 
     // Validate and adjust field of view if necessary
     if (m_fieldOfView <= 0.0f || m_fieldOfView >= XM_PI) {
-        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid FOV %.3f, resetting to default", m_fieldOfView);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"[CAMERA] Invalid FOV %.3f, resetting to default", m_fieldOfView);
         m_fieldOfView = XMConvertToRadians(45.0f);                      // Default 45-degree FOV
     }
 
@@ -3394,11 +3282,9 @@ void Camera::UpdateDirectionVectors(const XMVECTOR& forwardVector, const XMVECTO
         // Check for invalid (zero-length) vectors that would cause camera issues
         if (forwardLength < 0.001f || rightLength < 0.001f || upLength < 0.001f)
         {
-            #if defined(_DEBUG_CAMERA_MOUSE_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                    L"[Camera] Invalid direction vectors detected - lengths: forward=%.6f, right=%.6f, up=%.6f. Using fallback vectors", 
-                    forwardLength, rightLength, upLength);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Invalid direction vectors detected - lengths: forward=%.6f, right=%.6f, up=%.6f. Using fallback vectors", 
+                forwardLength, rightLength, upLength);
 
             // Use safe fallback vectors when invalid vectors are provided
             XMVECTOR safeFwd = XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f);          // Default forward (positive Z)
@@ -3457,10 +3343,8 @@ void Camera::UpdateDirectionVectors(const XMVECTOR& forwardVector, const XMVECTO
     catch (const std::exception& e)
     {
         // Handle any exceptions that occur during direction vector updates
-        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, 
-                L"[Camera] Exception in UpdateDirectionVectors: %hs. Using safe fallback vectors", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, 
+            L"[Camera] Exception in UpdateDirectionVectors: %hs. Using safe fallback vectors", e.what());
 
         // Apply safe fallback vectors in case of exception to prevent camera from breaking
         XMVECTOR safeFwd = XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f);              // Safe forward direction
@@ -3484,10 +3368,8 @@ void Camera::UpdateDirectionVectors(const XMVECTOR& forwardVector, const XMVECTO
     catch (...)
     {
         // Handle any unknown exceptions that might occur
-        #if defined(_DEBUG_CAMERA_MOUSE_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_TERMINATION, 
-                L"[Camera] Unknown exception in UpdateDirectionVectors. Applying emergency fallback vectors");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_TERMINATION, 
+            L"[Camera] Unknown exception in UpdateDirectionVectors. Applying emergency fallback vectors");
 
         // Apply emergency fallback vectors for unknown exceptions
         forward = XMFLOAT3(0.0f, 0.0f, 1.0f);                                 // Emergency forward vector
@@ -3512,10 +3394,8 @@ void Camera::CalculateDirectionVectors(float yaw, float pitch, XMVECTOR& outForw
     try {
         // Validate input parameters to ensure they are within reasonable bounds
         if (yaw < -XM_2PI || yaw > XM_2PI) {
-            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                    L"[Camera] Yaw angle %.3f is outside reasonable bounds [-2π, 2π], normalizing", yaw);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Yaw angle %.3f is outside reasonable bounds [-2π, 2π], normalizing", yaw);
             
             // Normalize yaw to [-2π, 2π] range using fast math operations
             while (yaw > XM_2PI) yaw -= XM_2PI;                            // Reduce large positive angles
@@ -3525,11 +3405,9 @@ void Camera::CalculateDirectionVectors(float yaw, float pitch, XMVECTOR& outForw
         // Clamp pitch to prevent gimbal lock (just under ±90 degrees)
         const float maxPitch = XM_PIDIV2 - 0.01f;                          // Just under 90 degrees to prevent gimbal lock
         if (pitch > maxPitch || pitch < -maxPitch) {
-            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                    L"[Camera] Pitch angle %.3f is outside safe bounds [%.3f, %.3f], clamping", 
-                    pitch, -maxPitch, maxPitch);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Pitch angle %.3f is outside safe bounds [%.3f, %.3f], clamping", 
+                pitch, -maxPitch, maxPitch);
             
             pitch = std::clamp(pitch, -maxPitch, maxPitch);                 // Clamp pitch to safe range
         }
@@ -3570,11 +3448,9 @@ void Camera::CalculateDirectionVectors(float yaw, float pitch, XMVECTOR& outForw
 
         // Verify all vectors are properly normalized (length should be ~1.0)
         if (abs(forwardLength - 1.0f) > 0.01f || abs(rightLength - 1.0f) > 0.01f || abs(upLength - 1.0f) > 0.01f) {
-            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                    L"[Camera] Direction vectors not properly normalized - Forward: %.3f, Right: %.3f, Up: %.3f", 
-                    forwardLength, rightLength, upLength);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Direction vectors not properly normalized - Forward: %.3f, Right: %.3f, Up: %.3f", 
+                forwardLength, rightLength, upLength);
             
             // Force re-normalization if vectors are not unit length
             outForward = XMVector3Normalize(outForward);                    // Re-normalize forward vector
@@ -3588,11 +3464,9 @@ void Camera::CalculateDirectionVectors(float yaw, float pitch, XMVECTOR& outForw
         float rightUpDot = XMVectorGetX(XMVector3Dot(outRight, outUp));               // Should be near 0
 
         if (abs(forwardRightDot) > 0.01f || abs(forwardUpDot) > 0.01f || abs(rightUpDot) > 0.01f) {
-            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                    L"[Camera] Direction vectors not orthogonal - F·R: %.3f, F·U: %.3f, R·U: %.3f", 
-                    forwardRightDot, forwardUpDot, rightUpDot);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Direction vectors not orthogonal - F·R: %.3f, F·U: %.3f, R·U: %.3f", 
+                forwardRightDot, forwardUpDot, rightUpDot);
         }
 
         #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
@@ -3614,10 +3488,8 @@ void Camera::CalculateDirectionVectors(float yaw, float pitch, XMVECTOR& outForw
     }
     catch (const std::exception& e) {
         // Handle any exceptions that occur during direction vector calculation
-        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, 
-                L"[Camera] Exception in CalculateDirectionVectors: %hs. Using safe fallback vectors", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, 
+            L"[Camera] Exception in CalculateDirectionVectors: %hs. Using safe fallback vectors", e.what());
 
         // Apply safe fallback vectors in case of exception to prevent camera from breaking
         outForward = XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f);                 // Safe forward direction (positive Z)
@@ -3629,10 +3501,8 @@ void Camera::CalculateDirectionVectors(float yaw, float pitch, XMVECTOR& outForw
     }
     catch (...) {
         // Handle any unknown exceptions that might occur
-        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_TERMINATION, 
-                L"[Camera] Unknown exception in CalculateDirectionVectors. Applying emergency fallback vectors");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_TERMINATION, 
+            L"[Camera] Unknown exception in CalculateDirectionVectors. Applying emergency fallback vectors");
 
         // Apply emergency fallback vectors for unknown exceptions
         outForward = XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f);                 // Emergency forward vector
@@ -3674,10 +3544,8 @@ void Camera::UpdateCameraDirectionFromAngles(float yaw, float pitch)
     }
     catch (const std::exception& e) {
         // Handle exceptions during camera direction update
-        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, 
-                L"[Camera] Exception in UpdateCameraDirectionFromAngles: %hs", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, 
+            L"[Camera] Exception in UpdateCameraDirectionFromAngles: %hs", e.what());
 
         // Log the exception using ExceptionHandler (Rule #45)
         exceptionHandler.LogException(e, "Camera::UpdateCameraDirectionFromAngles");
@@ -3760,11 +3628,9 @@ void Camera::CalculateDirectionVectorsFromMouseDelta(float mouseDeltaX, float mo
 
         // Verify all vectors are properly normalized (length should be ~1.0)
         if (abs(forwardLength - 1.0f) > 0.01f || abs(rightLength - 1.0f) > 0.01f || abs(upLength - 1.0f) > 0.01f) {
-            #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_WARNING, 
-                    L"[Camera] Direction vectors not properly normalized - Forward: %.3f, Right: %.3f, Up: %.3f", 
-                    forwardLength, rightLength, upLength);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING, 
+                L"[Camera] Direction vectors not properly normalized - Forward: %.3f, Right: %.3f, Up: %.3f", 
+                forwardLength, rightLength, upLength);
             
             // Force re-normalization if vectors are not unit length
             outForward = XMVector3Normalize(outForward);                    // Re-normalize forward vector
@@ -3788,10 +3654,8 @@ void Camera::CalculateDirectionVectorsFromMouseDelta(float mouseDeltaX, float mo
     }
     catch (const std::exception& e) {
         // Handle any exceptions that occur during direction vector calculation
-        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, 
-                L"[Camera] Exception in CalculateDirectionVectorsFromMouseDelta: %hs. Preserving current vectors", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, 
+            L"[Camera] Exception in CalculateDirectionVectorsFromMouseDelta: %hs. Preserving current vectors", e.what());
 
         // Preserve current direction vectors instead of using fallback
         XMVECTOR currentForward = XMLoadFloat3(&forward);                   // Load current forward vector
@@ -3807,10 +3671,8 @@ void Camera::CalculateDirectionVectorsFromMouseDelta(float mouseDeltaX, float mo
     }
     catch (...) {
         // Handle any unknown exceptions that might occur
-        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_TERMINATION, 
-                L"[Camera] Unknown exception in CalculateDirectionVectorsFromMouseDelta. Preserving current state");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_TERMINATION, 
+            L"[Camera] Unknown exception in CalculateDirectionVectorsFromMouseDelta. Preserving current state");
 
         // Preserve current direction vectors for unknown exceptions
         XMVECTOR currentForward = XMLoadFloat3(&forward);                   // Load current forward vector
@@ -3862,10 +3724,8 @@ void Camera::UpdateCameraFromMouseMovement(float mouseDeltaX, float mouseDeltaY,
     }
     catch (const std::exception& e) {
         // Handle exceptions during camera update from mouse movement
-        #if defined(_DEBUG_CAMERA_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, 
-                L"[Camera] Exception in UpdateCameraFromMouseMovement: %hs", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, 
+            L"[Camera] Exception in UpdateCameraFromMouseMovement: %hs", e.what());
 
         // Log the exception using ExceptionHandler (Rule #45)
         exceptionHandler.LogException(e, "Camera::UpdateCameraFromMouseMovement");

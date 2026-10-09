@@ -47,11 +47,11 @@ struct alignas(16) ConstantBuffer
 struct alignas(16) MaterialGPU
 {
     XMFLOAT3 Ka;                                  // Ambient color.
-    float pad1;                                   // Padding to 16 byte boundary.
+    float receiveShadows;                         // 1.0 = model receives shadows (was pad1; shader: ReceiveShadows).
     XMFLOAT3 Kd;                                  // Diffuse color.
-    float pad2;                                   // Padding to 16 byte boundary.
+    float planarStrength;                         // Planar reflection mix for reflector surfaces, 0 = none (was pad2; shader: PlanarStrength).
     XMFLOAT3 Ks;                                  // Specular color.
-    float pad3;                                   // Padding to 16 byte boundary.
+    float planarIndex;                            // Slice of the planar array this reflector samples (was pad3; shader: PlanarIndex).
     float Ns;                                     // Shininess exponent.
     float Metallic;                               // Base metallic factor.
     float Roughness;                              // Base roughness factor.
@@ -69,17 +69,9 @@ struct alignas(16) MaterialGPU
 };
 
 // -------------------------------------------------------------
-// ShadowBufferGPU - Matches cbuffer ShadowBuffer : register(b6)
-// Size: 80 bytes (multiple of 16 required by D3D11 constant buffers)
+// ShadowBuffer (b6) - the CPU layout is ShadowBufferData in Lights.h
+// (2272 bytes, shared with the OpenGL / Vulkan std140 blocks).
 // -------------------------------------------------------------
-struct alignas(16) ShadowBufferGPU
-{
-    XMMATRIX lightViewProj;                      // Light view-projection matrix (64 bytes)
-    float shadowBias;                            // Depth bias to prevent shadow acne
-    float shadowStrength;                        // Shadow darkness multiplier [0-1]
-    float useShadowMap;                          // 1.0 = shadow map at t8 is bound and active
-    float shadowMapSize;                         // Shadow map resolution (e.g. 2048.0) for PCF texel offset
-};
 
 // -------------------------------------------------------------
 // EnvBufferGPU - Matches cbuffer EnvBuffer : register(b5)

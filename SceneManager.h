@@ -133,6 +133,27 @@ public:
 	int FindParentModelID(const std::wstring& modelName);                           // Retrieves Model ID (Parent) from Model Name
 	int PutModelToScene(std::wstring name, XMFLOAT3 atWorldCoords, bool bIncChildren, bool bStartAnim);  // Injects a cached model (and optional primitive siblings) into the next free scene_models[] slot(s) at the given world position. Returns new parent scene ID, or -1 on failure.
 
+	// Assembly-optimized wipe of the entire scene_models[] array. Resource-owning members
+	// (ComPtr/shared_ptr/vectors) are released through their destructors so GPU references
+	// drop correctly; the POD transform/state block of every slot is then cleared with a
+	// rep-stosb fast-zero. Does NOT free GPU resources owned by the global models[] cache
+	// (that remains CleanUp()'s job) so cached models stay valid for re-injection.
+	void ClearSceneBuffer();
+
+	// Locates a GPU-ready model in the global models[] cache (by cache model ID or by name),
+	// copies it (with its primitive children) into the next free scene_models[] slot(s), places
+	// it at Coords in world space, and runs SetupModelForRendering + scene lighting so the slot
+	// is valid for the current renderer. Returns false if the model is not found, is not
+	// GPU-ready (bGpuReady), or there are not enough free scene slots.
+	bool InjectModelIntoScene(int modelID, XMFLOAT3 Coords);
+	bool InjectModelIntoScene(std::wstring modelName, XMFLOAT3 Coords);
+
+	// Removes a model (and its primitive children) from scene_models[] by scene ID or name.
+	// Stops/removes any animation instance keyed to the scene ID, then clears each slot with
+	// the assembly fast-zero helper. Returns false if the model is not in the scene.
+	bool RemoveModelFromScene(int modelID);
+	bool RemoveModelFromScene(std::wstring modelName);
+
 	// Jump to a named FBX camera parsed from the last ParseFBXScene() call.
 	// AnimateTowards=false: instant jump (position+orientation applied immediately).
 	// AnimateTowards=true:  smoothly animates the camera to the FBX camera position.
@@ -146,6 +167,11 @@ public:
 
 private:
 	bool bIsDestroyed = false;
+
+	// Resets one scene_models[] slot to pristine free state: releases resource references
+	// via C++ destructors, then rep-stosb clears the contiguous POD transform block.
+	// Never destroys raw GL/Vulkan GPU handles (they are shared with the models[] cache).
+	void ClearSceneModelSlot(Model& slot);
 	bool isSketchfab = false;
 	SceneType stOurGotoScene = SCENE_NONE;
 

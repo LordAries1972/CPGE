@@ -1018,17 +1018,9 @@ void FBXAnimator::LogInfo(const std::wstring& msg) const
 }
 void FBXAnimator::LogWarning(const std::wstring& msg) const
 {
-    #if defined(_DEBUG_FBXANIMATOR_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, (L"[FBXAnimator] " + msg).c_str());
-    #else
-        (void)msg;
-    #endif
+    debug.logDiagLevelMessage(LogLevel::LOG_WARNING, (L"[FBXAnimator] " + msg).c_str());
 }
 void FBXAnimator::LogError(const std::wstring& msg) const
 {
-    #if defined(_DEBUG_FBXANIMATOR_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, (L"[FBXAnimator] " + msg).c_str());
-    #else
-        (void)msg;
-    #endif
+    debug.logDiagLevelMessage(LogLevel::LOG_ERROR, (L"[FBXAnimator] " + msg).c_str());
 }

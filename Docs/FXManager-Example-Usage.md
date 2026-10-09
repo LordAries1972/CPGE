@@ -18,12 +18,14 @@
 14. [ImageFadeStrobe Effects](#imagefadestrobe-effects)
 15. [2D Tile Map Scroller](#2d-tile-map-scroller)
 16. [3-Layer 2D Starfield](#3-layer-2d-starfield)
-17. [Advanced Features](#advanced-features)
-18. [Window Resize Handling](#window-resize-handling)
-19. [Thread Safety](#thread-safety)
-20. [Performance Considerations](#performance-considerations)
-21. [Troubleshooting](#troubleshooting)
-22. [Code Examples](#code-examples)
+17. [ScrollColours Effects](#scrollcolours-effects)
+18. [EmissionPulsator Effect](#emissionpulsator-effect)
+19. [Advanced Features](#advanced-features)
+20. [Window Resize Handling](#window-resize-handling)
+21. [Thread Safety](#thread-safety)
+22. [Performance Considerations](#performance-considerations)
+23. [Troubleshooting](#troubleshooting)
+24. [Code Examples](#code-examples)
 
 ---
 
@@ -35,6 +37,7 @@ The FXManager class is a comprehensive visual effects system designed for real-t
 - **Multi-threaded rendering support** with thread-safe operations
 - **Queue-based effect management** for complex effect sequences
 - **Multiple effect types** including fades, scrolls, particles, starfields, text, 3D warp tunnels, loading-screen text fade overlays, and alpha-strobe image pulsing
+- **Scrolling gradient images** (`ScrollColours`) and a **model emission pulse** (`EmissionPulsator`) that work identically on all four renderers
 - **Callback system** for chaining effects and events
 - **DirectX 11, Vulkan, and OpenGL integration** — full feature parity across all three renderers
 - **Window resize handling** with state preservation
@@ -1052,6 +1055,14 @@ bool IsImageZoomActive(int imgID) const;
 
 Returns `true` when a ZoomInOut effect is actively zooming the specified image ID. Used by the RenderFrame alongside `RenderZoomedImage` to decide which path to take at each image blit.
 
+#### `GetImageZoomLevel`
+
+```cpp
+float GetImageZoomLevel(int imgID) const;
+```
+
+Returns the current 2D zoom level (`0.0` = no zoom effect active) for `imgID`. It applies the same selection rules as `RenderZoomedImage` (an active, not-yet-finished `ZoomInOut` effect linked to that image, 2D functions only, and a stopping effect that has already reached zero is ignored). It is used by the DX12 native title pipeline (`DX12TitlePipeline`) so the backdrop quad can reproduce the intro zoom without going through Direct2D; game code can also use it to keep other layers in step with a zooming background.
+
 #### `RenderZoomedImage`
 
 ```cpp
@@ -1262,6 +1273,7 @@ fxManager.FadeOutThenCallback(
 - `RenderFireworks()` only draws; it reads state that `Render2D` has already advanced. Always ensure `Render2D()` runs before or in the same frame as `RenderFireworks()`.
 - Pixel output uses `renderer->Blit2DColoredPixel()` — no shader changes required.
 - `StopAllFX()` and `StopAllFXForResize()` automatically stop and save/restore fireworks state.
+- Each rocket now picks a random explosion speed (`expSpeed`, 1.0 - 2.0). The expansion step of its particles is scaled by it, so some bursts bloom noticeably faster than others. No API change.
 - `fireworksID` is reset to 0 when stopped. Check `fireworksID > 0` to test whether fireworks are running.
 
 ---
@@ -1624,6 +1636,91 @@ fxManager.StopStarfield2D(starsID);
   this produces a continuous scroll rather than a one-shot burst.
 - Rendered via the existing portable `Blit2DColoredPixel` path (the same helper used by particle
   explosions and fireworks) — no new renderer plumbing was needed for this effect.
+
+---
+
+## ScrollColours Effects
+
+`ScrollColours` scrolls the colour banding of a 2D gradient image sideways across a fixed destination rectangle, wrapping continuously, so a static gradient bitmap looks like a travelling colour wash. The image itself is never modified: the blit samples it with a wrapping horizontal offset, and when the effect is stopped the next draw falls straight back to the plain, unmodified image.
+
+### Signature
+
+```cpp
+static constexpr int MAX_SCROLLCOLOURS_INSTANCES = 10;
+
+void StartScrollColours(BlitObj2DIndexType type, int scrollSpeed, bool reverseDirection = false);
+void StopScrollColours(BlitObj2DIndexType type);
+bool IsScrollColoursActive(BlitObj2DIndexType type) const;
+void RenderScrollColours(BlitObj2DIndexType type, int x, int y, int w, int h);
+```
+
+| Parameter | Description |
+| --- | --- |
+| `type` | The image (`BlitObj2DIndexType`) to scroll. One effect per image: starting it again replaces the running one |
+| `scrollSpeed` | Seconds for one full scroll cycle (clamped to a minimum of 0.01). A larger number is **slower** |
+| `reverseDirection` | `false` = bands travel left to right, `true` = right to left |
+| `x, y, w, h` | Destination rectangle used by `RenderScrollColours` |
+
+Up to `MAX_SCROLLCOLOURS_INSTANCES` (10) images can scroll at once. Past that limit `StartScrollColours` logs a warning and does nothing.
+
+### Basic Usage
+
+```cpp
+// Start (typically when the window that owns the gradient opens):
+fxManager.StartScrollColours(BlitObj2DIndexType::IMG_TILESET1, 2);       // one cycle every 2 seconds (use any gradient image id)
+
+// Every frame, draw the gradient through the effect instead of a plain blit.
+// While the effect is active it draws the scrolled image; otherwise it falls
+// back to a normal full-opacity Blit2DObjectToSizeWithAlpha.
+fxManager.RenderScrollColours(BlitObj2DIndexType::IMG_TILESET1, x, y, w, h);
+
+// Stop (window closed / scene exit). The original appearance returns on the very next draw.
+fxManager.StopScrollColours(BlitObj2DIndexType::IMG_TILESET1);
+```
+
+### How It Works
+
+- Each frame the effect only advances a phase timer. `RenderScrollColours` passes `phaseTimer / scrollSpeed` to the renderer as a scroll fraction; the renderer wraps it, so it may grow without limit.
+- The renderer entry point is the new pure virtual `Renderer::Blit2DScrollingObjectToSize(index, x, y, w, h, scrollFraction, reverseDirection)`. It is implemented by all four renderers (DX11, DX12, OpenGL, Vulkan) and draws the image stretched to the rectangle with its horizontal sample position shifted by `scrollFraction` of the source width (repeat/wrap addressing).
+- The effect never expires on its own (`duration` and `timeout` are `FLT_MAX`). It ends on `StopScrollColours`, `StopAllFX()` or a scene change.
+- `StopScrollColours` ends the effect immediately; it does not wait for a cycle to finish.
+
+---
+
+## EmissionPulsator Effect
+
+`EmissionPulsator` makes the glow of every emissive model breathe: emission fades from 0 up to the current **Emission Intensity** setting and back down to 0, then repeats until stopped. The title loader scene uses it so a ship's emissive panels fade in after a scene opens.
+
+### Signature
+
+```cpp
+int  emissionPulsatorID = 0;                 // Last id returned by EmissionPulsator() (stale ids are harmless to Stop)
+int  EmissionPulsator(float fTimer);         // Returns the fxID (> 0), or -1 if fTimer <= 0 / NaN
+void StopEmissionPulsator(int fxID);
+```
+
+| Parameter | Description |
+| --- | --- |
+| `fTimer` | Seconds for one complete fade in + fade out cycle (half each way). Must be greater than 0 |
+
+### Basic Usage
+
+```cpp
+// Start a 3 second pulse cycle (1.5 s up, 1.5 s down), looping:
+fxManager.EmissionPulsator(3.0f);
+
+// Stop it. Emission returns to the plain setting value immediately:
+fxManager.StopEmissionPulsator(fxManager.emissionPulsatorID);
+```
+
+### How It Works
+
+- The pulse is `sin(PI * t / fTimer)`, giving 0 to 1 to 0 over one cycle, with the peak exactly at the half-way point. It is written to `config.myConfig.emissionPulse` once per frame (foreground pass only).
+- `Config::EmissionScale()` multiplies the Emission Intensity setting by `emissionPulse`, and every renderer uploads emissive strength as `authored emissiveStrength * EmissionScale()`. The pulse can therefore **never exceed the user's Emission Intensity limit**, and it follows live changes to that setting. No renderer-specific code is involved.
+- Only one pulsator exists at a time: starting a new one replaces the running one. The pulse starts fully faded out (`emissionPulse = 0`).
+- `emissionPulse` is runtime only; it is never saved to `GameConfig.cfg`.
+- When no pulsator is left (stopped, `StopAllFX()`, or cleared by a scene change) `emissionPulse` is reset to 1.0 so emission is never left dimmed.
+- Loader scenes call `StopEmissionPulsator(fxManager.emissionPulsatorID)` on exit so a looping pulse does not outlive the scene it was started in.
 
 ---
 
@@ -2057,6 +2154,10 @@ void EndWarpSequence(XMFLOAT3 destinationPos) {
 ---
 
 This comprehensive guide covers all major features of the FXManager class. For additional support or advanced usage scenarios, refer to the source files listed below and enable `_DEBUG_FXMANAGER_` for detailed runtime logging.
+
+### DX12 Title Pipeline Note
+
+On DX12 the `SCENE_GAMETITLE` backdrop (zooming background, company logo, 3D starfield, fireworks and the strobing game-title logo) is no longer routed through Direct2D. `DX12TitlePipeline` records them as plain D3D12 draws on the one open command list; Direct2D is used only for text and GUI overlay. The FXManager API is unchanged: the same `StartStarfield`, `ZoomInOut`, `Fireworks` and `ImageFadeStrobe` calls drive it, and `GetImageZoomLevel()` supplies the live zoom for the native backdrop quad. See [`DX12TitlePipeline.h`](../DX12TitlePipeline.h).
 
 ### Source File Reference
 

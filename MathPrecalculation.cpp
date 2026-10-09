@@ -21,6 +21,13 @@ MathPrecalculation& MathPrecalculation::GetInstance()
 {
     // Thread-safe singleton using C++11 static initialization guarantee
     static MathPrecalculation instance;
+
+    // Cameras, PUNPack and other engine objects touch the singleton before WinMain reaches
+    // FAST_MATH.Initialize(), which left the tables empty and forced the slow fallback path.
+    // Build the tables on first access so every caller always sees an initialised instance.
+    static std::once_flag s_initFlag;
+    std::call_once(s_initFlag, []() { instance.Initialize(); });
+
     return instance;
 }
 
@@ -40,9 +47,9 @@ MathPrecalculation::MathPrecalculation() :
     m_particleDirections.reserve(PARTICLE_ANGLE_DIVISIONS);
     m_transparencyLookup.reserve(1024);
 
-#if defined(_DEBUG_MATHPRECALC_)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"[MathPrecalculation] Constructor called - Memory reserved for lookup tables");
-#endif
+    #if defined(_DEBUG_MATHPRECALC_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[MathPrecalculation] Constructor called - Memory reserved for lookup tables");
+    #endif
 }
 
 MathPrecalculation::~MathPrecalculation()
@@ -53,9 +60,9 @@ MathPrecalculation::~MathPrecalculation()
         Cleanup();
     }
 
-#if defined(_DEBUG_MATHPRECALC_)
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"[MathPrecalculation] Destructor called - All resources cleaned up");
-#endif
+    #if defined(_DEBUG_MATHPRECALC_)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[MathPrecalculation] Destructor called - All resources cleaned up");
+    #endif
 }
 
 //==============================================================================
@@ -64,11 +71,9 @@ MathPrecalculation::~MathPrecalculation()
 bool MathPrecalculation::Initialize()
 {
     // Check if already initialized to prevent double initialization
+    // (GetInstance() initialises on first access, so main's explicit call is expected to land here.)
     if (m_bIsInitialized.load())
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] Already initialized - skipping");
-#endif
         return true;
     }
 
@@ -561,9 +566,7 @@ float MathPrecalculation::FastSin(float angle) const
     // Ensure the system is initialized before attempting lookup
     if (!m_bIsInitialized.load())
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastSin called before initialization");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastSin called before initialization");
         return std::sin(angle);  // Fallback to standard sine
     }
 
@@ -591,9 +594,7 @@ float MathPrecalculation::FastCos(float angle) const
     // Ensure the system is initialized before attempting lookup
     if (!m_bIsInitialized.load())
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastCos called before initialization");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastCos called before initialization");
         return std::cos(angle);  // Fallback to standard cosine
     }
 
@@ -621,9 +622,7 @@ float MathPrecalculation::FastTan(float angle) const
     // Ensure the system is initialized before attempting lookup
     if (!m_bIsInitialized.load())
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastTan called before initialization");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastTan called before initialization");
         return std::tan(angle);  // Fallback to standard tangent
     }
 
@@ -651,9 +650,7 @@ float MathPrecalculation::FastCot(float angle) const
     // Ensure the system is initialized before attempting lookup
     if (!m_bIsInitialized.load())
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastCot called before initialization");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastCot called before initialization");
         return 1.0f / std::tan(angle);  // Fallback to standard cotangent
     }
 
@@ -681,9 +678,7 @@ float MathPrecalculation::FastASin(float value) const
     // Ensure the system is initialized before attempting lookup
     if (!m_bIsInitialized.load())
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastASin called before initialization");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastASin called before initialization");
         return std::asin(std::clamp(value, -1.0f, 1.0f));  // Fallback to standard arcsine with clamping
     }
 
@@ -708,9 +703,7 @@ float MathPrecalculation::FastACos(float value) const
     // Ensure the system is initialized before attempting lookup
     if (!m_bIsInitialized.load())
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastACos called before initialization");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastACos called before initialization");
         return std::acos(std::clamp(value, -1.0f, 1.0f));  // Fallback to standard arccosine with clamping
     }
 
@@ -735,9 +728,7 @@ float MathPrecalculation::FastATan(float value) const
     // Ensure the system is initialized before attempting lookup
     if (!m_bIsInitialized.load())
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastATan called before initialization");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastATan called before initialization");
         return std::atan(value);  // Fallback to standard arctangent
     }
 
@@ -832,9 +823,7 @@ void MathPrecalculation::FastSinCos(float angle, float& outSin, float& outCos) c
     // Ensure the system is initialized before attempting lookup
     if (!m_bIsInitialized.load())
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastSinCos called before initialization");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastSinCos called before initialization");
         outSin = std::sin(angle);
         outCos = std::cos(angle);
         return;
@@ -866,9 +855,7 @@ float MathPrecalculation::FastSqrt(float value) const
     // Ensure the system is initialized before attempting lookup
     if (!m_bIsInitialized.load())
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastSqrt called before initialization");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastSqrt called before initialization");
         return std::sqrt(value);  // Fallback to standard square root
     }
 
@@ -910,9 +897,7 @@ void MathPrecalculation::FastYuvToRgb(uint8_t y, uint8_t u, uint8_t v, uint8_t& 
     // Ensure the system is initialized before attempting lookup
     if (!m_bIsInitialized.load())
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastYuvToRgb called before initialization");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastYuvToRgb called before initialization");
         // Fallback to standard conversion using BT.601 coefficients
         int r = static_cast<int>(y + 1.402f * (v - 128));
         int g = static_cast<int>(y - 0.344f * (u - 128) - 0.714f * (v - 128));
@@ -978,10 +963,8 @@ void MathPrecalculation::FastYuvToRgb(uint8_t y, uint8_t u, uint8_t v, uint8_t& 
         outG = FastClamp(g);
         outB = FastClamp(b);
 
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logDebugMessage(LogLevel::LOG_WARNING,
+        debug.logDiagMessage(LogLevel::LOG_WARNING,
             L"[MathPrecalculation] YUV lookup index out of bounds - using fallback calculation");
-#endif
     }
 }
 
@@ -1563,9 +1546,7 @@ bool MathPrecalculation::ValidateTables() const
     // Ensure the system is initialized before validation
     if (!m_bIsInitialized.load())
     {
-        #if defined(_DEBUG_MATHPRECALC_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Cannot validate tables - system not initialized");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Cannot validate tables - system not initialized");
         return false;
     }
 
@@ -1574,36 +1555,28 @@ bool MathPrecalculation::ValidateTables() const
     // Validate trigonometric table
     if (m_trigonometricTable.size() != TRIG_TABLE_SIZE)
     {
-        #if defined(_DEBUG_MATHPRECALC_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Trigonometric table size mismatch");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Trigonometric table size mismatch");
         isValid = false;
     }
 
     // Validate square root table
     if (m_sqrtTable.size() != SQRT_TABLE_SIZE)
     {
-        #if defined(_DEBUG_MATHPRECALC_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Square root table size mismatch");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Square root table size mismatch");
         isValid = false;
     }
 
     // Validate interpolation table
     if (m_interpolationTable.size() != INTERPOLATION_TABLE_SIZE)
     {
-        #if defined(_DEBUG_MATHPRECALC_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Interpolation table size mismatch");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Interpolation table size mismatch");
         isValid = false;
     }
 
     // Validate particle directions table
     if (m_particleDirections.size() != PARTICLE_ANGLE_DIVISIONS)
     {
-        #if defined(_DEBUG_MATHPRECALC_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Particle directions table size mismatch");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Particle directions table size mismatch");
         isValid = false;
     }
 
@@ -1613,9 +1586,7 @@ bool MathPrecalculation::ValidateTables() const
         const TrigonometricData& zeroData = m_trigonometricTable[0];
         if (std::abs(zeroData.sine - 0.0f) > 1e-6f || std::abs(zeroData.cosine - 1.0f) > 1e-6f)
         {
-            #if defined(_DEBUG_MATHPRECALC_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Trigonometric values at angle 0 are incorrect");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Trigonometric values at angle 0 are incorrect");
             isValid = false;
         }
     }
@@ -1623,9 +1594,7 @@ bool MathPrecalculation::ValidateTables() const
     // Validate inverse trigonometric table
     if (m_inverseTrigonometricTable.size() != INVERSE_TRIG_TABLE_SIZE)
     {
-        #if defined(_DEBUG_MATHPRECALC_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Inverse trigonometric table size mismatch");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Inverse trigonometric table size mismatch");
         isValid = false;
     }
 
@@ -1637,9 +1606,7 @@ bool MathPrecalculation::ValidateTables() const
         const InverseTrigonometricData& zeroData = m_inverseTrigonometricTable[zeroIndex];
         if (std::abs(zeroData.arcSine - 0.0f) > 1e-6f)
         {
-            #if defined(_DEBUG_MATHPRECALC_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Inverse trigonometric values at input 0 are incorrect");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Inverse trigonometric values at input 0 are incorrect");
             isValid = false;
         }
     }
@@ -1647,49 +1614,37 @@ bool MathPrecalculation::ValidateTables() const
     // Validate physics-specific tables
     if (m_gravityIntensityTable.size() != GRAVITY_INTENSITY_TABLE_SIZE)
     {
-        #if defined(_DEBUG_MATHPRECALC_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Gravity intensity table size mismatch");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Gravity intensity table size mismatch");
         isValid = false;
     }
 
     if (m_reflectionAngleTable.size() != REFLECTION_ANGLE_TABLE_SIZE)
     {
-        #if defined(_DEBUG_MATHPRECALC_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Reflection angle table size mismatch");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Reflection angle table size mismatch");
         isValid = false;
     }
 
     if (m_inertiaTable.size() != INERTIA_COEFFICIENT_TABLE_SIZE)
     {
-        #if defined(_DEBUG_MATHPRECALC_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Inertia coefficient table size mismatch");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Inertia coefficient table size mismatch");
         isValid = false;
     }
 
     if (m_collisionResponseTable.size() != COLLISION_RESPONSE_TABLE_SIZE)
     {
-        #if defined(_DEBUG_MATHPRECALC_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Collision response table size mismatch");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Collision response table size mismatch");
         isValid = false;
     }
 
     if (m_audioAttenuationTable.size() != AUDIO_ATTENUATION_TABLE_SIZE)
     {
-        #if defined(_DEBUG_MATHPRECALC_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Audio attenuation table size mismatch");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Audio attenuation table size mismatch");
         isValid = false;
     }
 
     if (m_orbitalMechanicsTable.size() != ORBITAL_MECHANICS_TABLE_SIZE)
     {
-        #if defined(_DEBUG_MATHPRECALC_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Orbital mechanics table size mismatch");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Orbital mechanics table size mismatch");
         isValid = false;
     }
 
@@ -1698,11 +1653,11 @@ bool MathPrecalculation::ValidateTables() const
     {
         debug.logLevelMessage(LogLevel::LOG_INFO, L"[MathPrecalculation] All lookup tables validated successfully");
     }
-    else
-    {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Lookup table validation failed");
-    }
 #endif
+    if (!isValid)
+    {
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[MathPrecalculation] Lookup table validation failed");
+    }
 
     return isValid;
 }
@@ -2179,9 +2134,7 @@ float MathPrecalculation::FastGravityIntensity(float distance, float mass, float
     // Ensure the system is initialized before attempting calculation
     if (!m_bIsInitialized.load())
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastGravityIntensity called before initialization");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastGravityIntensity called before initialization");
         // Fallback to standard calculation
         if (distance < 0.1f) distance = 0.1f; // Prevent division by zero
         return intensity * mass / (distance * distance);
@@ -2223,9 +2176,7 @@ XMFLOAT3 MathPrecalculation::FastReflectionVector(const XMFLOAT3& incoming, cons
     // Ensure the system is initialized before attempting calculation
     if (!m_bIsInitialized.load())
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastReflectionVector called before initialization");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastReflectionVector called before initialization");
         // Fallback to standard reflection calculation
         float dotProduct = incoming.x * normal.x + incoming.y * normal.y + incoming.z * normal.z;
         XMFLOAT3 reflection;
@@ -2292,9 +2243,7 @@ float MathPrecalculation::FastInertiaCoefficient(float mass, float radius) const
     // Ensure the system is initialized before attempting calculation
     if (!m_bIsInitialized.load())
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastInertiaCoefficient called before initialization");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastInertiaCoefficient called before initialization");
         // Fallback to standard calculation for solid sphere: I = (2/5) * m * r^2
         return (2.0f / 5.0f) * mass * radius * radius;
     }
@@ -2302,9 +2251,7 @@ float MathPrecalculation::FastInertiaCoefficient(float mass, float radius) const
     // Validate input parameters
     if (mass <= 0.0f || radius <= 0.0f)
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] Invalid parameters for FastInertiaCoefficient");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] Invalid parameters for FastInertiaCoefficient");
         return 0.0f;
     }
     
@@ -2351,9 +2298,7 @@ XMFLOAT3 MathPrecalculation::FastCollisionResponse(const XMFLOAT3& velocity, con
     // Ensure the system is initialized before attempting calculation
     if (!m_bIsInitialized.load())
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastCollisionResponse called before initialization");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastCollisionResponse called before initialization");
         // Fallback to simple reflection
         return FastReflectionVector(velocity, normal, restitution);
     }
@@ -2430,9 +2375,7 @@ float MathPrecalculation::FastAudioPropagation(float distance, float occlusionFa
     // Ensure the system is initialized before attempting calculation
     if (!m_bIsInitialized.load())
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastAudioPropagation called before initialization");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastAudioPropagation called before initialization");
         // Fallback to standard inverse square law calculation
         if (distance <= 0.1f) return 1.0f;
         float attenuation = 1.0f / (1.0f + distance * distance * 0.01f);
@@ -2502,9 +2445,7 @@ XMFLOAT3 MathPrecalculation::FastProjectileTrajectory(const XMFLOAT3& startPos, 
     // Ensure the system is initialized before attempting calculation
     if (!m_bIsInitialized.load())
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastProjectileTrajectory called before initialization");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastProjectileTrajectory called before initialization");
         // Fallback to simple trajectory calculation
         XMFLOAT3 direction;
         direction.x = targetPos.x - startPos.x;
@@ -2533,9 +2474,7 @@ XMFLOAT3 MathPrecalculation::FastProjectileTrajectory(const XMFLOAT3& startPos, 
     // Validate input parameters
     if (launchSpeed <= 0.0f || gravity <= 0.0f)
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] Invalid parameters for FastProjectileTrajectory");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] Invalid parameters for FastProjectileTrajectory");
         return XMFLOAT3(0.0f, 0.0f, 0.0f);
     }
     
@@ -2627,9 +2566,7 @@ float MathPrecalculation::FastOrbitalVelocity(float distance, float mass) const
     // Ensure the system is initialized before attempting calculation
     if (!m_bIsInitialized.load())
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastOrbitalVelocity called before initialization");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastOrbitalVelocity called before initialization");
         // Fallback to standard calculation
         if (distance <= 0.1f) return 0.0f;
         return std::sqrt(mass / distance);
@@ -2638,9 +2575,7 @@ float MathPrecalculation::FastOrbitalVelocity(float distance, float mass) const
     // Validate input parameters
     if (distance <= 0.1f || mass <= 0.0f)
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] Invalid parameters for FastOrbitalVelocity");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] Invalid parameters for FastOrbitalVelocity");
         return 0.0f;
     }
     
@@ -2685,9 +2620,7 @@ float MathPrecalculation::FastEscapeVelocity(float distance, float mass) const
     // Ensure the system is initialized before attempting calculation
     if (!m_bIsInitialized.load())
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastEscapeVelocity called before initialization");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] FastEscapeVelocity called before initialization");
         // Fallback to standard calculation
         if (distance <= 0.1f) return 0.0f;
         return std::sqrt(2.0f * mass / distance);
@@ -2696,9 +2629,7 @@ float MathPrecalculation::FastEscapeVelocity(float distance, float mass) const
     // Validate input parameters
     if (distance <= 0.1f || mass <= 0.0f)
     {
-#if defined(_DEBUG_MATHPRECALC_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] Invalid parameters for FastEscapeVelocity");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] Invalid parameters for FastEscapeVelocity");
         return 0.0f;
     }
     

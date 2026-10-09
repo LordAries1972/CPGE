@@ -68,9 +68,7 @@ bool PUNPack::Initialize()
     // Check if already initialized to prevent double initialization
     if (m_bIsInitialized.load())
     {
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] Already initialized - skipping");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] Already initialized - skipping");
         return true;
     }
 
@@ -95,9 +93,7 @@ bool PUNPack::Initialize()
         // Verify MathPrecalculation is available and initialized
         if (m_mathPrecalc && !m_mathPrecalc->IsInitialized())
         {
-            #if defined(_DEBUG_PUNPACK_)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] MathPrecalculation not initialized - some optimizations may be unavailable");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] MathPrecalculation not initialized - some optimizations may be unavailable");
         }
 
         // Reset all statistics counters
@@ -197,18 +193,14 @@ PackResult PUNPack::PackString(const std::string& inputString, CompressionType c
     // Ensure the class is initialized
     if (!m_bIsInitialized.load())
     {
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] PackString called before initialization");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] PackString called before initialization");
         return result;
     }
 
     // Check for empty string
     if (inputString.empty())
     {
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] PackString called with empty string");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] PackString called with empty string");
         return result;
     }
 
@@ -276,11 +268,9 @@ PackResult PUNPack::PackString(const std::string& inputString, CompressionType c
     }
     catch (const std::exception& e)
     {
-        #if defined(_DEBUG_PUNPACK_)
-            std::string errorMsg = e.what();
-            std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] PackString exception: " + wErrorMsg);
-        #endif
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] PackString exception: " + wErrorMsg);
     }
 
     return result;
@@ -297,9 +287,7 @@ PackResult PUNPack::PackString(const std::wstring& inputString, CompressionType 
     // Ensure the class is initialized
     if (!m_bIsInitialized.load())
     {
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] PackString (wide) called before initialization");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] PackString (wide) called before initialization");
 
         return result;
     }
@@ -307,9 +295,7 @@ PackResult PUNPack::PackString(const std::wstring& inputString, CompressionType 
     // Check for empty string
     if (inputString.empty())
     {
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] PackString (wide) called with empty string");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] PackString (wide) called with empty string");
         return result;
     }
 
@@ -379,11 +365,9 @@ PackResult PUNPack::PackString(const std::wstring& inputString, CompressionType 
     }
     catch (const std::exception& e)
     {
-        #if defined(_DEBUG_PUNPACK_)
-            std::string errorMsg = e.what();
-            std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] PackString (wide) exception: " + wErrorMsg);
-        #endif
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] PackString (wide) exception: " + wErrorMsg);
     }
 
     return result;
@@ -401,9 +385,7 @@ UnpackResult PUNPack::UnpackString(const PackResult& packedData)
     if (!m_bIsInitialized.load())
     {
         result.errorMessage = "PUNPack not initialized";
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] UnpackString called before initialization");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] UnpackString called before initialization");
 
         return result;
     }
@@ -412,9 +394,7 @@ UnpackResult PUNPack::UnpackString(const PackResult& packedData)
     if (!ValidatePackResult(packedData))
     {
         result.errorMessage = "Invalid pack result data";
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] UnpackString received invalid pack result");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] UnpackString received invalid pack result");
 
         return result;
     }
@@ -437,10 +417,8 @@ UnpackResult PUNPack::UnpackString(const PackResult& packedData)
         if (verifyChecksum != packedData.compressedChecksum)
         {
             result.errorMessage = "Compressed data checksum verification failed";
-            #if defined(_DEBUG_PUNPACK_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[PUNPack] Checksum mismatch - Expected: 0x%08X, Got: 0x%08X",
-                    packedData.compressedChecksum, verifyChecksum);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[PUNPack] Checksum mismatch - Expected: 0x%08X, Got: 0x%08X",
+                packedData.compressedChecksum, verifyChecksum);
 
             return result;
         }
@@ -474,10 +452,8 @@ UnpackResult PUNPack::UnpackString(const PackResult& packedData)
         if (decompressedData.size() != packedData.originalSize)
         {
             result.errorMessage = "Decompressed data size mismatch";
-            #if defined(_DEBUG_PUNPACK_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[PUNPack] Decompressed size mismatch - Expected: %zu, Got: %zu",
-                    packedData.originalSize, decompressedData.size());
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[PUNPack] Decompressed size mismatch - Expected: %zu, Got: %zu",
+                packedData.originalSize, decompressedData.size());
             return result;
         }
 
@@ -486,10 +462,8 @@ UnpackResult PUNPack::UnpackString(const PackResult& packedData)
         if (originalChecksum != packedData.checksum)
         {
             result.errorMessage = "Original data checksum verification failed";
-            #if defined(_DEBUG_PUNPACK_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[PUNPack] Original checksum mismatch - Expected: 0x%08X, Got: 0x%08X",
-                    packedData.checksum, originalChecksum);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[PUNPack] Original checksum mismatch - Expected: 0x%08X, Got: 0x%08X",
+                packedData.checksum, originalChecksum);
             return result;
         }
 
@@ -513,11 +487,9 @@ UnpackResult PUNPack::UnpackString(const PackResult& packedData)
     catch (const std::exception& e)
     {
         result.errorMessage = std::string("Exception during unpacking: ") + e.what();
-        #if defined(_DEBUG_PUNPACK_)
-            std::string errorMsg = e.what();
-            std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] UnpackString exception: " + wErrorMsg);
-        #endif
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] UnpackString exception: " + wErrorMsg);
     }
 
     return result;
@@ -538,9 +510,7 @@ UnpackResult PUNPack::UnpackWString(const PackResult& packedData)
     {
         // Forward the error from string unpacking
         result.errorMessage = stringResult.errorMessage;
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] UnpackWString failed during string unpacking");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] UnpackWString failed during string unpacking");
         return result;
     }
 
@@ -571,11 +541,9 @@ UnpackResult PUNPack::UnpackWString(const PackResult& packedData)
     catch (const std::exception& e)
     {
         result.errorMessage = std::string("Exception during wide string conversion: ") + e.what();
-        #if defined(_DEBUG_PUNPACK_)
-            std::string errorMsg = e.what();
-            std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] UnpackWString exception: " + wErrorMsg);
-        #endif
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] UnpackWString exception: " + wErrorMsg);
     }
 
     return result;
@@ -595,9 +563,7 @@ PackResult PUNPack::PackBuffer(const void* buffer, size_t bufferSize, Compressio
     // Ensure the class is initialized
     if (!m_bIsInitialized.load())
     {
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] PackBuffer called before initialization");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] PackBuffer called before initialization");
 
         return result;
     }
@@ -605,9 +571,7 @@ PackResult PUNPack::PackBuffer(const void* buffer, size_t bufferSize, Compressio
     // Validate input parameters
     if (buffer == nullptr || bufferSize == 0)
     {
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] PackBuffer called with null buffer or zero size");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] PackBuffer called with null buffer or zero size");
 
         return result;
     }
@@ -615,10 +579,8 @@ PackResult PUNPack::PackBuffer(const void* buffer, size_t bufferSize, Compressio
     // Check for maximum buffer size limit
     if (bufferSize > PUNPACK_MAX_BUFFER_SIZE)
     {
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[PUNPack] Buffer size %zu exceeds maximum limit %zu",
-                bufferSize, PUNPACK_MAX_BUFFER_SIZE);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[PUNPack] Buffer size %zu exceeds maximum limit %zu",
+            bufferSize, PUNPACK_MAX_BUFFER_SIZE);
 
         return result;
     }
@@ -687,11 +649,9 @@ PackResult PUNPack::PackBuffer(const void* buffer, size_t bufferSize, Compressio
     }
     catch (const std::exception& e)
     {
-        #if defined(_DEBUG_PUNPACK_)
-            std::string errorMsg = e.what();
-            std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] PackBuffer exception: " + wErrorMsg);
-        #endif
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] PackBuffer exception: " + wErrorMsg);
     }
 
     return result;
@@ -719,9 +679,7 @@ UnpackResult PUNPack::UnpackBuffer(const PackResult& packedData)
     if (!m_bIsInitialized.load())
     {
         result.errorMessage = "PUNPack not initialized";
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] UnpackBuffer called before initialization");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] UnpackBuffer called before initialization");
 
         return result;
     }
@@ -730,9 +688,7 @@ UnpackResult PUNPack::UnpackBuffer(const PackResult& packedData)
     if (!ValidatePackResult(packedData))
     {
         result.errorMessage = "Invalid pack result data";
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] UnpackBuffer received invalid pack result");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] UnpackBuffer received invalid pack result");
 
         return result;
     }
@@ -755,10 +711,8 @@ UnpackResult PUNPack::UnpackBuffer(const PackResult& packedData)
         if (verifyChecksum != packedData.compressedChecksum)
         {
             result.errorMessage = "Compressed data checksum verification failed";
-            #if defined(_DEBUG_PUNPACK_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[PUNPack] Checksum mismatch - Expected: 0x%08X, Got: 0x%08X",
-                    packedData.compressedChecksum, verifyChecksum);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[PUNPack] Checksum mismatch - Expected: 0x%08X, Got: 0x%08X",
+                packedData.compressedChecksum, verifyChecksum);
 
             return result;
         }
@@ -792,10 +746,8 @@ UnpackResult PUNPack::UnpackBuffer(const PackResult& packedData)
         if (decompressedData.size() != packedData.originalSize)
         {
             result.errorMessage = "Decompressed data size mismatch";
-            #if defined(_DEBUG_PUNPACK_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[PUNPack] Decompressed size mismatch - Expected: %zu, Got: %zu",
-                    packedData.originalSize, decompressedData.size());
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[PUNPack] Decompressed size mismatch - Expected: %zu, Got: %zu",
+                packedData.originalSize, decompressedData.size());
 
             return result;
         }
@@ -805,10 +757,8 @@ UnpackResult PUNPack::UnpackBuffer(const PackResult& packedData)
         if (originalChecksum != packedData.checksum)
         {
             result.errorMessage = "Original data checksum verification failed";
-            #if defined(_DEBUG_PUNPACK_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[PUNPack] Original checksum mismatch - Expected: 0x%08X, Got: 0x%08X",
-                    packedData.checksum, originalChecksum);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[PUNPack] Original checksum mismatch - Expected: 0x%08X, Got: 0x%08X",
+                packedData.checksum, originalChecksum);
 
             return result;
         }
@@ -833,11 +783,9 @@ UnpackResult PUNPack::UnpackBuffer(const PackResult& packedData)
     catch (const std::exception& e)
     {
         result.errorMessage = std::string("Exception during unpacking: ") + e.what();
-        #if defined(_DEBUG_PUNPACK_)
-            std::string errorMsg = e.what();
-            std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] UnpackBuffer exception: " + wErrorMsg);
-        #endif
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] UnpackBuffer exception: " + wErrorMsg);
     }
 
     return result;
@@ -851,9 +799,7 @@ uint32_t PUNPack::CalculateChecksum(const void* data, size_t size) const
     // Ensure the class is initialized before attempting checksum calculation
     if (!m_bIsInitialized.load())
     {
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] CalculateChecksum called before initialization");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] CalculateChecksum called before initialization");
 
         return 0;
     }
@@ -861,9 +807,7 @@ uint32_t PUNPack::CalculateChecksum(const void* data, size_t size) const
     // Validate input parameters
     if (data == nullptr || size == 0)
     {
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] CalculateChecksum called with null data or zero size");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] CalculateChecksum called with null data or zero size");
 
         return 0;
     }
@@ -876,9 +820,7 @@ uint32_t PUNPack::CalculateChecksum(const void* data, size_t size) const
     else
     {
         // Fallback to slower calculation without lookup table
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] CRC32 table not initialized - using slower calculation");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] CRC32 table not initialized - using slower calculation");
 
         uint32_t crc = 0xFFFFFFFF;
         const uint8_t* bytes = static_cast<const uint8_t*>(data);
@@ -978,11 +920,9 @@ std::vector<uint8_t> PUNPack::GenerateDecipherKey(size_t keySize)
     }
     catch (const std::exception& e)
     {
-        #if defined(_DEBUG_PUNPACK_)
-            std::string errorMsg = e.what();
-            std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] GenerateDecipherKey exception: " + wErrorMsg);
-        #endif
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] GenerateDecipherKey exception: " + wErrorMsg);
         key.clear(); // Return empty key on error
     }
 
@@ -994,9 +934,7 @@ void PUNPack::EncryptData(std::vector<uint8_t>& data, const std::vector<uint8_t>
     // Validate input parameters
     if (data.empty() || key.empty())
     {
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] EncryptData called with empty data or key");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] EncryptData called with empty data or key");
         return;
     }
 
@@ -1032,11 +970,9 @@ void PUNPack::EncryptData(std::vector<uint8_t>& data, const std::vector<uint8_t>
     }
     catch (const std::exception& e)
     {
-        #if defined(_DEBUG_PUNPACK_)
-            std::string errorMsg = e.what();
-            std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] EncryptData exception: " + wErrorMsg);
-        #endif
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] EncryptData exception: " + wErrorMsg);
     }
 }
 
@@ -1045,9 +981,7 @@ void PUNPack::DecryptData(std::vector<uint8_t>& data, const std::vector<uint8_t>
     // Validate input parameters
     if (data.empty() || key.empty())
     {
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] DecryptData called with empty data or key");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] DecryptData called with empty data or key");
         return;
     }
 
@@ -1083,11 +1017,9 @@ void PUNPack::DecryptData(std::vector<uint8_t>& data, const std::vector<uint8_t>
     }
     catch (const std::exception& e)
     {
-        #if defined(_DEBUG_PUNPACK_)
-            std::string errorMsg = e.what();
-            std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] DecryptData exception: " + wErrorMsg);
-        #endif
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] DecryptData exception: " + wErrorMsg);
     }
 }
 
@@ -1425,9 +1357,7 @@ std::vector<uint8_t> PUNPack::BlowfishEncrypt(const std::vector<uint8_t>& data, 
 
     if (!m_bIsInitialized.load() || data.empty() || key.empty())
     {
-#if defined(_DEBUG_PUNPACK_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] BlowfishEncrypt: invalid input");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] BlowfishEncrypt: invalid input");
         return output;
     }
 
@@ -1496,9 +1426,7 @@ std::vector<uint8_t> PUNPack::BlowfishDecrypt(const std::vector<uint8_t>& data, 
     if (!m_bIsInitialized.load() || data.size() < 16 || key.empty() ||
         (data.size() % PUNPACK_BLOWFISH_BLOCK_SIZE) != 0)
     {
-#if defined(_DEBUG_PUNPACK_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] BlowfishDecrypt: invalid input");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] BlowfishDecrypt: invalid input");
         return output;
     }
 
@@ -1584,9 +1512,7 @@ std::string PUNPack::HashPassword(const std::string& password, int cost)
 {
     if (!m_bIsInitialized.load() || password.empty())
     {
-#if defined(_DEBUG_PUNPACK_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] HashPassword: invalid input");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] HashPassword: invalid input");
         return "";
     }
 
@@ -1659,9 +1585,7 @@ bool PUNPack::VerifyPassword(const std::string& password, const std::string& has
     // Minimum valid hash length is 60 chars
     if (!m_bIsInitialized.load() || password.empty() || hashString.size() < 60)
     {
-#if defined(_DEBUG_PUNPACK_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] VerifyPassword: invalid input");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] VerifyPassword: invalid input");
         return false;
     }
 
@@ -1670,9 +1594,7 @@ bool PUNPack::VerifyPassword(const std::string& password, const std::string& has
         (hashString[2] != 'a' && hashString[2] != 'b' && hashString[2] != 'y') ||
         hashString[3] != '$')
     {
-#if defined(_DEBUG_PUNPACK_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] VerifyPassword: unsupported hash format");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] VerifyPassword: unsupported hash format");
         return false;
     }
 
@@ -1680,18 +1602,14 @@ bool PUNPack::VerifyPassword(const std::string& password, const std::string& has
     int cost = std::atoi(hashString.c_str() + 4);
     if (cost < PUNPACK_BCRYPT_MIN_COST || cost > PUNPACK_BCRYPT_MAX_COST)
     {
-#if defined(_DEBUG_PUNPACK_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] VerifyPassword: invalid cost factor");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] VerifyPassword: invalid cost factor");
         return false;
     }
 
     // Salt is 22 chars starting at position 7 (after "$2b$12$")
     if (hashString.size() < 7 + 22 + 31)
     {
-#if defined(_DEBUG_PUNPACK_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] VerifyPassword: hash too short");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] VerifyPassword: hash too short");
         return false;
     }
 
@@ -1701,9 +1619,7 @@ bool PUNPack::VerifyPassword(const std::string& password, const std::string& has
     uint8_t saltBytes[16] = {};
     if (!BcryptBase64Decode(saltPart, saltBytes, PUNPACK_BCRYPT_SALT_BYTES))
     {
-#if defined(_DEBUG_PUNPACK_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] VerifyPassword: salt decode failed");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] VerifyPassword: salt decode failed");
         return false;
     }
 
@@ -1818,9 +1734,7 @@ CompressionType PUNPack::GetOptimalCompressionType(const void* data, size_t size
     // Validate input parameters
     if (data == nullptr || size == 0)
     {
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] GetOptimalCompressionType called with invalid parameters");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] GetOptimalCompressionType called with invalid parameters");
         return CompressionType::NONE;
     }
 
@@ -1890,11 +1804,9 @@ CompressionType PUNPack::GetOptimalCompressionType(const void* data, size_t size
     }
     catch (const std::exception& e)
     {
-        #if defined(_DEBUG_PUNPACK_)
-            std::string errorMsg = e.what();
-            std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] GetOptimalCompressionType exception: " + wErrorMsg);
-        #endif
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] GetOptimalCompressionType exception: " + wErrorMsg);
         return CompressionType::NONE;
     }
 }
@@ -1962,11 +1874,9 @@ std::vector<uint8_t> PUNPack::CompressRLE(const std::vector<uint8_t>& input) con
     }
     catch (const std::exception& e)
     {
-        #if defined(_DEBUG_PUNPACK_)
-            std::string errorMsg = e.what();
-            std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] CompressRLE exception: " + wErrorMsg);
-        #endif
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] CompressRLE exception: " + wErrorMsg);
         return input; // Return original data on error
     }
 
@@ -2036,11 +1946,9 @@ std::vector<uint8_t> PUNPack::DecompressRLE(const std::vector<uint8_t>& input, s
     }
     catch (const std::exception& e)
     {
-        #if defined(_DEBUG_PUNPACK_)
-            std::string errorMsg = e.what();
-            std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] DecompressRLE exception: " + wErrorMsg);
-        #endif
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] DecompressRLE exception: " + wErrorMsg);
         return input; // Return original data on error
     }
 
@@ -2127,11 +2035,9 @@ std::vector<uint8_t> PUNPack::CompressLZ77(const std::vector<uint8_t>& input) co
     }
     catch (const std::exception& e)
     {
-        #if defined(_DEBUG_PUNPACK_)
-            std::string errorMsg = e.what();
-            std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] CompressLZ77 exception: " + wErrorMsg);
-        #endif
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] CompressLZ77 exception: " + wErrorMsg);
         return input; // Return original data on error
     }
 
@@ -2183,9 +2089,7 @@ std::vector<uint8_t> PUNPack::DecompressLZ77(const std::vector<uint8_t>& input, 
                         else
                         {
                             // Invalid distance - corruption detected
-                            #if defined(_DEBUG_PUNPACK_)
-                                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] DecompressLZ77 invalid distance detected");
-                            #endif
+                            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] DecompressLZ77 invalid distance detected");
                             return std::vector<uint8_t>(); // Return empty vector on corruption
                         }
                     }
@@ -2213,11 +2117,9 @@ std::vector<uint8_t> PUNPack::DecompressLZ77(const std::vector<uint8_t>& input, 
     }
     catch (const std::exception& e)
     {
-        #if defined(_DEBUG_PUNPACK_)
-            std::string errorMsg = e.what();
-            std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] DecompressLZ77 exception: " + wErrorMsg);
-        #endif
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] DecompressLZ77 exception: " + wErrorMsg);
         return std::vector<uint8_t>(); // Return empty vector on error
     }
 
@@ -2375,9 +2277,7 @@ std::vector<uint8_t> PUNPack::CompressHuffman(const std::vector<uint8_t>& input)
     // Handle empty input
     if (input.empty())
     {
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] CompressHuffman called with empty input");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] CompressHuffman called with empty input");
         return compressed;
     }
 
@@ -2529,11 +2429,9 @@ std::vector<uint8_t> PUNPack::CompressHuffman(const std::vector<uint8_t>& input)
     }
     catch (const std::exception& e)
     {
-        #if defined(_DEBUG_PUNPACK_)
-            std::string errorMsg = e.what();
-            std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] CompressHuffman exception: " + wErrorMsg);
-        #endif
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] CompressHuffman exception: " + wErrorMsg);
         return input; // Return original data on error
     }
 
@@ -2552,9 +2450,7 @@ std::vector<uint8_t> PUNPack::DecompressHuffman(const std::vector<uint8_t>& inpu
     // Handle empty input
     if (input.empty())
     {
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] DecompressHuffman called with empty input");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] DecompressHuffman called with empty input");
         return decompressed;
     }
 
@@ -2575,9 +2471,7 @@ std::vector<uint8_t> PUNPack::DecompressHuffman(const std::vector<uint8_t>& inpu
         // Check for Huffman tree marker
         if (readIndex >= input.size() || input[readIndex] != 0xFE)
         {
-            #if defined(_DEBUG_PUNPACK_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] DecompressHuffman invalid tree marker");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] DecompressHuffman invalid tree marker");
             return DecompressRLE(input, originalSize); // Fallback to RLE
         }
         readIndex++;
@@ -2623,18 +2517,14 @@ std::vector<uint8_t> PUNPack::DecompressHuffman(const std::vector<uint8_t>& inpu
         auto root = deserializeTree();
         if (!root)
         {
-            #if defined(_DEBUG_PUNPACK_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] DecompressHuffman failed to deserialize tree");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] DecompressHuffman failed to deserialize tree");
             return std::vector<uint8_t>();
         }
 
         // Step 2: Read original data size (4 bytes)
         if (readIndex + 4 > input.size())
         {
-            #if defined(_DEBUG_PUNPACK_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] DecompressHuffman insufficient data for size header");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] DecompressHuffman insufficient data for size header");
             return std::vector<uint8_t>();
         }
 
@@ -2647,10 +2537,8 @@ std::vector<uint8_t> PUNPack::DecompressHuffman(const std::vector<uint8_t>& inpu
         // Verify expected size matches originalSize parameter
         if (expectedSize != originalSize)
         {
-            #if defined(_DEBUG_PUNPACK_)
-                debug.logDebugMessage(LogLevel::LOG_WARNING, L"[PUNPack] Size mismatch - Expected: %u, Parameter: %zu",
-                    expectedSize, originalSize);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"[PUNPack] Size mismatch - Expected: %u, Parameter: %zu",
+                expectedSize, originalSize);
         }
 
         #if defined(_DEBUG_PUNPACK_)
@@ -2678,9 +2566,7 @@ std::vector<uint8_t> PUNPack::DecompressHuffman(const std::vector<uint8_t>& inpu
                 // Safety check for corrupted data
                 if (!currentNode)
                 {
-                    #if defined(_DEBUG_PUNPACK_)
-                        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] DecompressHuffman tree traversal error");
-                    #endif
+                    debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] DecompressHuffman tree traversal error");
                     return std::vector<uint8_t>();
                 }
             }
@@ -2693,9 +2579,7 @@ std::vector<uint8_t> PUNPack::DecompressHuffman(const std::vector<uint8_t>& inpu
             else
             {
                 // Incomplete symbol due to end of data
-                #if defined(_DEBUG_PUNPACK_)
-                    debug.logLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] DecompressHuffman incomplete symbol at end of stream");
-                #endif
+                debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] DecompressHuffman incomplete symbol at end of stream");
                 break;
             }
         }
@@ -2703,10 +2587,8 @@ std::vector<uint8_t> PUNPack::DecompressHuffman(const std::vector<uint8_t>& inpu
         // Verify we decoded the expected amount of data
         if (decompressed.size() != expectedSize)
         {
-            #if defined(_DEBUG_PUNPACK_)
-                debug.logDebugMessage(LogLevel::LOG_WARNING, L"[PUNPack] DecompressHuffman size mismatch - Expected: %u, Got: %zu",
-                    expectedSize, decompressed.size());
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"[PUNPack] DecompressHuffman size mismatch - Expected: %u, Got: %zu",
+                expectedSize, decompressed.size());
         }
 
         #if defined(_DEBUG_PUNPACK_)
@@ -2717,11 +2599,9 @@ std::vector<uint8_t> PUNPack::DecompressHuffman(const std::vector<uint8_t>& inpu
     }
     catch (const std::exception& e)
     {
-        #if defined(_DEBUG_PUNPACK_)
-            std::string errorMsg = e.what();
-            std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] DecompressHuffman exception: " + wErrorMsg);
-        #endif
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] DecompressHuffman exception: " + wErrorMsg);
         return std::vector<uint8_t>(); // Return empty vector on error
     }
 
@@ -2780,11 +2660,9 @@ std::vector<uint8_t> PUNPack::CompressHybrid(const std::vector<uint8_t>& input) 
     }
     catch (const std::exception& e)
     {
-        #if defined(_DEBUG_PUNPACK_)
-            std::string errorMsg = e.what();
-            std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] CompressHybrid exception: " + wErrorMsg);
-        #endif
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] CompressHybrid exception: " + wErrorMsg);
         return input; // Return original data on error
     }
 }
@@ -2828,19 +2706,15 @@ std::vector<uint8_t> PUNPack::DecompressHybrid(const std::vector<uint8_t>& input
             return DecompressLZ77(compressedData, originalSize);
 
         default:
-            #if defined(_DEBUG_PUNPACK_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[PUNPack] DecompressHybrid unknown method: 0x%02X", method);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[PUNPack] DecompressHybrid unknown method: 0x%02X", method);
             return std::vector<uint8_t>(); // Return empty vector on unknown method
         }
     }
     catch (const std::exception& e)
     {
-        #if defined(_DEBUG_PUNPACK_)
-            std::string errorMsg = e.what();
-            std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] DecompressHybrid exception: " + wErrorMsg);
-        #endif
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] DecompressHybrid exception: " + wErrorMsg);
         return std::vector<uint8_t>(); // Return empty vector on error
     }
 }
@@ -2855,9 +2729,7 @@ std::vector<uint8_t> PUNPack::DataToByteVector(const void* data, size_t size) co
     // Validate input parameters
     if (data == nullptr || size == 0)
     {
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] DataToByteVector called with null data or zero size");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[PUNPack] DataToByteVector called with null data or zero size");
         return result;
     }
 
@@ -2876,11 +2748,9 @@ std::vector<uint8_t> PUNPack::DataToByteVector(const void* data, size_t size) co
     }
     catch (const std::exception& e)
     {
-        #if defined(_DEBUG_PUNPACK_)
-            std::string errorMsg = e.what();
-            std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] DataToByteVector exception: " + wErrorMsg);
-        #endif
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] DataToByteVector exception: " + wErrorMsg);
         result.clear(); // Return empty vector on error
     }
 
@@ -2896,55 +2766,43 @@ bool PUNPack::ValidatePackResult(const PackResult& result) const
     // Check magic header
     if (result.magicHeader != PUNPACK_MAGIC_HEADER)
     {
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[PUNPack] Invalid magic header: 0x%016llX", result.magicHeader);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[PUNPack] Invalid magic header: 0x%016llX", result.magicHeader);
         return false;
     }
 
     // Check version compatibility
     if (result.version != PUNPACK_VERSION)
     {
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[PUNPack] Version mismatch: 0x%08X", result.version);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[PUNPack] Version mismatch: 0x%08X", result.version);
         return false;
     }
 
     // Check size consistency
     if (result.originalSize == 0 || result.compressedSize == 0)
     {
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] Invalid sizes in pack result");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] Invalid sizes in pack result");
         return false;
     }
 
     // Check compressed data availability
     if (result.compressedData.empty())
     {
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] No compressed data in pack result");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] No compressed data in pack result");
         return false;
     }
 
     // Check compressed data size matches reported size
     if (result.compressedData.size() != result.compressedSize)
     {
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[PUNPack] Compressed data size mismatch: expected %zu, got %zu",
-                result.compressedSize, result.compressedData.size());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[PUNPack] Compressed data size mismatch: expected %zu, got %zu",
+            result.compressedSize, result.compressedData.size());
         return false;
     }
 
     // Check encryption key consistency
     if (result.isEncrypted && result.decipherKey.empty())
     {
-        #if defined(_DEBUG_PUNPACK_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] Encrypted data but no decipher key");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] Encrypted data but no decipher key");
         return false;
     }
 
@@ -3012,11 +2870,9 @@ void PUNPack::InitializeCRC32Table()
     }
     catch (const std::exception& e)
     {
-        #if defined(_DEBUG_PUNPACK_)
-            std::string errorMsg = e.what();
-            std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] CRC32 table initialization exception: " + wErrorMsg);
-        #endif
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[PUNPack] CRC32 table initialization exception: " + wErrorMsg);
         m_crc32TableInitialized = false;
     }
 }

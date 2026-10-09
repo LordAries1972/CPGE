@@ -83,9 +83,9 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 //#define __USE_MP3PLAYER__
 
 // Ensure only ONE Music player type is defined only
-#if (defined(__USE_XMPLAYER__) + defined(__USE_MP3PLAYER__) + defined(__USE_S3MPLAYER__) + \
-    defined(__USE_ITPLAYER__) + defined(__USE_MODPLAYER__) + defined(__USE_MPTMPLAYER__)) > 1
-    #error "Multiple Music Players are Defined for use. Please define only one if you are wanting Music Playback."
+#if (defined(__USE_XMPLAYER__) + defined(__USE_S3MPLAYER__) + \
+    defined(__USE_ITPLAYER__) + defined(__USE_MODPLAYER__) + defined(__USE_MPTMPLAYER__)) > 1 
+    #error "Multiple Tracker Music Players are Defined for use. Please define only one if you are wanting Tracker Music Playback."
 #endif
 
 // ---------------------------------------------------------------------------
@@ -706,11 +706,14 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 // XM / MP3 Modules
 //------------------------------------------
 const int MAX_GLOBAL_VOLUME = 64;
+
 #if defined(__USE_MP3PLAYER__)
     inline const std::filesystem::path mp3FilePlaylist[] = { L"game1.mp3" };
     inline const std::filesystem::path SingleMP3Filename = "game1.mp3";
     inline const int MAX_MP3_MODULES = ARRAYSIZE(mp3FilePlaylist);
-#elif defined(__USE_XMPLAYER__)
+#endif
+
+#if defined(__USE_XMPLAYER__)
     inline const std::filesystem::path xmFilePlaylist[] = { L"thevoid.xm", L"electro2.xm", L"battle.xm" };
     inline const std::filesystem::path SingleXMFilename = "todie4.xm";
     inline const std::filesystem::path IntroXMFilename = "thevoid.xm";
@@ -773,7 +776,10 @@ const int SLOT_aoMap = 4;                                                       
 const int SLOT_environmentMap = 5;                                              // Environment Mappings for Reflections.
 const int SLOT_glossMap = 6;                                                    // Gloss / Smoothness Map (roughness = 1 - gloss.r)
 const int SLOT_emissiveMap = 7;                                                 // Emissive Texture Map (multiplied by EmissiveFactor)
-const int SLOT_shadowMap = 8;                                                   // Shadow Depth Map for PCF Shadow Sampling
+const int SLOT_shadowMap = 8;                                                   // Shadow Depth Map for PCF Shadow Sampling (directional light)
+const int SLOT_localShadowMap = 9;                                              // Spot / point shadow depth array (Texture2DArray)
+const int SLOT_sceneProbe = 10;                                                 // Scene reflection probe cube map (renderer-owned, see Lights.h)
+const int SLOT_planarMap = 11;                                                  // Planar reflection mirror render (renderer-owned, see Lights.h)
 
 // Reserved Sampler Slots for Pixel Shader ( s? slot )
 const int SLOT_SAMPLER_STATE = 0;

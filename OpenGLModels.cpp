@@ -12,6 +12,7 @@
 #include "OpenGLModels.h"
 #include "Models.h"
 #include "Debug.h"
+#include "Configuration.h"
 
 extern Debug debug;
 
@@ -229,8 +230,11 @@ namespace OpenGLModelUtils
             glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &len);
             std::string log(len, '\0');
             glGetShaderInfoLog(shader, len, nullptr, log.data());
-            debug.logDebugMessage(LogLevel::LOG_ERROR,
-                L"[OpenGLModels] Shader compile error: %hs", log.c_str());
+            // Build the wstring directly: the printf-style logger has a fixed 2048
+            // buffer and asserts ("Buffer too small") on long GLSL info logs.
+            debug.logLevelMessage(LogLevel::LOG_ERROR,
+                L"[OpenGLModels] Shader compile error: " +
+                std::wstring(log.c_str(), log.c_str() + strlen(log.c_str())));
             glDeleteShader(shader);
             return 0;
         }
@@ -261,8 +265,9 @@ namespace OpenGLModelUtils
             glGetProgramiv(prog, GL_INFO_LOG_LENGTH, &len);
             std::string log(len, '\0');
             glGetProgramInfoLog(prog, len, nullptr, log.data());
-            debug.logDebugMessage(LogLevel::LOG_ERROR,
-                L"[OpenGLModels] Program link error: %hs", log.c_str());
+            debug.logLevelMessage(LogLevel::LOG_ERROR,
+                L"[OpenGLModels] Program link error: " +
+                std::wstring(log.c_str(), log.c_str() + strlen(log.c_str())));
             glDeleteProgram(prog);
             prog = 0;
         }
@@ -317,8 +322,40 @@ bool OpenGLModelBuffers::Upload(const void* vertexData, size_t vertexBytes,
                  (GLsizeiptr)(indexCount * sizeof(uint32_t)), indices, GL_STATIC_DRAW);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 
+    // This runs on the loader's shared context, whose error queue nobody else reads: an allocation
+    // failure here would otherwise only surface as GL_OUT_OF_MEMORY on the render thread's draw call.
+    bool allocOK = true;
+    {
+        GLenum err = glGetError();
+        GLint vboSize = 0, eboSize = 0;
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &vboSize);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+        glGetBufferParameteriv(GL_ELEMENT_ARRAY_BUFFER, GL_BUFFER_SIZE, &eboSize);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+
+        if (err != GL_NO_ERROR || static_cast<size_t>(vboSize) != vertexBytes ||
+            static_cast<size_t>(eboSize) != indexCount * sizeof(uint32_t))
+        {
+            allocOK = false;
+            Debug::logDiagMessage(LogLevel::LOG_WARNING,
+                L"[OpenGLModels] Buffer upload FAILED: GL error 0x%04X, VBO %d of %zu bytes, EBO %d of %zu bytes",
+                static_cast<unsigned>(err), vboSize, vertexBytes, eboSize, indexCount * sizeof(uint32_t));
+        }
+        else
+        {
+            Debug::logDiagMessage(LogLevel::LOG_WARNING,
+                L"[OpenGLModels] Buffer upload OK: VBO %zu bytes, EBO %zu indices", vertexBytes, indexCount);
+        }
+    }
+
+    // Make the finished buffers visible to the render context (shared-object rule: complete the
+    // work on the creating context before the other context uses the objects).
+    glFinish();
+
     VAO = 0; // Created lazily on the render thread
-    return (VBO != 0 && EBO != 0);
+    return allocOK && (VBO != 0 && EBO != 0);
 }
 
 void OpenGLModelBuffers::Destroy()
@@ -461,7 +498,7 @@ void OpenGLMaterialUniforms::Apply(GLuint program, const Material& mat)
     setFloat("uRoughness",        mat.Roughness);
     setFloat("uNormalScale",      mat.normalScale);
     setVec3 ("uEmissiveFactor",   mat.emissiveFactor.x, mat.emissiveFactor.y, mat.emissiveFactor.z);
-    setFloat("uEmissiveStrength", mat.emissiveStrength);
+    setFloat("uEmissiveStrength", mat.emissiveStrength * config.myConfig.EmissionScale());
 }
 
 void OpenGLMaterialUniforms::ApplyTransform(GLuint program,

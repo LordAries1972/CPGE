@@ -91,6 +91,8 @@ enum class FXType {
     ImageFadeStrobe,                                                            // Alpha strobe on a 2D image: fades out to a % then fades back in, looping until stopped
     TileMapScroller,                                                            // 2D tile map renderer/scroller sourced from a tileset atlas image + map-data buffer
     Starfield2D,                                                                // Flat, screen-space 3-layer parallax starfield (see Star2DDirection)
+    ScrollColours,                                                              // Vertically scrolls a 2D image's colour palette, then washes it black and restarts, looping until stopped
+    EmissionPulsator,                                                           // One-shot fade in + fade out of model emission, capped at the Emission Intensity setting
 };
 
 // 8 compass-aligned scroll directions for the 2D Starfield (screen-space, not the 3D depth Starfield above)
@@ -376,6 +378,20 @@ struct ImageFadeStrobeData {
     ImageFadeStrobeData() = default;
 };
 
+struct ScrollColoursData {
+    BlitObj2DIndexType imageType       = BlitObj2DIndexType::NONE;
+    float              scrollSpeed     = 1.0f;                                 // Seconds for one full scroll cycle
+    float              phaseTimer      = 0.0f;
+    bool               reverseDirection = false;                               // false = travels left->right; true = right->left
+    ScrollColoursData() = default;
+};
+
+struct EmissionPulsatorData {
+    float totalTime  = 1.0f;                                                    // Seconds for the complete fade in + fade out
+    float elapsed    = 0.0f;
+    EmissionPulsatorData() = default;
+};
+
 struct FireworkParticle {
     float x         = 0.0f, y         = 0.0f;
     float angle     = 0.0f;                                                     // Azimuth in radians
@@ -399,6 +415,7 @@ struct FireworkRocket {
     bool  done     = false;
     float explodeX = 0.0f, explodeY = 0.0f;
     float expMaxRadius = 50.0f;
+    float expSpeed = 1.0f;                                                      // Random 1-2 per rocket: multiplier on how fast the explosion expands
     float expR = 1.0f, expG = 1.0f, expB = 1.0f;
     std::vector<FireworkParticle> expParticles;
 };
@@ -461,6 +478,8 @@ struct FXItem {
     TileMapData          tileMapData;
     Starfield2DData      starfield2DData;
     PixelFaderData       pixelFaderData;
+    ScrollColoursData    scrollColoursData;
+    EmissionPulsatorData emissionPulsatorData;
 };
 
 struct ScrollTween {
@@ -747,6 +766,29 @@ public:
     float GetImageFadeStrobeAlpha(BlitObj2DIndexType type) const;
     void  RenderImageFadeStrobe(BlitObj2DIndexType type, int x, int y, int w, int h);
 
+    // ---- ScrollColours (max 10 simultaneous) ----
+    // Scrolls a 2D image's colours horizontally (wrapping) across its fixed destination rect
+    // over scrollSpeed seconds per full cycle, looping indefinitely until StopScrollColours is
+    // called, which restores the image to its original, unmodified appearance immediately.
+    static constexpr int MAX_SCROLLCOLOURS_INSTANCES = 10;
+    void  StartScrollColours(BlitObj2DIndexType type, int scrollSpeed, bool reverseDirection = false);
+    void  StopScrollColours(BlitObj2DIndexType type);
+    bool  IsScrollColoursActive(BlitObj2DIndexType type) const;
+    void  RenderScrollColours(BlitObj2DIndexType type, int x, int y, int w, int h);
+
+    // ---- EmissionPulsator (one instance; starting a new one replaces the running one) ----
+    // Fades the emission of every emissive model from 0 up to the current Emission Intensity
+    // setting and back down to 0, the whole in+out taking fTimer seconds (half each way), then
+    // repeats that cycle until StopEmissionPulsator() or StopAllFX() ends it.
+    // The pulse is a 0..1 multiplier on config.myConfig.EmissionScale(), so it can never exceed
+    // the user's Emission Intensity limit (and follows live changes to it); all four renderers
+    // pick it up because they all upload emissive strength through EmissionScale().
+    // Returns the fxID (>0), or -1 on failure.  When it is stopped emission returns to the normal
+    // setting value.  emissionPulsatorID remembers the latest id (stale ids are harmless to Stop).
+    int   emissionPulsatorID = 0;
+    int   EmissionPulsator(float fTimer);
+    void  StopEmissionPulsator(int fxID);
+
     // ---- Pixel Fader (randomised pixel-block dissolve overlay) ----
     int  StartPixelFader(BlitObj2DIndexType imageType, int x, int y, int width, int height,
                          int pixelSize, float duration, XMFLOAT4 revealColor,
@@ -811,6 +853,7 @@ public:
     void StopZoomingImage(int imgID, bool immediate = false);
     bool  IsImageZoomActive(int imgID) const;
     void  RenderZoomedImage(int imgID, int destX, int destY, int destW, int destH);
+    float GetImageZoomLevel(int imgID) const;                                   // Current 2D zoom level (0.0 = none) for imgID; same selection rules as RenderZoomedImage
     float GetCurrent3DZoomFactor() const;
 
     // ---- TextFadeInOut (loading screen text) ----
@@ -842,6 +885,8 @@ private:
     void UpdateFireworks(FXItem& fx);
     void DrawFireworksPixels(FXItem& fx);
     void UpdateImageFadeStrobe(FXItem& fx, float deltaTime);
+    void UpdateScrollColours(FXItem& fx, float deltaTime);
+    void UpdateEmissionPulsator(FXItem& fx, float deltaTime);
     void UpdatePixelFader(FXItem& fx);
     bool LoadTileMapFromFile(const std::wstring& filename, int mapWidth, int mapHeight, std::vector<uint32_t>& outMapData);
     void RenderTileMapScroller(FXItem& fx);

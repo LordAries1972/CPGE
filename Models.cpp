@@ -1057,9 +1057,7 @@ bool Model::LoadMTL(const std::wstring& mtlPath)
     std::ifstream file(fileName);
     if (!file.is_open())
     {
-#if defined(_DEBUG_MODEL_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Model: Failed to open MTL file \"" + fileName + L"\"");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Model: Failed to open MTL file \"" + fileName + L"\"");
         return false;
     }
 
@@ -1113,9 +1111,7 @@ bool Model::LoadMTL(const std::wstring& mtlPath)
             }
             else
             {
-#if defined(_DEBUG_MODEL_)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"Model: Failed to load texture: " + std::wstring(texPath.begin(), texPath.end()));
-#endif
+                debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Model: Failed to load texture: " + std::wstring(texPath.begin(), texPath.end()));
             }
         }
         else if (tag == "map_Bump" || tag == "bump")
@@ -1485,9 +1481,7 @@ HRESULT Model::CompileShaderFromFile(const std::wstring& filePath, const std::st
 #endif
 
     if (!std::filesystem::exists(filePath)) {
-#if defined(_DEBUG_MODEL_) || defined(_DEBUG_SCENEMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Shader file NOT found!");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Shader file NOT found!");
         return E_FAIL;
     }
     ID3DBlob* errorBlob = nullptr;
@@ -1506,9 +1500,7 @@ HRESULT Model::CompileShaderFromFile(const std::wstring& filePath, const std::st
     if (FAILED(hr)) {
         if (errorBlob) {
             std::string errorMsg(static_cast<const char*>(errorBlob->GetBufferPointer()), errorBlob->GetBufferSize());
-#if defined(_DEBUG_MODEL_) || defined(_DEBUG_SCENEMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Shader compilation error: " + sysUtils.ToWString(errorMsg));
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Shader compilation error: " + sysUtils.ToWString(errorMsg));
             errorBlob->Release();
         }
         return hr;
@@ -1536,9 +1528,7 @@ void Model::CopyFrom(const Model& other)
 #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
     if (threadManager.threadVars.bIsResizing)
     {
-        #if defined(_DEBUG_MODEL_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[Model::CopyFrom] Resize Detected -> Resetting ONLY GPU resources (SRVs, Buffers, Shaders) - NOT textures!");
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"[Model::CopyFrom] Resize Detected -> Resetting ONLY GPU resources (SRVs, Buffers, Shaders) - NOT textures!");
         // Clear SRVs
         for (auto& srv : m_modelInfo.textureSRVs)
             srv.Reset();
@@ -1603,9 +1593,7 @@ void Model::UpdateConstantBuffer() {
 #ifdef __USE_DIRECTX_11__
     // Ensure the model is loaded and the constant buffer is valid
     if (!m_isLoaded || !m_modelInfo.constantBuffer) {
-#if defined(_DEBUG_MODEL_) || defined(_DEBUG_SCENEMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"UpdateConstantBuffer: Model not loaded or constant buffer is invalid.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"UpdateConstantBuffer: Model not loaded or constant buffer is invalid.");
         return;
     }
 
@@ -1655,9 +1643,7 @@ void Model::LoadFallbackNormalMap()
 
     if (!lock.IsLocked())
     {
-        #if defined(_DEBUG_MODEL_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[Model] Could not acquire lock for fallback normal map on Model ID: %d", m_modelInfo.ID);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"[Model] Could not acquire lock for fallback normal map on Model ID: %d", m_modelInfo.ID);
         return;
     }
 
@@ -1736,9 +1722,7 @@ bool Model::SetupModelForRendering()
     bool expected = false;
     if (!bIsSettingUpModel.compare_exchange_strong(expected, true))
     {
-        #if defined(_DEBUG_MODEL_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[Model] SetupModelForRendering re-entry blocked for Model ID: %d", m_modelInfo.ID);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"[Model] SetupModelForRendering re-entry blocked for Model ID: %d", m_modelInfo.ID);
         return false;
     }
 
@@ -1948,7 +1932,7 @@ lightDesc.Usage = D3D11_USAGE_DYNAMIC;
 
     // === Shadow constant buffer (b6) ===
     D3D11_BUFFER_DESC shadowDesc = {};
-    shadowDesc.ByteWidth      = Align16(static_cast<UINT>(sizeof(ShadowBufferGPU)));
+    shadowDesc.ByteWidth      = Align16(static_cast<UINT>(sizeof(ShadowBufferData)));
     shadowDesc.Usage          = D3D11_USAGE_DYNAMIC;
     shadowDesc.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
     shadowDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
@@ -2051,7 +2035,11 @@ lightDesc.Usage = D3D11_USAGE_DYNAMIC;
 
     // Transform UBO (set=0 binding=0): model(mat4)+view(mat4)+proj(mat4)+camPos(vec4)+scale(vec4)
     // = 3×64 + 2×16 = 224 bytes. Updated every frame via persistent map.
-    const VkDeviceSize uboSize = 224;
+    // The buffer holds 1 + MAX_PLANAR_PLANES 256-byte slots (dynamic offset): [0] main pass, [1 + plane] planar mirror passes.
+    // Both are recorded into the same command buffer and the host memory is only read when it executes,
+    // so each pass needs its own copy of the matrices.
+    const VkDeviceSize uboSize     = 224;
+    const VkDeviceSize uboAllocSize = 256 * (1 + MAX_PLANAR_PLANES + 6);          // + 6 live-capture face slots
     if (m_modelInfo.uniformBuffer != VK_NULL_HANDLE) {
         if (m_modelInfo.uniformBufferMapped) {
             vkUnmapMemory(device, m_modelInfo.uniformBufferMemory);
@@ -2062,17 +2050,17 @@ lightDesc.Usage = D3D11_USAGE_DYNAMIC;
         m_modelInfo.uniformBuffer       = VK_NULL_HANDLE;
         m_modelInfo.uniformBufferMemory = VK_NULL_HANDLE;
     }
-    VulkanModelUtils::CreateBuffer(device, physDev, uboSize,
+    VulkanModelUtils::CreateBuffer(device, physDev, uboAllocSize,
         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
         m_modelInfo.uniformBuffer, m_modelInfo.uniformBufferMemory);
     if (m_modelInfo.uniformBuffer != VK_NULL_HANDLE)
-        vkMapMemory(device, m_modelInfo.uniformBufferMemory, 0, uboSize, 0,
+        vkMapMemory(device, m_modelInfo.uniformBufferMemory, 0, uboAllocSize, 0,
                     &m_modelInfo.uniformBufferMapped);
 
     // Material UBO (set=0 binding=1): Kd(3)+metallic(1)+Ka(3)+roughness(1)+emissive(3)+emissiveStr(1)+flags(4)+newFlags(3)+pad(1)
-    // = 5x16 = 80 bytes. Set once when the material is bound; defaults shown below.
-    const VkDeviceSize matUboSize = 80;
+    // = 5x16 = 80 bytes + a 16-byte tail (planarIndex + pad) = 96. Set once when the material is bound; defaults shown below.
+    const VkDeviceSize matUboSize = 96;
     if (m_modelInfo.materialUniformBuffer != VK_NULL_HANDLE) {
         if (m_modelInfo.materialUniformBufferMapped) {
             vkUnmapMemory(device, m_modelInfo.materialUniformBufferMemory);
@@ -2095,8 +2083,9 @@ lightDesc.Usage = D3D11_USAGE_DYNAMIC;
                         float Ka[3]; float roughness;
                         float emissive[3]; float emissiveStrength;
                         float normalScale; float useNormal; float useORM; float useAO;
-                        float useDiffuseMap; float useGlossMap; float useEmissiveMap; float _pad; };
-        MatUBO defaults{ {1,1,1}, 0.0f, {0.15f,0.15f,0.15f}, 0.5f, {0,0,0}, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+                        float useDiffuseMap; float useGlossMap; float useEmissiveMap; float _pad;
+                        float planarIndex; float _p1; float _p2; float _p3; };
+        MatUBO defaults{ {1,1,1}, 0.0f, {0.15f,0.15f,0.15f}, 0.5f, {0,0,0}, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
         std::memcpy(m_modelInfo.materialUniformBufferMapped, &defaults, sizeof(defaults));
     }
 
@@ -2124,7 +2113,7 @@ lightDesc.Usage = D3D11_USAGE_DYNAMIC;
             writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             writes[0].dstSet          = m_modelInfo.descriptorSet;
             writes[0].dstBinding      = 0;
-            writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
             writes[0].descriptorCount = 1;
             writes[0].pBufferInfo     = &transformBuf;
             writes[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -2295,9 +2284,7 @@ context->PSSetConstantBuffers(SLOT_LIGHT_BUFFER, 1, m_modelInfo.lightConstantBuf
     }
     else
     {
-#if defined(_DEBUG_MODEL_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[Model] Failed to map light buffer for writing.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[Model] Failed to map light buffer for writing.");
     }
 #endif // __USE_DIRECTX_11__
 }
@@ -2313,21 +2300,17 @@ void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
 #if defined(__USE_DIRECTX_11__)
     if (!deviceContext || !threadManager.threadVars.bLoaderTaskFinished.load())
     {
-        #if defined(_DEBUG_MODEL_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_CRITICAL,
-                    L"Model ID: %d, Device=%p, Context=%p, Loading Completed=%s", 
-                    m_modelInfo.ID, 
-                    dx11 ? dx11->m_d3dContext.Get() : nullptr, 
-                    threadManager.threadVars.bLoaderTaskFinished.load() ? L"True" : L"False"); 
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_CRITICAL,
+            L"Model ID: %d, Context=%p, Loading Completed=%s",
+            m_modelInfo.ID,
+            static_cast<void*>(deviceContext),
+            threadManager.threadVars.bLoaderTaskFinished.load() ? L"True" : L"False"); 
         return; 
     }
 
     if (!m_isLoaded || bIsDestroyed)
     {
-        #if defined(_DEBUG_MODEL_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID %d has FAILED SAFETY CHECK!", m_modelInfo.ID);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"Model ID %d has FAILED SAFETY CHECK!", m_modelInfo.ID);
         return;
     }
 
@@ -2360,9 +2343,7 @@ void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
 
     if (!shaderBound)
     {
-        #if defined(_DEBUG_MODEL_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[Model] Render() failed - could not bind ModelProgram (or GameplayModelProgram).");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[Model] Render() failed - could not bind ModelProgram (or GameplayModelProgram).");
         return;
     }
 
@@ -2409,7 +2390,7 @@ void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
                 matGPU->Roughness         = mat->Roughness;
                 matGPU->ReflectionStrength = mat->Reflection;
                 matGPU->EmissiveFactor    = mat->emissiveFactor;
-                matGPU->EmissiveStrength  = mat->emissiveStrength;
+                matGPU->EmissiveStrength  = mat->emissiveStrength * config.myConfig.EmissionScale();
                 matGPU->NormalScale       = mat->normalScale;
             }
             else
@@ -2422,7 +2403,7 @@ void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
                 matGPU->Roughness         = m_modelInfo.roughness;
                 matGPU->ReflectionStrength = m_modelInfo.reflectionStrength;
                 matGPU->EmissiveFactor    = XMFLOAT3(0.0f, 0.0f, 0.0f);
-                matGPU->EmissiveStrength  = 1.0f;
+                matGPU->EmissiveStrength  = config.myConfig.EmissionScale();
                 matGPU->NormalScale       = 1.0f;
             }
 
@@ -2443,6 +2424,11 @@ void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
             matGPU->useDiffuseMap   = m_modelInfo.useDiffuseMap   ? 1.0f : 0.0f;
             matGPU->useGlossMap     = m_modelInfo.useGlossMap     ? 1.0f : 0.0f;
             matGPU->useEmissiveMap  = m_modelInfo.useEmissiveMap  ? 1.0f : 0.0f;
+            matGPU->receiveShadows  = m_modelInfo.receiveShadows  ? 1.0f : 0.0f;
+            // Planar reflection: only reflector surfaces mix in the mirror render (0 = none).
+            const bool planarOn     = g_planarFrame.active && m_modelInfo.planarPlaneIndex >= 0 && ModelIsPlanarReflector(m_modelInfo);
+            matGPU->planarStrength  = planarOn ? std::clamp(m_modelInfo.planarStrength, 0.0f, 1.0f) : 0.0f;
+            matGPU->planarIndex     = planarOn ? static_cast<float>(m_modelInfo.planarPlaneIndex) : 0.0f;
             // NormalScale == 0 tells the shader to use vertex normal (no normal map present)
             if (m_modelInfo.normalMapSRVs.empty())
                 matGPU->NormalScale = 0.0f;
@@ -2472,9 +2458,7 @@ void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
 
     if (m_modelInfo.textureSRVs.empty())
     {
-        #if defined(_DEBUG_MODEL_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Model ID %d has no textures. Applying fallback texture.", m_modelInfo.ID);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"Model ID %d has no textures. Applying fallback texture.", m_modelInfo.ID);
         LoadFallbackTexture();
     }
 
@@ -2489,7 +2473,6 @@ void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
     ID3D11ShaderResourceView* enviroMapSRV = m_modelInfo.environmentMapSRV ? m_modelInfo.environmentMapSRV.Get() : nullptr;
     ID3D11ShaderResourceView* glossSRV     = m_modelInfo.glossMapSRV       ? m_modelInfo.glossMapSRV.Get()       : nullptr;
     ID3D11ShaderResourceView* emissiveSRV  = m_modelInfo.emissiveMapSRV    ? m_modelInfo.emissiveMapSRV.Get()    : nullptr;
-    ID3D11ShaderResourceView* shadowSRV    = m_modelInfo.shadowMapSRV      ? m_modelInfo.shadowMapSRV.Get()      : nullptr;
 
     if (texSRV)
         deviceContext->PSSetShaderResources(SLOT_diffuseTexture, 1, &texSRV);
@@ -2513,33 +2496,15 @@ void Model::Render(ID3D11DeviceContext* deviceContext, float deltaTime)
     if (enviroMapSRV)
         deviceContext->PSSetShaderResources(SLOT_environmentMap, 1, &enviroMapSRV);
 
-    // Bind extended maps (t6 gloss, t7 emissive, t8 shadow).
+    // Bind extended maps (t6 gloss, t7 emissive).
     // Passing &ptr where ptr==nullptr correctly unbinds the slot in D3D11.
+    // t8/t9 shadow maps, s2 comparison sampler and b6 ShadowBuffer are per-FRAME
+    // state bound once by DX11Renderer::RenderShadowPass() - do not touch them here.
     deviceContext->PSSetShaderResources(SLOT_glossMap,    1, &glossSRV);
     deviceContext->PSSetShaderResources(SLOT_emissiveMap, 1, &emissiveSRV);
-    deviceContext->PSSetShaderResources(SLOT_shadowMap,   1, &shadowSRV);
 
     deviceContext->PSSetSamplers(SLOT_SAMPLER_STATE,        1, m_modelInfo.samplerState.GetAddressOf());
     deviceContext->PSSetSamplers(SLOT_ENVIRO_SAMPLER_STATE, 1, m_modelInfo.environmentSamplerState.GetAddressOf());
-    if (m_modelInfo.shadowSamplerState)
-        deviceContext->PSSetSamplers(SLOT_SHADOW_SAMPLER_STATE, 1, m_modelInfo.shadowSamplerState.GetAddressOf());
-
-    // Update and bind shadow constant buffer (b6)
-    if (m_modelInfo.shadowBuffer)
-    {
-        D3D11_MAPPED_SUBRESOURCE shadowMapped = {};
-        if (SUCCEEDED(deviceContext->Map(m_modelInfo.shadowBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &shadowMapped)))
-        {
-            ShadowBufferGPU* shadowGPU    = static_cast<ShadowBufferGPU*>(shadowMapped.pData);
-            shadowGPU->lightViewProj      = XMMatrixIdentity();  // Set externally by shadow render pass
-            shadowGPU->shadowBias         = 0.001f;
-            shadowGPU->shadowStrength     = 0.8f;
-            shadowGPU->useShadowMap       = (shadowSRV != nullptr) ? 1.0f : 0.0f;
-            shadowGPU->shadowMapSize      = 2048.0f;
-            deviceContext->Unmap(m_modelInfo.shadowBuffer.Get(), 0);
-        }
-        deviceContext->PSSetConstantBuffers(SLOT_SHADOW_BUFFER, 1, m_modelInfo.shadowBuffer.GetAddressOf());
-    }
 
     // Update model-specific lighting parameters.
     UpdateModelLighting();

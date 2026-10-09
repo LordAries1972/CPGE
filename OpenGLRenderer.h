@@ -106,15 +106,18 @@ const int TEXTURE_UNIT_AO = 4;                                                  
 const int TEXTURE_UNIT_ENVIRONMENT = 5;                                         // Environment Mappings for Reflections Unit
 const int TEXTURE_UNIT_GLOSS = 6;                                               // Gloss/Smoothness Map Unit
 const int TEXTURE_UNIT_EMISSIVE = 7;                                            // Emissive Map Unit
-const int TEXTURE_UNIT_SHADOW = 8;                                              // Shadow Map Unit
+const int TEXTURE_UNIT_SHADOW = 8;                                              // Directional Shadow Map Unit (sampler2DShadow)
+const int TEXTURE_UNIT_LOCAL_SHADOW = 9;                                        // Spot/Point Shadow Array Unit (sampler2DArrayShadow)
+const int TEXTURE_UNIT_SCENE_PROBE = 10;                                        // Scene reflection probe cube map Unit (samplerCube sceneProbe)
+const int TEXTURE_UNIT_PLANAR = 11;                                             // Planar mirror render Unit (sampler2D planarMap)
 
 // GLMaterialUBO — CPU-side mirror of ModelPixel.glsl MaterialBuffer (std140, binding 4).
 // Field order and types MUST match the GLSL layout exactly (vec3 = float[3]+pad).
 // Total size: 112 bytes.
 struct alignas(16) GLMaterialUBO {
-    float Ka[3];                float _padM1;               // ambient colour
-    float Kd[3];                float _padM2;               // diffuse colour
-    float Ks[3];                float _padM3;               // specular colour
+    float Ka[3];                float receiveShadows;       // ambient colour; 1.0 = model receives shadows (GLSL ReceiveShadows)
+    float Kd[3];                float planarStrength;       // diffuse colour; planar reflection mix, 0 = none (GLSL PlanarStrength)
+    float Ks[3];                float planarIndex;          // specular colour; planar array layer of this reflector (GLSL PlanarIndex)
     float Ns;                                               // shininess exponent
     float Metallic;                                         // base metallic factor [0-1]
     float Roughness;                                        // base roughness factor [0-1]
@@ -145,16 +148,10 @@ struct alignas(16) GLEnvUBO {
 static_assert(sizeof(GLEnvUBO) == 48, "GLEnvUBO must be 48 bytes to match GLSL std140 layout");
 
 // GLShadowUBO — CPU-side mirror of ModelPixel.glsl ShadowBuffer (std140, binding 6).
-// std140 layout: mat4(0) = 64 bytes + 4 floats = 80 bytes total.
-// useShadowMap=0.0 disables PCF shadow sampling in the shader.
-struct alignas(16) GLShadowUBO {
-    float lightViewProj[16];    // offset  0 — light view-projection matrix (row-major, 64 bytes)
-    float shadowBias;           // offset 64 — depth bias to prevent shadow acne
-    float shadowStrength;       // offset 68 — shadow darkness multiplier [0-1]
-    float useShadowMap;         // offset 72 — 1.0 = shadow map at t8 is active; 0.0 = shadows off
-    float shadowMapSize;        // offset 76 — shadow map resolution (e.g. 2048.0) for PCF texel offset
-};                              // total:  80 bytes
-static_assert(sizeof(GLShadowUBO) == 80, "GLShadowUBO must be 80 bytes to match GLSL std140 layout");
+// Shared with every renderer: ShadowBufferData in Lights.h (2272 bytes, std140-compatible).
+// useShadowMap / useLocalShadows = 0.0 disable PCF shadow sampling in the shader.
+using GLShadowUBO = ShadowBufferData;
+static_assert(sizeof(GLShadowUBO) == 2368, "GLShadowUBO must be 2368 bytes to match GLSL std140 layout");
 
 // Forward declarations
 class Debug;
@@ -308,6 +305,7 @@ public:
     void Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, int iDestY, int iDestW, int iDestH, float zoomFactor); // Render 2D object with centered zoom crop
     void Blit2DObjectToSizeWithAlpha(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float alpha);   // Render 2D object scaled to rect with custom opacity
     void Blit2DAtlasTile(BlitObj2DIndexType iIndex, int iTileIndex, int iTileSizeX, int iTileSizeY, int iDestX, int iDestY); // Blit one tile from a tileset atlas image
+    void Blit2DScrollingObjectToSize(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float scrollFraction, bool reverseDirection); // Render 2D object scaled to rect with horizontally wrapped/scrolled content
     void Clear2DBlitQueue();                                                    // Clear all objects from 2D rendering queue
     void ResumeLoader(bool isResizing = false) override;                        // Resume asset loading thread
 
@@ -439,6 +437,12 @@ public:
         GLint uLightDir      = -1;
         GLint uLightColor    = -1;
         GLint uAmbient       = -1;
+        // Scene reflections for the embedded fallback shader (k_3dFragGLSL)
+        GLint uReflParams    = -1;          // vec3: x = probe scale (0 = off), y = max mip, z = blur
+        GLint uPlanarParams  = -1;          // vec4: x = planar scale (0 = off), y = distortion, zw = 1/screen size
+        GLint uPlanarStrength= -1;          // float: per-model mix (0 = not a reflector)
+        GLint uPlanarIndex   = -1;          // float: array layer of this reflector's plane
+        GLint uPlanarPlanes  = -1;          // vec4[4]: xyz = plane normal, w = d
         struct LightLocs {
             GLint position = -1, direction = -1, color = -1, ambient = -1;
             GLint intensity = -1, range = -1, innerCone = -1, outerCone = -1;
@@ -487,6 +491,10 @@ private:
 
     // Our private function and procedure definitions for this class.
     bool CreateOpenGLContext(HWND hwnd);                                        // Create platform-specific OpenGL context
+#if defined(_WIN32) || defined(_WIN64)
+    int  FindMultisamplePixelFormat(HDC realDC, const PIXELFORMATDESCRIPTOR& basePfd); // WGL: multisampled pixel format for the Video MSAA settings (0 = none)
+#endif
+    int  m_msaaSampleCount = 1;                                                 // Samples of the window's pixel format (1 = MSAA off / unavailable)
     bool InitializeOpenGLExtensions();                                          // Initialize OpenGL extensions and function pointers
     void CreateFramebufferObjects();                                            // Create OpenGL framebuffer objects
     void SetupViewport();                                                       // Setup OpenGL viewport configuration
@@ -503,6 +511,55 @@ private:
 #if defined(_WIN32) || defined(_WIN64)
     void EnforceFullscreenWindowPlacement(int left, int top, int width, int height, const wchar_t* phase);
 #endif
+
+    // Shadow mapping (shared planner in Lights.h)
+    // t8 = directional depth map (unit 8), t9 = spot/point depth array (unit 9), binding 6 = ShadowBufferData.
+    bool CreateShadowResourcesGL();                                             // Called from LoadShaders() (render context)
+    void ReleaseShadowResourcesGL();                                            // Called from Cleanup()
+    void RenderShadowPassGL(const std::vector<LightStruct>& lights);            // Depth passes + UBO upload + unit 8/9 binding
+
+    GLuint          m_shadowFBO           = 0;                                  // Depth-only FBO, re-attached per view
+    GLuint          m_shadowDirTex        = 0;                                  // GL_TEXTURE_2D       DEPTH_COMPONENT32F
+    GLuint          m_shadowLocalTex      = 0;                                  // GL_TEXTURE_2D_ARRAY DEPTH_COMPONENT32F
+    GLuint          m_shadowProgram       = 0;                                  // Depth-only program
+    GLint           m_shadowLocWorldLVP   = -1;                                 // uniform mat4 uWorldLightVP
+    GLint           m_shadowLocScale      = -1;                                 // uniform vec3 uScale
+    int             m_shadowDirSize       = 0;
+    int             m_shadowLocalSize     = 0;
+    bool            m_shadowResourcesReady = false;
+    ShadowFrameData m_shadowFrame;
+    std::vector<ShadowCaster> m_shadowCasters;
+    std::vector<int>          m_shadowCasterModels;                             // scene_models[] index per caster
+
+    // Scene reflections (shared probe builder in Lights.h): unit 10 = scene probe cube map.
+    // The texture is created lazily on the first upload, at the probe's size.
+    void UpdateReflectionProbeGL(const std::vector<LightStruct>& lights, float deltaTime);  // Rebuild + upload + bind unit 10
+    void ReleaseReflectionResourcesGL();                                                    // Called from Cleanup()
+    ReflectionProbe m_reflProbe;
+
+    // Live scene capture (see "Live scene capture" in Lights.h): the capture cube is the sky cube with the real
+    // scene drawn over it, one face per frame; unit 10 switches to it after the first full cycle.
+    bool CreateCaptureResourcesGL();                                            // Lazy, at the sky probe's size
+    void ReleaseCaptureResourcesGL();
+    GLuint          m_capTex      = 0;                                          // GL_TEXTURE_CUBE_MAP RGBA8 with mip chain
+    GLuint          m_capFBO      = 0;                                          // Draw target (face attached per capture)
+    GLuint          m_capReadFBO  = 0;                                          // Blit source (sky face)
+    GLuint          m_capDepthRB  = 0;
+    bool            m_capFailed   = false;
+
+    // Planar reflections (shared planner in Lights.h): unit 11 = mirror render of the scene.
+    // The FBO is created lazily when a reflector model exists, at the config planarQuality size.
+    bool CreatePlanarResourcesGL();                                             // Render (GL context) thread
+    void PlanarPlanGL();                                                        // Registers reflector planes + decides active (BEFORE RenderShadowPassGL / b6)
+    void ReleasePlanarResourcesGL();                                            // Called from Cleanup()
+    GLuint          m_planarFBO   = 0;
+    GLuint          m_planarTex   = 0;                                          // GL_TEXTURE_2D_ARRAY RGBA8, MAX_PLANAR_PLANES layers
+    GLuint          m_planarDepthRB = 0;                                        // DEPTH_COMPONENT24 renderbuffer
+    int             m_planarW     = 0;
+    int             m_planarH     = 0;
+    bool            m_planarFailed = false;
+    GLuint          m_reflTex             = 0;                                  // GL_TEXTURE_CUBE_MAP RGBA8 with mip chain
+    uint64_t        m_reflUploadedVersion = 0;
 
     // Scene rendering helpers (called from OpenGLRenderFrame.cpp)
     inline void RenderGamePlay(float deltaTime);                                // Render 3D gameplay scene

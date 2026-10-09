@@ -14,6 +14,7 @@
    - [Texture Loading](#texture-loading)
    - [Animation System](#animation-system)
    - [Lighting Integration](#lighting-integration)
+   - [Shadows, Reflections and Emission](#shadows-reflections-and-emission)
 
 5. [PBR (Physically Based Rendering) Support](#pbr-physically-based-rendering-support)
    - [Loading PBR Textures](#loading-pbr-textures)
@@ -195,6 +196,41 @@ debug.logDebugMessage(LogLevel::LOG_INFO, L"Applied %zu lights to model",
 // Update lighting during runtime
 myModel.UpdateModelLighting();
 ```
+
+### Shadows, Reflections and Emission
+
+`ModelInfo` carries per-model flags for the shared shadow, reflection and emission systems (see the Light guide for the full pipeline):
+
+| Field | Default | Purpose |
+|---|---|---|
+| `castShadows` | `true` | the model is drawn into the shadow maps |
+| `receiveShadows` | `true` | the model's lighting is attenuated by the shadow maps (uploaded as `MaterialGPU::receiveShadows`) |
+| `planarReflector` | `false` | the model shows the planar mirror render. Alternatively tag the mesh name with `_mirror`, `_water` or `_planar` (checked once, cached in `planarTagState`) |
+| `planarStrength` | `0.75` | per-model mix of the reflection into the surface colour (0 - 1) |
+| `planarHeightOffset` | `0.0` | moves the reflection plane along its normal, in world units |
+| `planarPlaneIndex` | `-1` | slice of the planar array this frame (set by `ModelPlanarRegister`; -1 = no reflection) |
+
+```cpp
+myModel.m_modelInfo.castShadows     = true;    // default
+myModel.m_modelInfo.receiveShadows  = false;   // e.g. a skybox or UI-style model
+myModel.m_modelInfo.planarReflector = true;    // floor / water / mirror
+myModel.m_modelInfo.planarStrength  = 0.6f;
+```
+
+The FBX importer sets `castShadows` / `receiveShadows` from the `CastShadow` / `ReceiveShadow` properties; glTF keeps the defaults. Both flags are saved in the model cache.
+
+Helper functions in `Models.h` (all inline, used by the renderers; game code rarely calls them):
+
+| Function | Purpose |
+|---|---|
+| `ModelComputeShadowBounds(mi)` | lazily computes the local AABB and bounding sphere (`shadowBounds*`); refreshes when the vertex array changes |
+| `ModelIsPlanarReflector(mi)` | flag or name-tag test |
+| `ModelComputePlanarLocalPlane(mi)` | finds the dominant flat facing of a reflector mesh in local space |
+| `ModelPlanarRegister(mi, world, scale, camPos)` | plans the reflector for this frame; returns the plane slice or -1 |
+
+**Emission.** The renderer uploads each material's emissive strength as `mat->emissiveStrength * config.myConfig.EmissionScale()` on every renderer (DX11 `Models.cpp`, DX12 `DX12Models.cpp`, OpenGL `OpenGLRenderFrame.cpp` / `OpenGLModels.cpp`, Vulkan `VULKAN_RenderFrame.cpp`). The Video tab Emission switch / intensity (0 - 3) therefore scales the glow live, with 1.0 meaning the authored strength.
+
+**DX12 geometry in VRAM** *(not yet verified by a build)*. `Model` vertex and index buffers on DX12 are now created in a DEFAULT (VRAM) heap and filled by a staged one-shot copy with a fence (COPY_DEST to VERTEX/INDEX_BUFFER barriers), like the other three renderers. Previously they lived in an UPLOAD heap and were read across PCIe on every draw, which made very large meshes (millions of triangles drawn several times per frame for the shadow passes) GPU-bound. Per-model constant buffers (b0 / b1 / b4) hold one 256-byte slice per frame in flight, and `RenderDX12(cmdList, dx12, deltaTime, cbSlot)` takes a `cbSlot` (0 = main pass, `1 + plane` = a planar mirror pass, `1 + MAX_PLANAR_PLANES + face` = a live-capture face) so each recorded pass gets its own constant data.
 
 ---
 

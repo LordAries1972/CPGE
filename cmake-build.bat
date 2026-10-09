@@ -15,9 +15,17 @@ set "SCRIPT_DIR=%~dp0"
 ::   cmake-build all debug          <- builds every pipeline in Debug
 ::   cmake-build all release        <- builds every pipeline in Release
 ::   cmake-build clean
+::   cmake-build help               <- lists every directive (also -h, --help, /?)
 
 set ARG1=%1
 set ARG2=%2
+
+:: --- Help (checked first so it works even when cmake is not installed) ---
+if /i "%ARG1%"=="help"   goto :help
+if /i "%ARG1%"=="-h"     goto :help
+if /i "%ARG1%"=="--help" goto :help
+if /i "%ARG1%"=="/h"     goto :help
+if "%ARG1%"=="/?"        goto :help
 
 :: Locate cmake from PATH — no hardcoded path.
 set CMAKE_EXE=
@@ -60,6 +68,8 @@ if "%ARG1%"=="" (
     echo   cmake-build all debug
     echo   cmake-build all release
     echo   cmake-build clean
+    echo.
+    echo Run "cmake-build help" for the full list of directives.
     exit /b 1
 )
 
@@ -280,6 +290,57 @@ echo Build FAILED: %RENDERER% %CONFIG% -- %DATE%  %TIME%
 exit /b 1
 
 :end
+endlocal
+exit /b 0
+
+:: -----------------------------------------------------------------------
+:: help / -h / --help / /h / /? -- list every directive and exit.
+:: -----------------------------------------------------------------------
+:help
+echo.
+echo cmake-build.bat - configure, build and install the engine with CMake
+echo.
+echo Usage:
+echo   cmake-build ^<directive^> [config]
+echo.
+echo Build directives (one render pipeline):
+echo   dx11      DirectX 11 renderer   (Windows only)
+echo   dx12      DirectX 12 renderer   (Windows only)
+echo   opengl    OpenGL renderer
+echo   vulkan    Vulkan renderer
+echo.
+echo Multi-pipeline directive:
+echo   all       Builds dx11, dx12, opengl and vulkan in turn with the given
+echo             config (DirectX is skipped on non-Windows hosts), prints a
+echo             pass/fail summary, and runs the install script once only if
+echo             every pipeline succeeded.
+echo.
+echo Maintenance directives:
+echo   clean     Deletes build\, x64\ and CrossPla.2bd3f178\ plus stray
+echo             *.pdb *.ilk *.obj *.pch *.idb files in the project root.
+echo   help      Shows this list. Aliases: -h  --help  /h  /?
+echo.
+echo Config (second argument, used by dx11 / dx12 / opengl / vulkan / all):
+echo   debug     Debug build   (default when omitted)
+echo   release   Release build
+echo.
+echo What a build does:
+echo   1. Increments the build number in Version.id / BuildInfo.h
+echo      (once per run - "all" only bumps it for the first pipeline).
+echo   2. Patches Includes.h so only the chosen renderer #define is active.
+echo   3. Stops stale cl.exe / mspdbsrv.exe processes.
+echo   4. Configures and builds into build\^<Renderer^>\^<Config^>
+echo      (Visual Studio 17 2022, x64).
+echo   5. Runs install-debug.bat or install-release.bat on success.
+echo.
+echo Examples:
+echo   cmake-build dx11 debug
+echo   cmake-build vulkan release
+echo   cmake-build all debug
+echo   cmake-build all release
+echo   cmake-build clean
+echo   cmake-build help
+echo.
 endlocal
 exit /b 0
 

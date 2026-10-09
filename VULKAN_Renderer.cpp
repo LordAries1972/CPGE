@@ -166,6 +166,7 @@ void VulkanRenderer::Initialize(HWND hwnd, HINSTANCE hInstance)
     debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[VulkanRenderer] Init step: CreateImageViews");
     #endif
     CreateImageViews();
+    ChooseMsaaSamples();                // needs the swapchain format; fixes m_msaaSamples for the renderer's lifetime
     #if defined(_DEBUG_VULKANRENDERER_)
     debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[VulkanRenderer] Init step: CreateRenderPass");
     #endif
@@ -285,6 +286,14 @@ void VulkanRenderer::Initialize(HWND hwnd, HINSTANCE hInstance)
         }
     }
 
+    // Per-frame lighting UBOs + shadow maps (3D pipeline set = 2).  The lighting half is required
+    // for 3D rendering; the shadow depth pass is optional and falls back to "no shadows".
+    #if defined(_DEBUG_VULKANRENDERER_)
+    debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[VulkanRenderer] Init step: CreateShadowResourcesVK");
+    #endif
+    if (!CreateShadowResourcesVK())
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[VulkanRenderer] Lighting/shadow resources unavailable - 3D models will not render.");
+
     #if defined(_DEBUG_VULKANRENDERER_)
     debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[VulkanRenderer] Init step: CreateOverlayResources");
     #endif
@@ -331,6 +340,9 @@ void VulkanRenderer::Cleanup()
     #endif
 
     WaitForGPUToFinish();
+
+    // Per-frame lighting UBOs, shadow maps, shadow pass (before the descriptor pool is destroyed)
+    ReleaseShadowResourcesVK();
 
     // Destroy textures
     for (auto& t : m_textures2D) DestroyVulkanTexture(t);
@@ -379,6 +391,8 @@ void VulkanRenderer::Cleanup()
     CleanupSwapChain();
 
     // Pipelines
+    if (m_2dPipelineMS     != VK_NULL_HANDLE) { vkDestroyPipeline(m_device, m_2dPipelineMS, nullptr); m_2dPipelineMS = VK_NULL_HANDLE; }
+    if (m_3dPipelineMS     != VK_NULL_HANDLE) { vkDestroyPipeline(m_device, m_3dPipelineMS, nullptr); m_3dPipelineMS = VK_NULL_HANDLE; }
     if (m_2dPipeline       != VK_NULL_HANDLE) vkDestroyPipeline(m_device, m_2dPipeline, nullptr);
     if (m_2dPipelineLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(m_device, m_2dPipelineLayout, nullptr);
     if (m_3dPipeline       != VK_NULL_HANDLE) vkDestroyPipeline(m_device, m_3dPipeline, nullptr);
@@ -391,6 +405,10 @@ void VulkanRenderer::Cleanup()
     m_defaultTexSetDescSet = VK_NULL_HANDLE; // freed with descriptor pool
 
     // Descriptor set layouts
+    if (m_3dFrameSetLayout != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(m_device, m_3dFrameSetLayout, nullptr);
+        m_3dFrameSetLayout = VK_NULL_HANDLE;
+    }
     if (m_3dTexSetLayout != VK_NULL_HANDLE)
         vkDestroyDescriptorSetLayout(m_device, m_3dTexSetLayout, nullptr);
     if (m_3dUboSetLayout != VK_NULL_HANDLE)
@@ -679,6 +697,13 @@ void VulkanRenderer::CreateLogicalDevice()
     VkPhysicalDeviceFeatures features{};
     features.samplerAnisotropy = VK_TRUE;
     features.fillModeNonSolid  = VK_TRUE;  // wireframe support
+    {
+        // Sample-rate shading (shades every MSAA sample for the 3D pipeline) is optional; only enabled when present.
+        VkPhysicalDeviceFeatures supported{};
+        vkGetPhysicalDeviceFeatures(m_physicalDevice, &supported);
+        m_sampleShadingOk = (supported.sampleRateShading == VK_TRUE);
+        features.sampleRateShading = m_sampleShadingOk ? VK_TRUE : VK_FALSE;
+    }
 
     // Build device extension list — start with required extensions, then add optional ones.
     std::vector<const char*> enabledExtensions(k_deviceExtensions.begin(), k_deviceExtensions.end());
@@ -914,6 +939,89 @@ void VulkanRenderer::CreateRenderPass()
 
     if (vkCreateRenderPass(m_device, &rpci, nullptr, &m_renderPass) != VK_SUCCESS)
         throw std::runtime_error("[VulkanRenderer] Failed to create render pass.");
+
+    // ---- Multisampled main pass: [0] MSAA colour (cleared, not stored), [1] MSAA depth, [2] swapchain resolve target ----
+    if (m_msaaSamples != VK_SAMPLE_COUNT_1_BIT)
+    {
+        VkAttachmentDescription msColor = color;
+        msColor.samples     = m_msaaSamples;
+        msColor.storeOp     = VK_ATTACHMENT_STORE_OP_DONT_CARE;                 // only the resolved image is kept
+        msColor.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        VkAttachmentDescription msDepth = depth;
+        msDepth.samples = m_msaaSamples;
+
+        VkAttachmentDescription resolve{};
+        resolve.format         = m_swapchainFormat;
+        resolve.samples        = VK_SAMPLE_COUNT_1_BIT;
+        resolve.loadOp         = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        resolve.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+        resolve.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        resolve.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        resolve.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+        resolve.finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+        VkAttachmentReference resolveRef{ 2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+        VkSubpassDescription msSubpass = subpass;
+        msSubpass.pResolveAttachments = &resolveRef;
+
+        std::array<VkAttachmentDescription, 3> msAttachments = { msColor, msDepth, resolve };
+        VkRenderPassCreateInfo msRpci = rpci;
+        msRpci.attachmentCount = static_cast<uint32_t>(msAttachments.size());
+        msRpci.pAttachments    = msAttachments.data();
+        msRpci.pSubpasses      = &msSubpass;
+
+        if (vkCreateRenderPass(m_device, &msRpci, nullptr, &m_renderPassMS) != VK_SUCCESS)
+        {
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[VulkanRenderer] MSAA render pass creation failed; falling back to 1 sample.");
+            m_renderPassMS = VK_NULL_HANDLE;
+            m_msaaSamples  = VK_SAMPLE_COUNT_1_BIT;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// MSAA sample selection.  Anti-Aliasing (master) + MSAA + MSAA Samples from the Video settings; the requested
+// count is lowered to the highest count the device supports for BOTH the swapchain colour format and the depth
+// format as framebuffer attachments.  Called once from Initialize (changing it needs a video restart).
+// ---------------------------------------------------------------------------------------------------------------
+void VulkanRenderer::ChooseMsaaSamples()
+{
+    m_msaaSamples = VK_SAMPLE_COUNT_1_BIT;
+    if (!config.myConfig.antiAliasingEnabled || !config.myConfig.msaaEnabled)
+        return;
+
+    VkPhysicalDeviceProperties props{};
+    vkGetPhysicalDeviceProperties(m_physicalDevice, &props);
+    VkSampleCountFlags supported = props.limits.framebufferColorSampleCounts & props.limits.framebufferDepthSampleCounts & props.limits.framebufferStencilSampleCounts;
+
+    // Per-format check (limits are only an upper bound for the formats actually used)
+    auto formatCounts = [&](VkFormat fmt, VkImageUsageFlags usage) -> VkSampleCountFlags {
+        VkImageFormatProperties ifp{};
+        if (vkGetPhysicalDeviceImageFormatProperties(m_physicalDevice, fmt, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
+                                                     usage, 0, &ifp) != VK_SUCCESS)
+            return VK_SAMPLE_COUNT_1_BIT;
+        return ifp.sampleCounts;
+    };
+    supported &= formatCounts(m_swapchainFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
+    supported &= formatCounts(FindDepthFormat(), VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
+
+    const int want = std::clamp(config.myConfig.msaaSamples, 2, 8);
+    const VkSampleCountFlagBits ladder[3] = { VK_SAMPLE_COUNT_8_BIT, VK_SAMPLE_COUNT_4_BIT, VK_SAMPLE_COUNT_2_BIT };
+    const int                   counts[3] = { 8, 4, 2 };
+    for (int i = 0; i < 3; ++i)
+    {
+        if (counts[i] <= want && (supported & ladder[i]))
+        {
+            m_msaaSamples = ladder[i];
+            break;
+        }
+    }
+
+    if (m_msaaSamples == VK_SAMPLE_COUNT_1_BIT)
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[VulkanRenderer] MSAA requested but no supported multisample count was found; rendering 1 sample.");
+    else
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[VulkanRenderer] MSAA enabled: %dx (requested %dx)", static_cast<int>(m_msaaSamples), want);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -950,7 +1058,7 @@ void VulkanRenderer::CreateDescriptorSetLayouts()
     // ---- Full PBR 3D: set=0 — binding0=transform UBO (vert+frag), binding1=material UBO (frag) ----
     std::array<VkDescriptorSetLayoutBinding, 2> ubo3DBindings{};
     ubo3DBindings[0].binding         = 0;
-    ubo3DBindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    ubo3DBindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;   // dynamic offset: slot 0 = main pass, slot 1 = planar mirror pass
     ubo3DBindings[0].descriptorCount = 1;
     ubo3DBindings[0].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     ubo3DBindings[1].binding         = 1;
@@ -979,6 +1087,25 @@ void VulkanRenderer::CreateDescriptorSetLayouts()
     tex3DCI.bindingCount = static_cast<uint32_t>(tex3DBindings.size());
     tex3DCI.pBindings    = tex3DBindings.data();
     vkCreateDescriptorSetLayout(m_device, &tex3DCI, nullptr, &m_3dTexSetLayout);
+
+    // ---- Full PBR 3D: set=2 — per-frame lighting + shadows (frag) ----
+    // binding 0 = GlobalLightBuffer UBO, binding 1 = ShadowBuffer UBO,
+    // binding 2 = directional shadow map (sampler2DShadow), binding 3 = spot/point array (sampler2DArrayShadow),
+    // binding 4 = scene reflection probe (samplerCube), binding 5 = planar mirror render (sampler2D)
+    std::array<VkDescriptorSetLayoutBinding, 6> frameBindings{};
+    for (uint32_t b = 0; b < 6; ++b) {
+        frameBindings[b].binding         = b;
+        frameBindings[b].descriptorType  = (b < 2) ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+                                                   : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        frameBindings[b].descriptorCount = 1;
+        frameBindings[b].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+    }
+
+    VkDescriptorSetLayoutCreateInfo frameCI{};
+    frameCI.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    frameCI.bindingCount = static_cast<uint32_t>(frameBindings.size());
+    frameCI.pBindings    = frameBindings.data();
+    vkCreateDescriptorSetLayout(m_device, &frameCI, nullptr, &m_3dFrameSetLayout);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1020,10 +1147,15 @@ void main() {
 })";
 
 // Inline GLSL source for the full PBR 3D geometry pipeline
-// set=0 binding=0: transform UBO (model/view/proj/camPos/scale)
+// set=0 binding=0: transform UBO (model/view/proj/camPos/scale) - camPos.w = receiveShadows flag
 // set=0 binding=1: material UBO (Kd/Ka/metallic/roughness/emissive/flags)
-// set=1 binding=0..3: diffuse/normal/ORM/AO samplers
-// push_constant (frag): directional light (dir, intensity, color, ambient)
+// set=1 binding=0..5: diffuse/normal/ORM/AO/gloss/emissive samplers
+// set=2 binding=0: GlobalLightBuffer (8 lights: directional / point / spot) - same layout as DX/GL b3
+// set=2 binding=1: ShadowBuffer (ShadowBufferData in Lights.h)
+// set=2 binding=2: directional shadow map (sampler2DShadow)
+// set=2 binding=3: spot slices + point cube faces (sampler2DArrayShadow)
+// set=2 binding=4: scene reflection probe (samplerCube, mip chain)
+// set=2 binding=5: planar mirror render (sampler2D)
 static const char* k_glsl3DVert = R"(
 #version 450
 layout(location = 0) in vec3 inPos;
@@ -1059,6 +1191,14 @@ void main() {
 static const char* k_glsl3DFrag = R"(
 #version 450
 #define PI 3.14159265359
+#define MAX_GLOBAL_LIGHTS       8
+#define MAX_LOCAL_SHADOW_SLICES 32
+#define LIGHT_TYPE_DIRECTIONAL  0
+#define LIGHT_TYPE_POINT        1
+#define LIGHT_TYPE_SPOT         2
+#define SHADOW_KIND_DIRECTIONAL 1
+#define SHADOW_KIND_SPOT        2
+#define SHADOW_KIND_POINT       3
 layout(location = 0) out vec4 fragColor;
 layout(location = 0) in vec3 vWorldPos;
 layout(location = 1) in vec3 vNormal;
@@ -1068,14 +1208,16 @@ layout(location = 4) in vec3 vTangent;
 layout(location = 5) in vec3 vBitangent;
 layout(set = 0, binding = 0) uniform TransformUBO {
     mat4 model; mat4 view; mat4 proj;
-    vec4 camPos; vec4 scale;
+    vec4 camPos;    // xyz = camera position, w = receiveShadows (1.0 = model is shadowed)
+    vec4 scale;
 } ubo;
 layout(set = 0, binding = 1) uniform MaterialUBO {
     vec3  Kd;       float metallic;
     vec3  Ka;       float roughness;
     vec3  emissive; float emissiveStrength;
     float normalScale; float useNormal;  float useORM;        float useAO;
-    float useDiffuseMap; float useGlossMap; float useEmissiveMap; float _pad;
+    float useDiffuseMap; float useGlossMap; float useEmissiveMap; float planarStrength;   // planarStrength: reflector mix, 0 = none
+    float planarIndex;   float _pm1;         float _pm2;          float _pm3;             // planarIndex: layer of planarMap this reflector samples
 } mat;
 layout(set = 1, binding = 0) uniform sampler2D diffuseTex;
 layout(set = 1, binding = 1) uniform sampler2D normalTex;
@@ -1083,24 +1225,149 @@ layout(set = 1, binding = 2) uniform sampler2D ormTex;
 layout(set = 1, binding = 3) uniform sampler2D aoTex;
 layout(set = 1, binding = 4) uniform sampler2D glossTex;
 layout(set = 1, binding = 5) uniform sampler2D emissiveTex;
-layout(push_constant) uniform LightPC {
-    vec3  lightDir;   float lightIntensity;
-    vec3  lightColor; float ambientStrength;
-} lpc;
+
+// Matches CPU LightStruct (160 bytes) - identical to ModelPixel.glsl.
+// 'active' is a reserved GLSL word, hence lActive.
+struct LightStruct {
+    vec3  position;      float _pad0;
+    vec3  direction;     float _pad1;
+    vec3  color;         float _pad2;
+    vec3  ambient;       float intensity;
+    vec3  specularColor; float _pad3;
+    float range;  float angle;  int type;  int lActive;
+    int   animMode; float animTimer; float animSpeed; float baseIntensity;
+    float animAmplitude; float _pad4; float innerCone; float outerCone;
+    float lightFalloff; float Shiningness; float Reflection; float _pad5;
+    vec4  _pad6;
+};
+layout(std140, set = 2, binding = 0) uniform GlobalLightBuffer {
+    int   globalLightCount;
+    float _padGL0; float _padGL1; float _padGL2;
+    LightStruct globalLights[MAX_GLOBAL_LIGHTS];
+};
+// MUST match ShadowBufferData in Lights.h (2368 bytes).
+layout(std140, set = 2, binding = 1) uniform ShadowBuffer {
+    mat4  lightViewProj;
+    float shadowBias; float shadowStrength; float useShadowMap; float shadowMapSize;
+    mat4  localViewProj[MAX_LOCAL_SHADOW_SLICES];
+    ivec4 lightShadowInfo[MAX_GLOBAL_LIGHTS];
+    float localBias; float useLocalShadows; float localMapSize; float displayBrightness;
+    float displayContrast; float reflectionScale; float reflectionMaxMip; float reflectionBlur;
+    vec4  planarParams;     // x = planar scale (0 = off), y = distortion, zw = 1/screen size
+    vec4  planarPlanes[4];  // per planar layer: xyz = plane normal (faces the viewer), w = d
+};
+layout(set = 2, binding = 2) uniform sampler2DShadow      shadowMap;
+layout(set = 2, binding = 3) uniform sampler2DArrayShadow localShadowMaps;
+layout(set = 2, binding = 4) uniform samplerCube          sceneProbe;       // renderer-owned scene reflection probe
+layout(set = 2, binding = 5) uniform sampler2DArray       planarMap;        // planar mirror renders, one layer per plane (reflector surfaces only)
+
 vec3 FresnelSchlick(float c, vec3 F0) {
     return F0 + (1.0 - F0) * pow(clamp(1.0 - c, 0.0, 1.0), 5.0);
 }
-float DistGGX(vec3 N, vec3 H, float r) {
-    float a2 = r * r * r * r;
-    float d  = pow(max(dot(N, H), 0.0), 2.0) * (a2 - 1.0) + 1.0;
-    return a2 / (PI * d * d + 0.0001);
+float DistributionGGX(vec3 N, vec3 H, float roughness) {
+    float a  = roughness * roughness;
+    float a2 = a * a;
+    float NdotH = max(dot(N, H), 0.0);
+    float d  = (NdotH * NdotH) * (a2 - 1.0) + 1.0;
+    return a2 / max(PI * d * d, 0.001);
 }
-float GeoSmith(float NdotV, float NdotL, float r) {
-    float k = (r + 1.0) * (r + 1.0) / 8.0;
-    float gv = NdotV / (NdotV * (1.0 - k) + k);
-    float gl = NdotL / (NdotL * (1.0 - k) + k);
-    return gv * gl;
+float GeometrySchlickGGX(float NdotV, float roughness) {
+    float r = roughness + 1.0;
+    float k = (r * r) / 8.0;
+    return NdotV / (NdotV * (1.0 - k) + k);
 }
+float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
+    return GeometrySchlickGGX(max(dot(N, V), 0.0), roughness)
+         * GeometrySchlickGGX(max(dot(N, L), 0.0), roughness);
+}
+
+// Same light model as ModelPixel.hlsl / ModelPixel.glsl ProcessLight().
+vec3 ProcessLight(LightStruct light, vec3 N, vec3 V, vec3 worldPos,
+                  float roughness, float metallic, vec3 albedo, vec3 F0)
+{
+    if (light.lActive == 0) return vec3(0.0);
+    vec3  L = vec3(0.0);
+    float attenuation = 1.0;
+    if (light.type == LIGHT_TYPE_DIRECTIONAL) {
+        L = normalize(-light.direction);
+    } else {
+        vec3  lightVec = light.position - worldPos;
+        float dist     = length(lightVec);
+        L = normalize(lightVec);
+        if (light.type == LIGHT_TYPE_POINT) {
+            attenuation = clamp(1.0 - dist / light.range, 0.0, 1.0) / (1.0 + dist * dist);
+        } else if (light.type == LIGHT_TYPE_SPOT) {
+            vec3  spotDir  = normalize(-light.direction);
+            float spotCos  = dot(spotDir, -L);
+            float spotFall = smoothstep(cos(light.outerCone), cos(light.innerCone), spotCos);
+            float distFall = 1.0 / (1.0 + pow(dist, light.lightFalloff));
+            attenuation = spotFall * distFall;
+        }
+    }
+    attenuation *= max(light.baseIntensity + light.intensity, 0.0);
+    float NdotL = max(dot(N, L), 0.0);
+    if (NdotL <= 0.0001) return vec3(0.0);
+    vec3  H       = normalize(V + L);
+    float reflAdj = 1.0 + light.Reflection;
+    vec3  F   = FresnelSchlick(max(dot(H, V), 0.0), F0 * reflAdj);
+    float NDF = DistributionGGX(N, H, roughness / (1.0 + light.Shiningness));
+    float G   = GeometrySmith(N, V, L, roughness);
+    vec3  specular = (NDF * G * F) / (4.0 * max(dot(N, V), 0.0) * NdotL + 0.001);
+    vec3  kD = (vec3(1.0) - F) * (1.0 - metallic);
+    vec3  diffuseColor  = kD * albedo / PI;
+    vec3  specularColor = specular * light.specularColor * reflAdj;
+    return (diffuseColor + specularColor) * light.color * NdotL * attenuation;
+}
+
+// ── Shadows (raw visibility: 1 = lit, 0 = shadowed) ──
+// Light matrices are D3D-style (depth 0..1, same as Vulkan).  Vulkan NDC y = -1 is the
+// top row of the framebuffer, so uv = ndc * 0.5 + 0.5 with no flip.
+float SampleDirShadow(vec3 worldPos) {
+    if (useShadowMap < 0.5) return 1.0;
+    vec4 lc = lightViewProj * vec4(worldPos, 1.0);
+    vec3 p  = lc.xyz / lc.w;
+    if (p.z > 1.0 || p.z < 0.0 || abs(p.x) > 1.0 || abs(p.y) > 1.0) return 1.0;
+    vec2  uv    = p.xy * 0.5 + 0.5;
+    float ref   = p.z - shadowBias;
+    float texel = 1.0 / max(shadowMapSize, 1.0);
+    float s = 0.0;
+    for (int x = -1; x <= 1; ++x)
+        for (int y = -1; y <= 1; ++y)
+            s += texture(shadowMap, vec3(uv + vec2(float(x), float(y)) * texel, ref));
+    return s / 9.0;
+}
+float SampleLocalShadow(int slice, vec3 worldPos) {
+    if (useLocalShadows < 0.5 || slice < 0 || slice >= MAX_LOCAL_SHADOW_SLICES) return 1.0;
+    vec4 lc = localViewProj[slice] * vec4(worldPos, 1.0);
+    if (lc.w <= 0.0001) return 1.0;
+    vec3 p = lc.xyz / lc.w;
+    if (p.z > 1.0 || p.z < 0.0 || abs(p.x) > 1.0 || abs(p.y) > 1.0) return 1.0;
+    vec2  uv    = p.xy * 0.5 + 0.5;
+    float ref   = p.z - localBias;
+    float texel = 1.0 / max(localMapSize, 1.0);
+    float s = 0.0;
+    for (int x = -1; x <= 1; ++x)
+        for (int y = -1; y <= 1; ++y)
+            s += texture(localShadowMaps, vec4(uv + vec2(float(x), float(y)) * texel, float(slice), ref));
+    return s / 9.0;
+}
+// Face order MUST match BuildShadowFrame() in Lights.cpp: +X -X +Y -Y +Z -Z.
+int PointShadowFace(vec3 v) {
+    vec3 a = abs(v);
+    if (a.x >= a.y && a.x >= a.z) return (v.x >= 0.0) ? 0 : 1;
+    if (a.y >= a.z)               return (v.y >= 0.0) ? 2 : 3;
+    return (v.z >= 0.0) ? 4 : 5;
+}
+float ShadowForGlobalLight(int li, vec3 lightPos, vec3 worldPos) {
+    if (ubo.camPos.w < 0.5) return 1.0;
+    ivec4 info = lightShadowInfo[li];
+    float vis  = 1.0;
+    if (info.x == SHADOW_KIND_DIRECTIONAL)  vis = SampleDirShadow(worldPos);
+    else if (info.x == SHADOW_KIND_SPOT)    vis = SampleLocalShadow(info.y, worldPos);
+    else if (info.x == SHADOW_KIND_POINT)   vis = SampleLocalShadow(info.y + PointShadowFace(worldPos - lightPos), worldPos);
+    return mix(1.0 - shadowStrength, 1.0, vis);
+}
+
 void main() {
     // Diffuse albedo: sample texture only when useDiffuseMap is set, otherwise use material colour.
     vec4 albedo = mat.useDiffuseMap > 0.5 ? texture(diffuseTex, vTexCoord) : vec4(1.0);
@@ -1121,24 +1388,62 @@ void main() {
         nTs.xy  *= mat.normalScale;
         N = normalize(mat3(normalize(vTangent), normalize(vBitangent), N) * nTs);
     }
-    vec3 V    = normalize(vViewDir);
-    vec3 L    = normalize(-lpc.lightDir);
-    vec3 H    = normalize(V + L);
-    float NdotL = max(dot(N, L), 0.0);
-    float NdotV = max(dot(N, V), 0.0);
-    vec3 F0   = mix(vec3(0.04), albedo.rgb, metallicV);
-    vec3 F    = FresnelSchlick(max(dot(H, V), 0.0), F0);
-    float NDF = DistGGX(N, H, roughnessV);
-    float G   = GeoSmith(NdotV, NdotL, roughnessV);
-    vec3 spec  = (NDF * G * F) / (4.0 * NdotV * NdotL + 0.001);
-    vec3 kD    = (vec3(1.0) - F) * (1.0 - metallicV);
-    vec3 direct = (kD * albedo.rgb / PI + spec) * lpc.lightColor * lpc.lightIntensity * NdotL;
-    vec3 ambient = mat.Ka * albedo.rgb * aoV * lpc.ambientStrength;
+    vec3 V  = normalize(vViewDir);
+    vec3 F0 = mix(vec3(0.04), albedo.rgb, metallicV);
+    // Ambient: material Ka, or 15% of Kd when the importer left Ka at zero (GLTF has no Ka)
+    // - same rule the DX11/DX12/OpenGL paths apply on the CPU.
+    vec3 KaEff   = (mat.Ka.x + mat.Ka.y + mat.Ka.z <= 0.0003) ? mat.Kd * 0.15 : mat.Ka;
+    vec3 ambient = KaEff * albedo.rgb * aoV;
+    // Direct lighting: every global light, each attenuated by its own shadow map.
+    vec3 direct = vec3(0.0);
+    int  lightCount = min(globalLightCount, MAX_GLOBAL_LIGHTS);
+    for (int gi = 0; gi < lightCount; ++gi) {
+        vec3 contrib = ProcessLight(globalLights[gi], N, V, vWorldPos, roughnessV, metallicV, albedo.rgb, F0);
+        direct += contrib * ShadowForGlobalLight(gi, globalLights[gi].position, vWorldPos);
+    }
     // Emissive: sample emissive texture when flag is set, else use material emissive factor.
     vec3 emissive = mat.useEmissiveMap > 0.5
         ? texture(emissiveTex, vTexCoord).rgb * mat.emissiveStrength
         : mat.emissive * mat.emissiveStrength;
-    vec3 color = ambient + direct + emissive;
+    // Scene reflection probe (set=2 binding 4); reflectionScale == 0 means the probe is off.
+    // Roughness picks the mip; roughness-aware Fresnel keeps rough dielectrics from over-reflecting.
+    vec3 reflection = vec3(0.0);
+    if (reflectionScale > 0.0) {
+        vec3  R     = reflect(-V, N);
+        float mip   = clamp(roughnessV * reflectionMaxMip + reflectionBlur, 0.0, reflectionMaxMip);
+        vec3  probe = textureLod(sceneProbe, R, mip).rgb;
+        float NoV   = clamp(dot(N, V), 0.0, 1.0);
+        float gloss = 1.0 - roughnessV;
+        vec3  Fr    = F0 + (max(vec3(gloss), F0) - F0) * pow(1.0 - NoV, 5.0);
+        reflection  = probe * Fr * reflectionScale * aoV;
+    }
+    vec3 color = ambient + direct + emissive + reflection;
+    // Planar reflection (reflector surfaces only).  The mirror render uses an x-flipped projection, so u is
+    // mirrored; gl_FragCoord (origin top-left in Vulkan) matches the image row order of the planar target.
+    // planarIndex picks the layer of the plane this surface reflects.
+    if (mat.planarStrength > 0.0 && planarParams.x > 0.0) {
+        int  planarSlice = clamp(int(mat.planarIndex + 0.5), 0, 3);
+        vec3 planarN     = planarPlanes[planarSlice].xyz;
+        vec2 planarUV    = gl_FragCoord.xy * planarParams.zw;
+        planarUV.x       = 1.0 - planarUV.x;
+        // Ripple: normal-map detail (N vs the geometric normal) along the plane's two tangents.
+        vec3 planarT1    = normalize(cross(planarN, (abs(planarN.y) < 0.99) ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+        vec3 planarT2    = cross(planarN, planarT1);
+        vec3 planarDelta = N - normalize(vNormal);
+        planarUV        += vec2(dot(planarDelta, planarT1), dot(planarDelta, planarT2)) * (planarParams.y * 0.25);
+        planarUV         = clamp(planarUV, 0.0, 1.0);
+        vec3  planarCol  = textureLod(planarMap, vec3(planarUV, float(planarSlice)), 0.0).rgb;
+        float planarNoV  = clamp(dot(N, V), 0.0, 1.0);
+        float planarW    = clamp(mat.planarStrength * planarParams.x * (1.0 - roughnessV)
+                                 * (0.4 + 0.6 * pow(1.0 - planarNoV, 2.0)), 0.0, 1.0);
+        color = mix(color, planarCol, planarW);
+    }
+    // Video settings brightness / contrast (a zeroed ShadowBuffer reads as neutral).
+    float dispB = (displayBrightness > 0.0) ? displayBrightness : 1.0;
+    float dispC = (displayContrast   > 0.0) ? displayContrast   : 1.0;
+    // Clamp first so emissive / over-lit pixels (> 1.0) still respond instead of clipping to white.
+    color = clamp(color, 0.0, 1.0);
+    color = clamp((color - 0.5) * dispC + 0.5, 0.0, 1.0) * dispB;
     // Linear output — the sRGB swapchain (VK_FORMAT_B8G8R8A8_SRGB) applies hardware gamma
     // automatically; manual Reinhard + pow(1/2.2) here would cause double gamma and produce
     // an over-bright, washed-out result.
@@ -1298,6 +1603,14 @@ void VulkanRenderer::CreateGraphicsPipelines()
         pci.subpass             = 0;
         vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pci, nullptr, &m_2dPipeline);
 
+        // Multisampled variant for the main pass (the 1-sample pipeline above stays for any 1-sample pass)
+        if (m_renderPassMS != VK_NULL_HANDLE && m_msaaSamples != VK_SAMPLE_COUNT_1_BIT) {
+            ms.rasterizationSamples = m_msaaSamples;
+            pci.renderPass          = m_renderPassMS;
+            if (vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pci, nullptr, &m_2dPipelineMS) != VK_SUCCESS)
+                m_2dPipelineMS = VK_NULL_HANDLE;
+        }
+
         vkDestroyShaderModule(m_device, vert2D, nullptr);
         vkDestroyShaderModule(m_device, frag2D, nullptr);
     }
@@ -1366,20 +1679,16 @@ void VulkanRenderer::CreateGraphicsPipelines()
         dyn3D.dynamicStateCount = static_cast<uint32_t>(dyn3DStates.size());
         dyn3D.pDynamicStates    = dyn3DStates.data();
 
-        // Push constant (fragment): lightDir(3)+intensity(1)+lightColor(3)+ambient(1) = 8 floats = 32 bytes
-        VkPushConstantRange pc3D{};
-        pc3D.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-        pc3D.offset     = 0;
-        pc3D.size       = sizeof(float) * 8;
-
-        // set=0: transform+material UBOs, set=1: diffuse/normal/ORM/AO textures
-        std::array<VkDescriptorSetLayout, 2> layouts3D = { m_3dUboSetLayout, m_3dTexSetLayout };
+        // set=0: transform+material UBOs, set=1: diffuse/normal/ORM/AO/gloss/emissive textures,
+        // set=2: per-frame GlobalLightBuffer + ShadowBuffer + shadow maps (replaces the old
+        // single-directional-light push constant).
+        std::array<VkDescriptorSetLayout, 3> layouts3D = { m_3dUboSetLayout, m_3dTexSetLayout, m_3dFrameSetLayout };
         VkPipelineLayoutCreateInfo layoutCI3D{};
         layoutCI3D.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
         layoutCI3D.setLayoutCount         = static_cast<uint32_t>(layouts3D.size());
         layoutCI3D.pSetLayouts            = layouts3D.data();
-        layoutCI3D.pushConstantRangeCount = 1;
-        layoutCI3D.pPushConstantRanges    = &pc3D;
+        layoutCI3D.pushConstantRangeCount = 0;
+        layoutCI3D.pPushConstantRanges    = nullptr;
         vkCreatePipelineLayout(m_device, &layoutCI3D, nullptr, &m_3dPipelineLayout);
 
         std::array<VkPipelineShaderStageCreateInfo, 2> stages3D{};
@@ -1402,6 +1711,19 @@ void VulkanRenderer::CreateGraphicsPipelines()
         pci3D.renderPass          = m_renderPass;
         pci3D.subpass             = 0;
         vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pci3D, nullptr, &m_3dPipeline);
+
+        // Multisampled variant for the main pass.  Anti-Aliasing also turns on sample-rate shading (when the
+        // device supports it) so specular / texture aliasing inside triangles is smoothed, not just their edges.
+        if (m_renderPassMS != VK_NULL_HANDLE && m_msaaSamples != VK_SAMPLE_COUNT_1_BIT) {
+            ms3D.rasterizationSamples = m_msaaSamples;
+            if (m_sampleShadingOk) {
+                ms3D.sampleShadingEnable = VK_TRUE;
+                ms3D.minSampleShading    = 0.25f;
+            }
+            pci3D.renderPass = m_renderPassMS;
+            if (vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pci3D, nullptr, &m_3dPipelineMS) != VK_SUCCESS)
+                m_3dPipelineMS = VK_NULL_HANDLE;
+        }
 
         vkDestroyShaderModule(m_device, vert3D, nullptr);
         vkDestroyShaderModule(m_device, frag3D, nullptr);
@@ -1450,19 +1772,37 @@ void VulkanRenderer::CreateDepthResources()
     CreateImage(static_cast<uint32_t>(m_renderTargetWidth), static_cast<uint32_t>(m_renderTargetHeight),
                 depthFmt, VK_IMAGE_TILING_OPTIMAL,
                 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                m_depthImage, m_depthImageMemory);
+                m_depthImage, m_depthImageMemory, m_renderPassMS != VK_NULL_HANDLE ? m_msaaSamples : VK_SAMPLE_COUNT_1_BIT);
     m_depthImageView = CreateImageView(m_depthImage, depthFmt, VK_IMAGE_ASPECT_DEPTH_BIT);
+
+    CreateMsaaColorResources();
+}
+
+// Multisampled colour target of the main pass (resolved into the swapchain image at the end of the pass).
+void VulkanRenderer::CreateMsaaColorResources()
+{
+    if (m_renderPassMS == VK_NULL_HANDLE || m_msaaSamples == VK_SAMPLE_COUNT_1_BIT)
+        return;
+    CreateImage(static_cast<uint32_t>(m_renderTargetWidth), static_cast<uint32_t>(m_renderTargetHeight),
+                m_swapchainFormat, VK_IMAGE_TILING_OPTIMAL,
+                VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                m_msaaColorImage, m_msaaColorMemory, m_msaaSamples);
+    m_msaaColorView = CreateImageView(m_msaaColorImage, m_swapchainFormat, VK_IMAGE_ASPECT_COLOR_BIT);
 }
 
 void VulkanRenderer::CreateFramebuffers()
 {
+    const bool msaa = (m_renderPassMS != VK_NULL_HANDLE && m_msaaColorView != VK_NULL_HANDLE);
     m_framebuffers.resize(m_swapchainImageViews.size());
     for (size_t i = 0; i < m_swapchainImageViews.size(); ++i) {
-        std::array<VkImageView, 2> attachments = { m_swapchainImageViews[i], m_depthImageView };
+        // 1 sample: [swapchain, depth].  MSAA: [msaa colour, msaa depth, swapchain (resolve target)].
+        std::array<VkImageView, 3> attachments = msaa
+            ? std::array<VkImageView, 3>{ m_msaaColorView, m_depthImageView, m_swapchainImageViews[i] }
+            : std::array<VkImageView, 3>{ m_swapchainImageViews[i], m_depthImageView, VK_NULL_HANDLE };
         VkFramebufferCreateInfo ci{};
         ci.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-        ci.renderPass      = m_renderPass;
-        ci.attachmentCount = static_cast<uint32_t>(attachments.size());
+        ci.renderPass      = msaa ? m_renderPassMS : m_renderPass;
+        ci.attachmentCount = msaa ? 3u : 2u;
         ci.pAttachments    = attachments.data();
         ci.width           = m_swapchainExtent.width;
         ci.height          = m_swapchainExtent.height;
@@ -1476,9 +1816,10 @@ void VulkanRenderer::CreateDescriptorPool()
     // Per-model: 6 samplers (diffuse/normal/ORM/AO/gloss/emissive) + 2 UBOs (transform + material).
     // Per-frame 2D: small transient allocations (freed each frame).
     // Pool sized for up to 512 loaded models + generous headroom for 2D.
-    std::array<VkDescriptorPoolSize, 2> sizes{};
+    std::array<VkDescriptorPoolSize, 3> sizes{};
     sizes[0] = { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 6144 }; // 512 models x 6 textures + 2D headroom
-    sizes[1] = { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         1024 }; // 512 models x 2 UBOs
+    sizes[1] = { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         1024 + 6 * VK_MAX_FRAMES_IN_FLIGHT }; // 512 models x material UBO + per-frame light/shadow UBOs (set=2: normal + mirror + live copies)
+    sizes[2] = { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1024 }; // 512 models x transform UBO (dynamic offset: main + mirror slot)
 
     VkDescriptorPoolCreateInfo ci{};
     ci.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -1638,6 +1979,10 @@ void VulkanRenderer::CleanupSwapChain()
     for (auto fb : m_framebuffers) vkDestroyFramebuffer(m_device, fb, nullptr);
     m_framebuffers.clear();
 
+    if (m_msaaColorView   != VK_NULL_HANDLE) { vkDestroyImageView(m_device, m_msaaColorView,   nullptr); m_msaaColorView   = VK_NULL_HANDLE; }
+    if (m_msaaColorImage  != VK_NULL_HANDLE) { vkDestroyImage    (m_device, m_msaaColorImage,  nullptr); m_msaaColorImage  = VK_NULL_HANDLE; }
+    if (m_msaaColorMemory != VK_NULL_HANDLE) { vkFreeMemory      (m_device, m_msaaColorMemory, nullptr); m_msaaColorMemory = VK_NULL_HANDLE; }
+
     if (m_depthImageView   != VK_NULL_HANDLE) { vkDestroyImageView(m_device, m_depthImageView,   nullptr); m_depthImageView   = VK_NULL_HANDLE; }
     if (m_depthImage       != VK_NULL_HANDLE) { vkDestroyImage    (m_device, m_depthImage,       nullptr); m_depthImage       = VK_NULL_HANDLE; }
     if (m_depthImageMemory != VK_NULL_HANDLE) { vkFreeMemory      (m_device, m_depthImageMemory, nullptr); m_depthImageMemory = VK_NULL_HANDLE; }
@@ -1650,6 +1995,7 @@ void VulkanRenderer::CleanupSwapChain()
         if (sem != VK_NULL_HANDLE) vkDestroySemaphore(m_device, sem, nullptr);
     m_renderFinishedSemaphores.clear();
 
+    if (m_renderPassMS != VK_NULL_HANDLE) { vkDestroyRenderPass(m_device, m_renderPassMS, nullptr); m_renderPassMS = VK_NULL_HANDLE; }
     if (m_renderPass != VK_NULL_HANDLE) { vkDestroyRenderPass(m_device, m_renderPass, nullptr); m_renderPass = VK_NULL_HANDLE; }
     if (m_swapchain  != VK_NULL_HANDLE) { vkDestroySwapchainKHR(m_device, m_swapchain, nullptr); m_swapchain = VK_NULL_HANDLE; }
 }
@@ -2686,7 +3032,8 @@ void VulkanRenderer::EndSingleTimeCommands(VkCommandBuffer cmd) const
 void VulkanRenderer::CreateImage(uint32_t width, uint32_t height, VkFormat format,
                                   VkImageTiling tiling, VkImageUsageFlags usage,
                                   VkMemoryPropertyFlags props,
-                                  VkImage& image, VkDeviceMemory& memory) const
+                                  VkImage& image, VkDeviceMemory& memory,
+                                  VkSampleCountFlagBits samples) const
 {
     VkImageCreateInfo ci{};
     ci.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -2698,7 +3045,7 @@ void VulkanRenderer::CreateImage(uint32_t width, uint32_t height, VkFormat forma
     ci.tiling        = tiling;
     ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     ci.usage         = usage;
-    ci.samples       = VK_SAMPLE_COUNT_1_BIT;
+    ci.samples       = samples;
     ci.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
     vkCreateImage(m_device, &ci, nullptr, &image);
 
@@ -2793,6 +3140,1020 @@ VkFormat VulkanRenderer::FindSupportedFormat(const std::vector<VkFormat>& candid
 bool VulkanRenderer::HasStencilComponent(VkFormat fmt) const
 {
     return fmt == VK_FORMAT_D32_SFLOAT_S8_UINT || fmt == VK_FORMAT_D24_UNORM_S8_UINT;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Per-frame lighting + shadow mapping resources (3D pipeline set = 2).  See Lights.h for the shared
+// planner and the ShadowBufferData layout.  Platform-neutral (Windows / Linux / Android).
+//
+// Part 1 (REQUIRED by the 3D pipeline - lighting lives here since the push-constant light was removed):
+//   per-frame GlobalLightBuffer + ShadowBuffer UBOs, the two depth images (left in
+//   SHADER_READ_ONLY_OPTIMAL), the comparison sampler and the set=2 descriptor sets.
+// Part 2 (optional): depth-only render pass, framebuffers and pipeline.  If this fails the scene
+//   still renders fully lit - m_shadowResourcesReady stays false and ShadowBuffer keeps shadows off.
+// ---------------------------------------------------------------------------------------------------------------
+bool VulkanRenderer::CreateShadowResourcesVK()
+{
+    ReleaseShadowResourcesVK();
+    if (m_device == VK_NULL_HANDLE || m_descriptorPool == VK_NULL_HANDLE || m_3dFrameSetLayout == VK_NULL_HANDLE)
+        return false;
+
+    m_shadowDirSize   = ShadowDirMapSizeFromConfig();
+    m_shadowLocalSize = ShadowLocalMapSizeFromConfig();
+
+    try
+    {
+        // ---- Per-frame UBOs (host-visible, coherent, persistently mapped) ----
+        for (uint32_t f = 0; f < VK_MAX_FRAMES_IN_FLIGHT; ++f)
+        {
+            CreateBuffer(sizeof(GlobalLightBuffer), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                         m_lightUBO[f], m_lightUBOMemory[f]);
+            vkMapMemory(m_device, m_lightUBOMemory[f], 0, sizeof(GlobalLightBuffer), 0, &m_lightUBOMapped[f]);
+            if (m_lightUBOMapped[f]) std::memset(m_lightUBOMapped[f], 0, sizeof(GlobalLightBuffer));
+
+            CreateBuffer(sizeof(ShadowBufferData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                         m_shadowUBO[f], m_shadowUBOMemory[f]);
+            vkMapMemory(m_device, m_shadowUBOMemory[f], 0, sizeof(ShadowBufferData), 0, &m_shadowUBOMapped[f]);
+            if (m_shadowUBOMapped[f]) std::memset(m_shadowUBOMapped[f], 0, sizeof(ShadowBufferData));
+
+            // Copy of the ShadowBuffer with planar reflections off, for the mirror + capture passes: the per-model
+            // material (planar strength) is read when the command buffer executes, so those passes must not mix
+            // in the planar array (they bind a dummy texture there).
+            CreateBuffer(sizeof(ShadowBufferData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                         m_shadowUBOMirror[f], m_shadowUBOMirrorMemory[f]);
+            vkMapMemory(m_device, m_shadowUBOMirrorMemory[f], 0, sizeof(ShadowBufferData), 0, &m_shadowUBOMirrorMapped[f]);
+            if (m_shadowUBOMirrorMapped[f]) std::memset(m_shadowUBOMirrorMapped[f], 0, sizeof(ShadowBufferData));
+        }
+
+        // ---- Depth format: D32_SFLOAT preferred; D16_UNORM is guaranteed sampleable by the spec ----
+        m_shadowDepthFormat = FindSupportedFormat(
+            { VK_FORMAT_D32_SFLOAT, VK_FORMAT_D16_UNORM }, VK_IMAGE_TILING_OPTIMAL,
+            VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT);
+        VkFormatProperties fmtProps{};
+        vkGetPhysicalDeviceFormatProperties(m_physicalDevice, m_shadowDepthFormat, &fmtProps);
+        const bool linearOK = (fmtProps.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) != 0;
+
+        // ---- Depth images ----
+        auto makeDepthImage = [this](uint32_t size, uint32_t layers, VkImage& image, VkDeviceMemory& memory)
+        {
+            VkImageCreateInfo ci{};
+            ci.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+            ci.imageType     = VK_IMAGE_TYPE_2D;
+            ci.extent        = { size, size, 1 };
+            ci.mipLevels     = 1;
+            ci.arrayLayers   = layers;
+            ci.format        = m_shadowDepthFormat;
+            ci.tiling        = VK_IMAGE_TILING_OPTIMAL;
+            ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            ci.usage         = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+            ci.samples       = VK_SAMPLE_COUNT_1_BIT;
+            ci.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+            if (vkCreateImage(m_device, &ci, nullptr, &image) != VK_SUCCESS)
+                throw std::runtime_error("[VulkanRenderer] Shadow image creation failed.");
+
+            VkMemoryRequirements req;
+            vkGetImageMemoryRequirements(m_device, image, &req);
+            VkMemoryAllocateInfo ai{};
+            ai.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            ai.allocationSize  = req.size;
+            ai.memoryTypeIndex = FindMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+            if (vkAllocateMemory(m_device, &ai, nullptr, &memory) != VK_SUCCESS)
+                throw std::runtime_error("[VulkanRenderer] Shadow image memory allocation failed.");
+            vkBindImageMemory(m_device, image, memory, 0);
+        };
+        auto makeView = [this](VkImage image, VkImageViewType type, uint32_t baseLayer, uint32_t layerCount) -> VkImageView
+        {
+            VkImageViewCreateInfo ci{};
+            ci.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            ci.image                           = image;
+            ci.viewType                        = type;
+            ci.format                          = m_shadowDepthFormat;
+            ci.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT;
+            ci.subresourceRange.baseMipLevel   = 0;
+            ci.subresourceRange.levelCount     = 1;
+            ci.subresourceRange.baseArrayLayer = baseLayer;
+            ci.subresourceRange.layerCount     = layerCount;
+            VkImageView view = VK_NULL_HANDLE;
+            if (vkCreateImageView(m_device, &ci, nullptr, &view) != VK_SUCCESS)
+                throw std::runtime_error("[VulkanRenderer] Shadow image view creation failed.");
+            return view;
+        };
+
+        makeDepthImage(static_cast<uint32_t>(m_shadowDirSize), 1, m_shadowDirImage, m_shadowDirMemory);
+        makeDepthImage(static_cast<uint32_t>(m_shadowLocalSize), MAX_LOCAL_SHADOW_SLICES, m_shadowLocalImage, m_shadowLocalMemory);
+
+        m_shadowDirView        = makeView(m_shadowDirImage,   VK_IMAGE_VIEW_TYPE_2D,       0, 1);
+        m_shadowLocalArrayView = makeView(m_shadowLocalImage, VK_IMAGE_VIEW_TYPE_2D_ARRAY, 0, MAX_LOCAL_SHADOW_SLICES);
+        for (int s = 0; s < MAX_LOCAL_SHADOW_SLICES; ++s)
+            m_shadowLocalLayerViews[s] = makeView(m_shadowLocalImage, VK_IMAGE_VIEW_TYPE_2D, static_cast<uint32_t>(s), 1);
+
+        // ---- Initial layout: SHADER_READ_ONLY_OPTIMAL so set=2 is valid before the first shadow pass ----
+        {
+            VkCommandBuffer cmd = BeginSingleTimeCommands();
+            VkImageMemoryBarrier barriers[2]{};
+            for (int b = 0; b < 2; ++b)
+            {
+                barriers[b].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+                barriers[b].oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+                barriers[b].newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                barriers[b].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barriers[b].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barriers[b].srcAccessMask       = 0;
+                barriers[b].dstAccessMask       = VK_ACCESS_SHADER_READ_BIT;
+            }
+            barriers[0].image            = m_shadowDirImage;
+            barriers[0].subresourceRange = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 };
+            barriers[1].image            = m_shadowLocalImage;
+            barriers[1].subresourceRange = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, static_cast<uint32_t>(MAX_LOCAL_SHADOW_SLICES) };
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                 0, 0, nullptr, 0, nullptr, 2, barriers);
+            EndSingleTimeCommands(cmd);
+        }
+
+        // ---- Comparison sampler (PCF): outside the map = lit ----
+        {
+            VkSamplerCreateInfo si{};
+            si.sType         = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+            si.magFilter     = linearOK ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
+            si.minFilter     = linearOK ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
+            si.mipmapMode    = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+            si.addressModeU  = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+            si.addressModeV  = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+            si.addressModeW  = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+            si.borderColor   = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+            si.compareEnable = VK_TRUE;
+            si.compareOp     = VK_COMPARE_OP_LESS_OR_EQUAL;
+            si.minLod        = 0.0f;
+            si.maxLod        = 0.0f;
+            if (vkCreateSampler(m_device, &si, nullptr, &m_shadowSampler) != VK_SUCCESS)
+                throw std::runtime_error("[VulkanRenderer] Shadow sampler creation failed.");
+        }
+
+        // ---- Scene reflection probe image + sampler (set=2 binding 4 must be valid from the first draw) ----
+        CreateReflectionResourcesVK();
+
+        // ---- Planar reflection target + compatible render pass (set=2 binding 5) ----
+        CreatePlanarResourcesVK();
+
+        // ---- Live scene capture cube (set=2 "live" copy, binding 4); non-fatal ----
+        CreateCaptureResourcesVK();
+
+        // ---- set=2 descriptor sets (one per frame in flight) ----
+        for (uint32_t f = 0; f < VK_MAX_FRAMES_IN_FLIGHT; ++f)
+        {
+            VkDescriptorSetAllocateInfo dsai{};
+            dsai.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            dsai.descriptorPool     = m_descriptorPool;
+            dsai.descriptorSetCount = 1;
+            dsai.pSetLayouts        = &m_3dFrameSetLayout;
+            if (vkAllocateDescriptorSets(m_device, &dsai, &m_3dFrameSets[f]) != VK_SUCCESS)
+                throw std::runtime_error("[VulkanRenderer] set=2 descriptor allocation failed.");
+
+            VkDescriptorBufferInfo lightInfo { m_lightUBO[f],  0, sizeof(GlobalLightBuffer) };
+            VkDescriptorBufferInfo shadowInfo{ m_shadowUBO[f], 0, sizeof(ShadowBufferData) };
+            VkDescriptorImageInfo  dirInfo   { m_shadowSampler, m_shadowDirView,        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+            VkDescriptorImageInfo  localInfo { m_shadowSampler, m_shadowLocalArrayView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+            VkDescriptorImageInfo  probeInfo { m_reflSampler,   m_reflView,             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+            VkDescriptorImageInfo  planarInfo{ m_planarSampler, m_planarView,           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+
+            std::array<VkWriteDescriptorSet, 6> writes{};
+            for (uint32_t b = 0; b < 6; ++b) {
+                writes[b].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                writes[b].dstSet          = m_3dFrameSets[f];
+                writes[b].dstBinding      = b;
+                writes[b].descriptorCount = 1;
+                writes[b].descriptorType  = (b < 2) ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+                                                    : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            }
+            writes[0].pBufferInfo = &lightInfo;
+            writes[1].pBufferInfo = &shadowInfo;
+            writes[2].pImageInfo  = &dirInfo;
+            writes[3].pImageInfo  = &localInfo;
+            writes[4].pImageInfo  = &probeInfo;
+            writes[5].pImageInfo  = &planarInfo;
+            vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+
+            // Mirror-pass copy of the set: identical, except binding 5 is the default texture (the planar image
+            // is a framebuffer attachment while the mirror pass is recorded, so it must not be in a bound set).
+            if (vkAllocateDescriptorSets(m_device, &dsai, &m_3dFrameSetsMirror[f]) != VK_SUCCESS)
+                throw std::runtime_error("[VulkanRenderer] set=2 mirror descriptor allocation failed.");
+            VkDescriptorImageInfo  dummyInfo{ m_planarSampler, m_planarDummyView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+            VkDescriptorBufferInfo shadowMirrorInfo{ m_shadowUBOMirror[f], 0, sizeof(ShadowBufferData) };
+            for (uint32_t b = 0; b < 6; ++b) writes[b].dstSet = m_3dFrameSetsMirror[f];
+            writes[1].pBufferInfo = &shadowMirrorInfo;
+            writes[5].pImageInfo  = &dummyInfo;
+            vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+
+            // Live copy: identical to the main set except binding 4 is the live capture cube (bound once a capture
+            // cycle has completed; the sky cube set is used until then).
+            if (!m_capFailed && m_capCubeView != VK_NULL_HANDLE)
+            {
+                if (vkAllocateDescriptorSets(m_device, &dsai, &m_3dFrameSetsLive[f]) != VK_SUCCESS)
+                    throw std::runtime_error("[VulkanRenderer] set=2 live descriptor allocation failed.");
+                VkDescriptorImageInfo capInfo{ m_reflSampler, m_capCubeView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+                for (uint32_t b = 0; b < 6; ++b) writes[b].dstSet = m_3dFrameSetsLive[f];
+                writes[1].pBufferInfo = &shadowInfo;
+                writes[4].pImageInfo  = &capInfo;
+                writes[5].pImageInfo  = &planarInfo;
+                vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+            }
+        }
+    }
+    catch (const std::exception& e)
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR,
+            L"[VulkanRenderer] Lighting/shadow frame resources failed: %hs - 3D scene rendering disabled.", e.what());
+        ReleaseShadowResourcesVK();
+        return false;
+    }
+
+    // ---------------- Part 2: depth-only pass (optional) ----------------
+    try
+    {
+        // Render pass: clear -> depth writes -> SHADER_READ_ONLY_OPTIMAL for the main pass.
+        VkAttachmentDescription depth{};
+        depth.format         = m_shadowDepthFormat;
+        depth.samples        = VK_SAMPLE_COUNT_1_BIT;
+        depth.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        depth.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+        depth.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        depth.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depth.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+        depth.finalLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkAttachmentReference depthRef{ 0, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+        VkSubpassDescription subpass{};
+        subpass.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subpass.colorAttachmentCount    = 0;
+        subpass.pDepthStencilAttachment = &depthRef;
+
+        std::array<VkSubpassDependency, 2> deps{};
+        deps[0].srcSubpass      = VK_SUBPASS_EXTERNAL;                           // previous frame's fragment reads
+        deps[0].dstSubpass      = 0;
+        deps[0].srcStageMask    = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        deps[0].dstStageMask    = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        deps[0].srcAccessMask   = VK_ACCESS_SHADER_READ_BIT;
+        deps[0].dstAccessMask   = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        deps[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+        deps[1].srcSubpass      = 0;                                             // depth writes -> main pass sampling
+        deps[1].dstSubpass      = VK_SUBPASS_EXTERNAL;
+        deps[1].srcStageMask    = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        deps[1].dstStageMask    = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        deps[1].srcAccessMask   = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        deps[1].dstAccessMask   = VK_ACCESS_SHADER_READ_BIT;
+        deps[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+        VkRenderPassCreateInfo rpci{};
+        rpci.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        rpci.attachmentCount = 1;
+        rpci.pAttachments    = &depth;
+        rpci.subpassCount    = 1;
+        rpci.pSubpasses      = &subpass;
+        rpci.dependencyCount = static_cast<uint32_t>(deps.size());
+        rpci.pDependencies   = deps.data();
+        if (vkCreateRenderPass(m_device, &rpci, nullptr, &m_shadowRenderPass) != VK_SUCCESS)
+            throw std::runtime_error("[VulkanRenderer] Shadow render pass creation failed.");
+
+        // Framebuffers: [dir] + one per local layer
+        auto makeFB = [this](VkImageView view, uint32_t size) -> VkFramebuffer
+        {
+            VkFramebufferCreateInfo fci{};
+            fci.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            fci.renderPass      = m_shadowRenderPass;
+            fci.attachmentCount = 1;
+            fci.pAttachments    = &view;
+            fci.width           = size;
+            fci.height          = size;
+            fci.layers          = 1;
+            VkFramebuffer fb = VK_NULL_HANDLE;
+            if (vkCreateFramebuffer(m_device, &fci, nullptr, &fb) != VK_SUCCESS)
+                throw std::runtime_error("[VulkanRenderer] Shadow framebuffer creation failed.");
+            return fb;
+        };
+        m_shadowDirFramebuffer = makeFB(m_shadowDirView, static_cast<uint32_t>(m_shadowDirSize));
+        for (int s = 0; s < MAX_LOCAL_SHADOW_SLICES; ++s)
+            m_shadowLocalFramebuffers[s] = makeFB(m_shadowLocalLayerViews[s], static_cast<uint32_t>(m_shadowLocalSize));
+
+        // Depth-only pipeline: gl_Position = worldLightVP * vec4(pos * scale, 1).
+        // worldLightVP is pushed raw (row-major); GLSL reads column-major = transpose = column-vector form.
+        static const char* k_glslShadowVert = R"(
+#version 450
+layout(location = 0) in vec3 inPos;
+layout(push_constant) uniform ShadowPC {
+    mat4 worldLightVP;
+    vec4 scale;
+} pc;
+void main() {
+    gl_Position = pc.worldLightVP * vec4(inPos * pc.scale.xyz, 1.0);
+})";
+        VkShaderModule vertShadow = CreateShaderModuleFromGLSL(k_glslShadowVert, VK_SHADER_STAGE_VERTEX_BIT);
+        if (vertShadow == VK_NULL_HANDLE)
+            throw std::runtime_error("[VulkanRenderer] Shadow vertex shader compile failed.");
+
+        VkPushConstantRange pcRange{};
+        pcRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        pcRange.offset     = 0;
+        pcRange.size       = sizeof(float) * 20;                                 // mat4 + vec4 = 80 bytes
+
+        VkPipelineLayoutCreateInfo plci{};
+        plci.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        plci.setLayoutCount         = 0;
+        plci.pushConstantRangeCount = 1;
+        plci.pPushConstantRanges    = &pcRange;
+        if (vkCreatePipelineLayout(m_device, &plci, nullptr, &m_shadowPipelineLayout) != VK_SUCCESS) {
+            vkDestroyShaderModule(m_device, vertShadow, nullptr);
+            throw std::runtime_error("[VulkanRenderer] Shadow pipeline layout creation failed.");
+        }
+
+        // Same vertex buffer layout as the 3D pipeline (VkVertex3D); only position is read.
+        VkVertexInputBindingDescription bind{};
+        bind.binding   = 0;
+        bind.stride    = sizeof(VkVertex3D);
+        bind.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        VkVertexInputAttributeDescription attr{ 0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(VkVertex3D, x) };
+
+        VkPipelineVertexInputStateCreateInfo vi{};
+        vi.sType                           = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        vi.vertexBindingDescriptionCount   = 1;
+        vi.pVertexBindingDescriptions      = &bind;
+        vi.vertexAttributeDescriptionCount = 1;
+        vi.pVertexAttributeDescriptions    = &attr;
+
+        VkPipelineInputAssemblyStateCreateInfo ia{};
+        ia.sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        VkPipelineViewportStateCreateInfo vp{};
+        vp.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        vp.viewportCount = 1;
+        vp.scissorCount  = 1;
+
+        VkPipelineRasterizationStateCreateInfo rast{};
+        rast.sType                   = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rast.polygonMode             = VK_POLYGON_MODE_FILL;
+        rast.cullMode                = VK_CULL_MODE_NONE;                       // single-sided geometry still casts
+        rast.frontFace               = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        rast.lineWidth               = 1.0f;
+        rast.depthBiasEnable         = VK_TRUE;
+        rast.depthBiasConstantFactor = 1.25f;
+        rast.depthBiasClamp          = 0.0f;
+        rast.depthBiasSlopeFactor    = 1.75f;
+
+        VkPipelineMultisampleStateCreateInfo ms{};
+        ms.sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        VkPipelineDepthStencilStateCreateInfo ds{};
+        ds.sType            = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        ds.depthTestEnable  = VK_TRUE;
+        ds.depthWriteEnable = VK_TRUE;
+        ds.depthCompareOp   = VK_COMPARE_OP_LESS;
+
+        VkPipelineColorBlendStateCreateInfo blend{};
+        blend.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        blend.attachmentCount = 0;
+
+        std::array<VkDynamicState, 2> dynStates = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+        VkPipelineDynamicStateCreateInfo dyn{};
+        dyn.sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        dyn.dynamicStateCount = static_cast<uint32_t>(dynStates.size());
+        dyn.pDynamicStates    = dynStates.data();
+
+        VkPipelineShaderStageCreateInfo stage{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
+                                               VK_SHADER_STAGE_VERTEX_BIT, vertShadow, "main" };
+
+        VkGraphicsPipelineCreateInfo pci{};
+        pci.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pci.stageCount          = 1;                                             // depth only - no fragment stage
+        pci.pStages             = &stage;
+        pci.pVertexInputState   = &vi;
+        pci.pInputAssemblyState = &ia;
+        pci.pViewportState      = &vp;
+        pci.pRasterizationState = &rast;
+        pci.pMultisampleState   = &ms;
+        pci.pDepthStencilState  = &ds;
+        pci.pColorBlendState    = &blend;
+        pci.pDynamicState       = &dyn;
+        pci.layout              = m_shadowPipelineLayout;
+        pci.renderPass          = m_shadowRenderPass;
+        pci.subpass             = 0;
+        VkResult pr = vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pci, nullptr, &m_shadowPipeline);
+        vkDestroyShaderModule(m_device, vertShadow, nullptr);
+        if (pr != VK_SUCCESS)
+            throw std::runtime_error("[VulkanRenderer] Shadow pipeline creation failed.");
+
+        m_shadowResourcesReady = true;
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[VulkanRenderer] Shadow resources created (dir %d, local %d x %d slices)",
+            m_shadowDirSize, m_shadowLocalSize, MAX_LOCAL_SHADOW_SLICES);
+    }
+    catch (const std::exception& e)
+    {
+        // Lighting (set=2) stays valid; only the depth pass is unavailable.
+        debug.logDebugMessage(LogLevel::LOG_WARNING,
+            L"[VulkanRenderer] Shadow depth pass unavailable (%hs) - rendering without shadows.", e.what());
+        m_shadowResourcesReady = false;
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Scene reflection probe resources (see "Scene Reflections" in Lights.h).  Throws on failure so the
+// caller's set=2 setup unwinds the same way the shadow images do.
+// ---------------------------------------------------------------------------------------------------------------
+void VulkanRenderer::CreateReflectionResourcesVK()
+{
+    m_reflSize = ReflectionProbeSizeFromConfig();
+    m_reflMips = ReflectionMipCount(m_reflSize);
+    m_reflProbe = ReflectionProbe{};
+    m_reflProbe.requestedSize = m_reflSize;                                     // the image already exists at this size
+    m_reflUploadedVersion = 0;
+
+    VkImageCreateInfo ci{};
+    ci.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    ci.flags         = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+    ci.imageType     = VK_IMAGE_TYPE_2D;
+    ci.extent        = { static_cast<uint32_t>(m_reflSize), static_cast<uint32_t>(m_reflSize), 1 };
+    ci.mipLevels     = static_cast<uint32_t>(m_reflMips);
+    ci.arrayLayers   = 6;
+    ci.format        = VK_FORMAT_R8G8B8A8_UNORM;
+    ci.tiling        = VK_IMAGE_TILING_OPTIMAL;
+    ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    ci.usage         = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    ci.samples       = VK_SAMPLE_COUNT_1_BIT;
+    ci.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+    if (vkCreateImage(m_device, &ci, nullptr, &m_reflImage) != VK_SUCCESS)
+        throw std::runtime_error("[VulkanRenderer] Reflection probe image creation failed.");
+
+    VkMemoryRequirements req;
+    vkGetImageMemoryRequirements(m_device, m_reflImage, &req);
+    VkMemoryAllocateInfo ai{};
+    ai.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    ai.allocationSize  = req.size;
+    ai.memoryTypeIndex = FindMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (vkAllocateMemory(m_device, &ai, nullptr, &m_reflMemory) != VK_SUCCESS)
+        throw std::runtime_error("[VulkanRenderer] Reflection probe image memory allocation failed.");
+    vkBindImageMemory(m_device, m_reflImage, m_reflMemory, 0);
+
+    VkImageViewCreateInfo vi{};
+    vi.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    vi.image                           = m_reflImage;
+    vi.viewType                        = VK_IMAGE_VIEW_TYPE_CUBE;
+    vi.format                          = VK_FORMAT_R8G8B8A8_UNORM;
+    vi.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+    vi.subresourceRange.baseMipLevel   = 0;
+    vi.subresourceRange.levelCount     = static_cast<uint32_t>(m_reflMips);
+    vi.subresourceRange.baseArrayLayer = 0;
+    vi.subresourceRange.layerCount     = 6;
+    if (vkCreateImageView(m_device, &vi, nullptr, &m_reflView) != VK_SUCCESS)
+        throw std::runtime_error("[VulkanRenderer] Reflection probe image view creation failed.");
+
+    VkSamplerCreateInfo si{};
+    si.sType         = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    si.magFilter     = VK_FILTER_LINEAR;
+    si.minFilter     = VK_FILTER_LINEAR;
+    si.mipmapMode    = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    si.addressModeU  = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    si.addressModeV  = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    si.addressModeW  = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    si.minLod        = 0.0f;
+    si.maxLod        = static_cast<float>(m_reflMips);
+    if (vkCreateSampler(m_device, &si, nullptr, &m_reflSampler) != VK_SUCCESS)
+        throw std::runtime_error("[VulkanRenderer] Reflection probe sampler creation failed.");
+
+    // Per-frame staging buffers: every face x every mip, RGBA8, tightly packed.
+    VkDeviceSize total = 0;
+    for (int mip = 0; mip < m_reflMips; ++mip)
+        total += static_cast<VkDeviceSize>(ReflectionMipSize(m_reflSize, mip)) * ReflectionMipSize(m_reflSize, mip) * 4u;
+    total *= 6;
+    for (uint32_t f = 0; f < VK_MAX_FRAMES_IN_FLIGHT; ++f)
+    {
+        CreateBuffer(total, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                     m_reflStaging[f], m_reflStagingMemory[f]);
+        vkMapMemory(m_device, m_reflStagingMemory[f], 0, total, 0, &m_reflStagingMapped[f]);
+    }
+
+    // Initial layout: SHADER_READ_ONLY_OPTIMAL so the set=2 descriptor is valid before the first upload.
+    VkCommandBuffer cmd = BeginSingleTimeCommands();
+    VkImageMemoryBarrier b{};
+    b.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    b.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+    b.newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.image               = m_reflImage;
+    b.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, static_cast<uint32_t>(m_reflMips), 0, 6 };
+    b.srcAccessMask       = 0;
+    b.dstAccessMask       = VK_ACCESS_SHADER_READ_BIT;
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                         0, 0, nullptr, 0, nullptr, 1, &b);
+    EndSingleTimeCommands(cmd);
+
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"[VulkanRenderer] Reflection probe created (%d px, %d mips)",
+        m_reflSize, m_reflMips);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Planar reflection target (see "Planar Reflections" in Lights.h).  Colour uses the swapchain format and
+// depth the main depth format, 1 sample, so a render pass built from the same attachment formats is
+// COMPATIBLE with m_renderPass and the main 3D pipeline can draw into it unchanged.  Throws on failure.
+// ---------------------------------------------------------------------------------------------------------------
+void VulkanRenderer::CreatePlanarResourcesVK()
+{
+    m_planarW = PlanarWidthFromConfig();
+    m_planarH = PlanarHeightFromConfig();
+    const VkFormat colorFmt = m_swapchainFormat;
+    const VkFormat depthFmt = FindDepthFormat();
+
+    auto makeImage = [this](uint32_t w, uint32_t h, uint32_t layers, VkFormat fmt, VkImageUsageFlags usage,
+                            VkImage& img, VkDeviceMemory& mem)
+    {
+        VkImageCreateInfo ci{};
+        ci.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        ci.imageType     = VK_IMAGE_TYPE_2D;
+        ci.extent        = { w, h, 1 };
+        ci.mipLevels     = 1;
+        ci.arrayLayers   = layers;
+        ci.format        = fmt;
+        ci.tiling        = VK_IMAGE_TILING_OPTIMAL;
+        ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        ci.usage         = usage;
+        ci.samples       = VK_SAMPLE_COUNT_1_BIT;
+        ci.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+        if (vkCreateImage(m_device, &ci, nullptr, &img) != VK_SUCCESS)
+            throw std::runtime_error("[VulkanRenderer] Planar reflection image creation failed.");
+        VkMemoryRequirements req;
+        vkGetImageMemoryRequirements(m_device, img, &req);
+        VkMemoryAllocateInfo ai{};
+        ai.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        ai.allocationSize  = req.size;
+        ai.memoryTypeIndex = FindMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        if (vkAllocateMemory(m_device, &ai, nullptr, &mem) != VK_SUCCESS)
+            throw std::runtime_error("[VulkanRenderer] Planar reflection image memory allocation failed.");
+        vkBindImageMemory(m_device, img, mem, 0);
+    };
+    auto makeView = [this](VkImage img, VkFormat fmt, VkImageAspectFlags aspect, VkImageViewType type,
+                           uint32_t baseLayer, uint32_t layers) -> VkImageView
+    {
+        VkImageViewCreateInfo vi{};
+        vi.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        vi.image                           = img;
+        vi.viewType                        = type;
+        vi.format                          = fmt;
+        vi.subresourceRange.aspectMask     = aspect;
+        vi.subresourceRange.baseMipLevel   = 0;
+        vi.subresourceRange.levelCount     = 1;
+        vi.subresourceRange.baseArrayLayer = baseLayer;
+        vi.subresourceRange.layerCount     = layers;
+        VkImageView view = VK_NULL_HANDLE;
+        if (vkCreateImageView(m_device, &vi, nullptr, &view) != VK_SUCCESS)
+            throw std::runtime_error("[VulkanRenderer] Planar reflection image view creation failed.");
+        return view;
+    };
+
+    const uint32_t pw = static_cast<uint32_t>(m_planarW), ph = static_cast<uint32_t>(m_planarH);
+
+    // Colour: one array layer per reflection plane.
+    makeImage(pw, ph, MAX_PLANAR_PLANES, colorFmt, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+              m_planarImage, m_planarMemory);
+    m_planarView = makeView(m_planarImage, colorFmt, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_VIEW_TYPE_2D_ARRAY, 0, MAX_PLANAR_PLANES);
+    for (int p = 0; p < MAX_PLANAR_PLANES; ++p)
+        m_planarLayerViews[p] = makeView(m_planarImage, colorFmt, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_VIEW_TYPE_2D, static_cast<uint32_t>(p), 1);
+
+    // Depth: one image shared by all planes (cleared at the start of each plane's render pass).
+    makeImage(pw, ph, 1, depthFmt, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, m_planarDepthImage, m_planarDepthMemory);
+    m_planarDepthView = makeView(m_planarDepthImage, depthFmt, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_VIEW_TYPE_2D, 0, 1);
+
+    // Dummy 1x1 array image: the mirror-pass copy of set=2 binds this at binding 5, because the real planar
+    // array has a layer that is a framebuffer attachment while the mirror passes are recorded.
+    makeImage(1, 1, 1, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, m_planarDummyImage, m_planarDummyMemory);
+    m_planarDummyView = makeView(m_planarDummyImage, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_VIEW_TYPE_2D_ARRAY, 0, 1);
+
+    // Render pass: same attachment formats / samples as m_renderPass (=> compatible), but the colour layer
+    // ends in SHADER_READ_ONLY_OPTIMAL and is made visible to fragment shaders.
+    VkAttachmentDescription color{};
+    color.format         = colorFmt;
+    color.samples        = VK_SAMPLE_COUNT_1_BIT;
+    color.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    color.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+    color.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    color.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    color.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+    color.finalLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkAttachmentDescription depth{};
+    depth.format         = depthFmt;
+    depth.samples        = VK_SAMPLE_COUNT_1_BIT;
+    depth.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depth.storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depth.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    depth.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depth.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+    depth.finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    VkAttachmentReference colorRef{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+    VkAttachmentReference depthRef{ 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount    = 1;
+    subpass.pColorAttachments       = &colorRef;
+    subpass.pDepthStencilAttachment = &depthRef;
+
+    VkSubpassDependency deps[2]{};
+    deps[0].srcSubpass    = VK_SUBPASS_EXTERNAL;                               // earlier frames' fragment reads / earlier planes' writes
+    deps[0].dstSubpass    = 0;
+    deps[0].srcStageMask  = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    deps[0].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;      // the shared depth image is reused by the next plane
+    deps[0].dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    deps[1].srcSubpass    = 0;                                                  // mirror pass -> main pass fragment reads
+    deps[1].dstSubpass    = VK_SUBPASS_EXTERNAL;
+    deps[1].srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    deps[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    deps[1].dstStageMask  = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    deps[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+    std::array<VkAttachmentDescription, 2> attachments = { color, depth };
+    VkRenderPassCreateInfo rpci{};
+    rpci.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    rpci.attachmentCount = static_cast<uint32_t>(attachments.size());
+    rpci.pAttachments    = attachments.data();
+    rpci.subpassCount    = 1;
+    rpci.pSubpasses      = &subpass;
+    rpci.dependencyCount = 2;
+    rpci.pDependencies   = deps;
+    if (vkCreateRenderPass(m_device, &rpci, nullptr, &m_planarRenderPass) != VK_SUCCESS)
+        throw std::runtime_error("[VulkanRenderer] Planar reflection render pass creation failed.");
+
+    for (int p = 0; p < MAX_PLANAR_PLANES; ++p)
+    {
+        std::array<VkImageView, 2> fbViews = { m_planarLayerViews[p], m_planarDepthView };
+        VkFramebufferCreateInfo fci{};
+        fci.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        fci.renderPass      = m_planarRenderPass;
+        fci.attachmentCount = static_cast<uint32_t>(fbViews.size());
+        fci.pAttachments    = fbViews.data();
+        fci.width           = pw;
+        fci.height          = ph;
+        fci.layers          = 1;
+        if (vkCreateFramebuffer(m_device, &fci, nullptr, &m_planarFramebuffers[p]) != VK_SUCCESS)
+            throw std::runtime_error("[VulkanRenderer] Planar reflection framebuffer creation failed.");
+    }
+
+    VkSamplerCreateInfo si{};
+    si.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    si.magFilter    = VK_FILTER_LINEAR;
+    si.minFilter    = VK_FILTER_LINEAR;
+    si.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    si.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    si.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    si.minLod       = 0.0f;
+    si.maxLod       = 0.0f;
+    if (vkCreateSampler(m_device, &si, nullptr, &m_planarSampler) != VK_SUCCESS)
+        throw std::runtime_error("[VulkanRenderer] Planar reflection sampler creation failed.");
+
+    // Initial layout: SHADER_READ_ONLY_OPTIMAL for every layer + the dummy, so the set=2 descriptors are valid
+    // before the first mirror pass.  (Each plane's render pass then loads UNDEFINED and ends read-only again.)
+    VkCommandBuffer cmd = BeginSingleTimeCommands();
+    VkImageMemoryBarrier b[2]{};
+    for (int k = 0; k < 2; ++k)
+    {
+        b[k].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        b[k].oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+        b[k].newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        b[k].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b[k].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b[k].srcAccessMask       = 0;
+        b[k].dstAccessMask       = VK_ACCESS_SHADER_READ_BIT;
+    }
+    b[0].image            = m_planarImage;
+    b[0].subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, MAX_PLANAR_PLANES };
+    b[1].image            = m_planarDummyImage;
+    b[1].subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                         0, 0, nullptr, 0, nullptr, 2, b);
+    EndSingleTimeCommands(cmd);
+
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"[VulkanRenderer] Planar reflection target created (%d x %d x %d planes)",
+        m_planarW, m_planarH, MAX_PLANAR_PLANES);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Live scene capture resources (see "Live scene capture" in Lights.h).  Non-throwing: on any failure
+// m_capFailed stays true and the reflections keep using the sky cube.
+// ---------------------------------------------------------------------------------------------------------------
+void VulkanRenderer::CreateCaptureResourcesVK()
+{
+    m_capFailed = true;
+    if (m_device == VK_NULL_HANDLE || m_reflSize <= 0 || m_reflMips <= 0) return;
+
+    const VkFormat fmt = m_swapchainFormat;
+    switch (fmt)
+    {
+        case VK_FORMAT_B8G8R8A8_UNORM: m_capBGR = true;  m_capSRGB = false; break;
+        case VK_FORMAT_B8G8R8A8_SRGB:  m_capBGR = true;  m_capSRGB = true;  break;
+        case VK_FORMAT_R8G8B8A8_UNORM: m_capBGR = false; m_capSRGB = false; break;
+        case VK_FORMAT_R8G8B8A8_SRGB:  m_capBGR = false; m_capSRGB = true;  break;
+        default:
+            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[VulkanRenderer] Live reflection capture unavailable (swapchain format %d).", static_cast<int>(fmt));
+            return;
+    }
+    VkFormatProperties fp{};
+    vkGetPhysicalDeviceFormatProperties(m_physicalDevice, fmt, &fp);
+    const VkFormatFeatureFlags need = VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
+                                      VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT | VK_FORMAT_FEATURE_BLIT_SRC_BIT |
+                                      VK_FORMAT_FEATURE_BLIT_DST_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
+    if ((fp.optimalTilingFeatures & need) != need)
+    {
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"[VulkanRenderer] Live reflection capture unavailable (format lacks blit/attachment support).");
+        return;
+    }
+
+    try
+    {
+        const uint32_t size = static_cast<uint32_t>(m_reflSize);
+        const uint32_t mips = static_cast<uint32_t>(m_reflMips);
+        const VkFormat depthFmt = FindDepthFormat();
+
+        // --- colour cube ---
+        VkImageCreateInfo ci{};
+        ci.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        ci.flags         = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+        ci.imageType     = VK_IMAGE_TYPE_2D;
+        ci.extent        = { size, size, 1 };
+        ci.mipLevels     = mips;
+        ci.arrayLayers   = 6;
+        ci.format        = fmt;
+        ci.tiling        = VK_IMAGE_TILING_OPTIMAL;
+        ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        ci.usage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                           VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        ci.samples       = VK_SAMPLE_COUNT_1_BIT;
+        ci.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+        if (vkCreateImage(m_device, &ci, nullptr, &m_capImage) != VK_SUCCESS)
+            throw std::runtime_error("capture image");
+        VkMemoryRequirements req;
+        vkGetImageMemoryRequirements(m_device, m_capImage, &req);
+        VkMemoryAllocateInfo ai{};
+        ai.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        ai.allocationSize  = req.size;
+        ai.memoryTypeIndex = FindMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        if (vkAllocateMemory(m_device, &ai, nullptr, &m_capMemory) != VK_SUCCESS)
+            throw std::runtime_error("capture memory");
+        vkBindImageMemory(m_device, m_capImage, m_capMemory, 0);
+
+        auto makeView = [this, fmt](VkImageViewType type, uint32_t baseLayer, uint32_t layers, uint32_t levels) -> VkImageView
+        {
+            VkImageViewCreateInfo vi{};
+            vi.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            vi.image                           = m_capImage;
+            vi.viewType                        = type;
+            vi.format                          = fmt;
+            vi.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+            vi.subresourceRange.baseMipLevel   = 0;
+            vi.subresourceRange.levelCount     = levels;
+            vi.subresourceRange.baseArrayLayer = baseLayer;
+            vi.subresourceRange.layerCount     = layers;
+            VkImageView v = VK_NULL_HANDLE;
+            if (vkCreateImageView(m_device, &vi, nullptr, &v) != VK_SUCCESS)
+                throw std::runtime_error("capture view");
+            return v;
+        };
+        m_capCubeView = makeView(VK_IMAGE_VIEW_TYPE_CUBE, 0, 6, mips);
+        for (uint32_t f = 0; f < 6; ++f)
+            m_capFaceViews[f] = makeView(VK_IMAGE_VIEW_TYPE_2D, f, 1, 1);
+
+        // --- depth ---
+        CreateImage(size, size, depthFmt, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_capDepthImage, m_capDepthMemory);
+        m_capDepthView = CreateImageView(m_capDepthImage, depthFmt, VK_IMAGE_ASPECT_DEPTH_BIT);
+        if (m_capDepthView == VK_NULL_HANDLE)
+            throw std::runtime_error("capture depth view");
+
+        // --- render pass: LOAD the sky copy, compatible with m_renderPass (same formats / samples) ---
+        VkAttachmentDescription color{};
+        color.format         = fmt;
+        color.samples        = VK_SAMPLE_COUNT_1_BIT;
+        color.loadOp         = VK_ATTACHMENT_LOAD_OP_LOAD;
+        color.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+        color.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        color.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        color.initialLayout  = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;           // left there by the sky copy
+        color.finalLayout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        VkAttachmentDescription depth{};
+        depth.format         = depthFmt;
+        depth.samples        = VK_SAMPLE_COUNT_1_BIT;
+        depth.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        depth.storeOp        = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depth.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        depth.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depth.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+        depth.finalLayout    = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        VkAttachmentReference colorRef{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+        VkAttachmentReference depthRef{ 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+        VkSubpassDescription subpass{};
+        subpass.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subpass.colorAttachmentCount    = 1;
+        subpass.pColorAttachments       = &colorRef;
+        subpass.pDepthStencilAttachment = &depthRef;
+        VkSubpassDependency deps[2]{};
+        deps[0].srcSubpass    = VK_SUBPASS_EXTERNAL;                           // sky copy + earlier faces' depth use
+        deps[0].dstSubpass    = 0;
+        deps[0].srcStageMask  = VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        deps[0].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        deps[0].dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+        deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        deps[1].srcSubpass    = 0;
+        deps[1].dstSubpass    = VK_SUBPASS_EXTERNAL;
+        deps[1].srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        deps[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        deps[1].dstStageMask  = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT;
+        deps[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT;
+        std::array<VkAttachmentDescription, 2> attachments = { color, depth };
+        VkRenderPassCreateInfo rpci{};
+        rpci.sType           = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        rpci.attachmentCount = static_cast<uint32_t>(attachments.size());
+        rpci.pAttachments    = attachments.data();
+        rpci.subpassCount    = 1;
+        rpci.pSubpasses      = &subpass;
+        rpci.dependencyCount = 2;
+        rpci.pDependencies   = deps;
+        if (vkCreateRenderPass(m_device, &rpci, nullptr, &m_capRenderPass) != VK_SUCCESS)
+            throw std::runtime_error("capture render pass");
+
+        for (uint32_t f = 0; f < 6; ++f)
+        {
+            std::array<VkImageView, 2> fbViews = { m_capFaceViews[f], m_capDepthView };
+            VkFramebufferCreateInfo fci{};
+            fci.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            fci.renderPass      = m_capRenderPass;
+            fci.attachmentCount = static_cast<uint32_t>(fbViews.size());
+            fci.pAttachments    = fbViews.data();
+            fci.width           = size;
+            fci.height          = size;
+            fci.layers          = 1;
+            if (vkCreateFramebuffer(m_device, &fci, nullptr, &m_capFramebuffers[f]) != VK_SUCCESS)
+                throw std::runtime_error("capture framebuffer");
+        }
+
+        // --- staging (one face of converted sky pixels per frame in flight) ---
+        const VkDeviceSize stagingBytes = static_cast<VkDeviceSize>(size) * size * 4u;
+        for (uint32_t f = 0; f < VK_MAX_FRAMES_IN_FLIGHT; ++f)
+        {
+            CreateBuffer(stagingBytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                         m_capStaging[f], m_capStagingMemory[f]);
+            vkMapMemory(m_device, m_capStagingMemory[f], 0, stagingBytes, 0, &m_capStagingMapped[f]);
+        }
+
+        // Initial layout: SHADER_READ_ONLY_OPTIMAL for every mip / face.
+        VkCommandBuffer cmd = BeginSingleTimeCommands();
+        VkImageMemoryBarrier b{};
+        b.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        b.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+        b.newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image               = m_capImage;
+        b.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, mips, 0, 6 };
+        b.srcAccessMask       = 0;
+        b.dstAccessMask       = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                             0, 0, nullptr, 0, nullptr, 1, &b);
+        EndSingleTimeCommands(cmd);
+
+        m_capSkyConvVersion = 0;
+        m_capFailed = false;
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[VulkanRenderer] Live reflection capture created (%d px)", m_reflSize);
+    }
+    catch (const std::exception& e)
+    {
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"[VulkanRenderer] Live reflection capture unavailable (%hs).", e.what());
+        ReleaseCaptureResourcesVK();
+        m_capFailed = true;
+    }
+}
+
+// Caller guarantees the GPU is idle (Cleanup path).
+void VulkanRenderer::ReleaseCaptureResourcesVK()
+{
+    g_reflectionCapture.ready = false;
+    if (m_device == VK_NULL_HANDLE) return;
+
+    for (uint32_t f = 0; f < VK_MAX_FRAMES_IN_FLIGHT; ++f)
+    {
+        if (m_capStagingMapped[f])                  { vkUnmapMemory(m_device, m_capStagingMemory[f]); m_capStagingMapped[f] = nullptr; }
+        if (m_capStaging[f]       != VK_NULL_HANDLE) { vkDestroyBuffer(m_device, m_capStaging[f], nullptr);       m_capStaging[f]       = VK_NULL_HANDLE; }
+        if (m_capStagingMemory[f] != VK_NULL_HANDLE) { vkFreeMemory(m_device, m_capStagingMemory[f], nullptr);    m_capStagingMemory[f] = VK_NULL_HANDLE; }
+    }
+    for (auto& fb : m_capFramebuffers)
+        if (fb != VK_NULL_HANDLE) { vkDestroyFramebuffer(m_device, fb, nullptr); fb = VK_NULL_HANDLE; }
+    if (m_capRenderPass != VK_NULL_HANDLE) { vkDestroyRenderPass(m_device, m_capRenderPass, nullptr); m_capRenderPass = VK_NULL_HANDLE; }
+    if (m_capDepthView  != VK_NULL_HANDLE) { vkDestroyImageView(m_device, m_capDepthView, nullptr);  m_capDepthView  = VK_NULL_HANDLE; }
+    if (m_capDepthImage != VK_NULL_HANDLE) { vkDestroyImage(m_device, m_capDepthImage, nullptr);     m_capDepthImage = VK_NULL_HANDLE; }
+    if (m_capDepthMemory!= VK_NULL_HANDLE) { vkFreeMemory(m_device, m_capDepthMemory, nullptr);      m_capDepthMemory= VK_NULL_HANDLE; }
+    for (auto& v : m_capFaceViews)
+        if (v != VK_NULL_HANDLE) { vkDestroyImageView(m_device, v, nullptr); v = VK_NULL_HANDLE; }
+    if (m_capCubeView   != VK_NULL_HANDLE) { vkDestroyImageView(m_device, m_capCubeView, nullptr);   m_capCubeView   = VK_NULL_HANDLE; }
+    if (m_capImage      != VK_NULL_HANDLE) { vkDestroyImage(m_device, m_capImage, nullptr);          m_capImage      = VK_NULL_HANDLE; }
+    if (m_capMemory     != VK_NULL_HANDLE) { vkFreeMemory(m_device, m_capMemory, nullptr);           m_capMemory     = VK_NULL_HANDLE; }
+    m_capFailed = true;
+}
+
+// Caller guarantees the GPU is idle (Cleanup path).
+void VulkanRenderer::ReleasePlanarResourcesVK()
+{
+    g_planarFrame.active   = false;
+    g_planarFrame.hasImage = false;
+    if (m_device == VK_NULL_HANDLE) return;
+
+    for (auto& fb : m_planarFramebuffers)
+        if (fb != VK_NULL_HANDLE) { vkDestroyFramebuffer(m_device, fb, nullptr); fb = VK_NULL_HANDLE; }
+    if (m_planarRenderPass  != VK_NULL_HANDLE) { vkDestroyRenderPass(m_device, m_planarRenderPass, nullptr);   m_planarRenderPass  = VK_NULL_HANDLE; }
+    if (m_planarSampler     != VK_NULL_HANDLE) { vkDestroySampler(m_device, m_planarSampler, nullptr);         m_planarSampler     = VK_NULL_HANDLE; }
+    for (auto& v : m_planarLayerViews)
+        if (v != VK_NULL_HANDLE) { vkDestroyImageView(m_device, v, nullptr); v = VK_NULL_HANDLE; }
+    if (m_planarView        != VK_NULL_HANDLE) { vkDestroyImageView(m_device, m_planarView, nullptr);          m_planarView        = VK_NULL_HANDLE; }
+    if (m_planarImage       != VK_NULL_HANDLE) { vkDestroyImage(m_device, m_planarImage, nullptr);             m_planarImage       = VK_NULL_HANDLE; }
+    if (m_planarMemory      != VK_NULL_HANDLE) { vkFreeMemory(m_device, m_planarMemory, nullptr);              m_planarMemory      = VK_NULL_HANDLE; }
+    if (m_planarDepthView   != VK_NULL_HANDLE) { vkDestroyImageView(m_device, m_planarDepthView, nullptr);     m_planarDepthView   = VK_NULL_HANDLE; }
+    if (m_planarDepthImage  != VK_NULL_HANDLE) { vkDestroyImage(m_device, m_planarDepthImage, nullptr);        m_planarDepthImage  = VK_NULL_HANDLE; }
+    if (m_planarDepthMemory != VK_NULL_HANDLE) { vkFreeMemory(m_device, m_planarDepthMemory, nullptr);         m_planarDepthMemory = VK_NULL_HANDLE; }
+    if (m_planarDummyView   != VK_NULL_HANDLE) { vkDestroyImageView(m_device, m_planarDummyView, nullptr);     m_planarDummyView   = VK_NULL_HANDLE; }
+    if (m_planarDummyImage  != VK_NULL_HANDLE) { vkDestroyImage(m_device, m_planarDummyImage, nullptr);        m_planarDummyImage  = VK_NULL_HANDLE; }
+    if (m_planarDummyMemory != VK_NULL_HANDLE) { vkFreeMemory(m_device, m_planarDummyMemory, nullptr);         m_planarDummyMemory = VK_NULL_HANDLE; }
+}
+
+// Caller guarantees the GPU is idle (Cleanup path).
+void VulkanRenderer::ReleaseReflectionResourcesVK()
+{
+    g_reflectionFrame.active = false;
+    m_reflProbe = ReflectionProbe{};
+    m_reflUploadedVersion = 0;
+    if (m_device == VK_NULL_HANDLE) return;
+
+    for (uint32_t f = 0; f < VK_MAX_FRAMES_IN_FLIGHT; ++f)
+    {
+        if (m_reflStagingMapped[f])                  { vkUnmapMemory(m_device, m_reflStagingMemory[f]); m_reflStagingMapped[f] = nullptr; }
+        if (m_reflStaging[f]       != VK_NULL_HANDLE) { vkDestroyBuffer(m_device, m_reflStaging[f], nullptr);       m_reflStaging[f]       = VK_NULL_HANDLE; }
+        if (m_reflStagingMemory[f] != VK_NULL_HANDLE) { vkFreeMemory(m_device, m_reflStagingMemory[f], nullptr);    m_reflStagingMemory[f] = VK_NULL_HANDLE; }
+    }
+    if (m_reflSampler != VK_NULL_HANDLE) { vkDestroySampler(m_device, m_reflSampler, nullptr);     m_reflSampler = VK_NULL_HANDLE; }
+    if (m_reflView    != VK_NULL_HANDLE) { vkDestroyImageView(m_device, m_reflView, nullptr);      m_reflView    = VK_NULL_HANDLE; }
+    if (m_reflImage   != VK_NULL_HANDLE) { vkDestroyImage(m_device, m_reflImage, nullptr);         m_reflImage   = VK_NULL_HANDLE; }
+    if (m_reflMemory  != VK_NULL_HANDLE) { vkFreeMemory(m_device, m_reflMemory, nullptr);          m_reflMemory  = VK_NULL_HANDLE; }
+}
+
+// Caller guarantees the GPU is idle (Cleanup path).
+void VulkanRenderer::ReleaseShadowResourcesVK()
+{
+    m_shadowResourcesReady = false;
+    if (m_device == VK_NULL_HANDLE) return;
+
+    ReleaseReflectionResourcesVK();
+
+    if (m_shadowPipeline       != VK_NULL_HANDLE) { vkDestroyPipeline(m_device, m_shadowPipeline, nullptr);             m_shadowPipeline       = VK_NULL_HANDLE; }
+    if (m_shadowPipelineLayout != VK_NULL_HANDLE) { vkDestroyPipelineLayout(m_device, m_shadowPipelineLayout, nullptr); m_shadowPipelineLayout = VK_NULL_HANDLE; }
+    if (m_shadowDirFramebuffer != VK_NULL_HANDLE) { vkDestroyFramebuffer(m_device, m_shadowDirFramebuffer, nullptr);    m_shadowDirFramebuffer = VK_NULL_HANDLE; }
+    for (auto& fb : m_shadowLocalFramebuffers)
+        if (fb != VK_NULL_HANDLE) { vkDestroyFramebuffer(m_device, fb, nullptr); fb = VK_NULL_HANDLE; }
+    if (m_shadowRenderPass     != VK_NULL_HANDLE) { vkDestroyRenderPass(m_device, m_shadowRenderPass, nullptr);        m_shadowRenderPass     = VK_NULL_HANDLE; }
+
+    for (auto& ds : m_3dFrameSets)
+        if (ds != VK_NULL_HANDLE && m_descriptorPool != VK_NULL_HANDLE) { vkFreeDescriptorSets(m_device, m_descriptorPool, 1, &ds); ds = VK_NULL_HANDLE; }
+    for (auto& ds : m_3dFrameSetsLive)
+        if (ds != VK_NULL_HANDLE && m_descriptorPool != VK_NULL_HANDLE) { vkFreeDescriptorSets(m_device, m_descriptorPool, 1, &ds); ds = VK_NULL_HANDLE; }
+    for (auto& ds : m_3dFrameSetsMirror)
+        if (ds != VK_NULL_HANDLE && m_descriptorPool != VK_NULL_HANDLE) { vkFreeDescriptorSets(m_device, m_descriptorPool, 1, &ds); ds = VK_NULL_HANDLE; }
+    ReleaseCaptureResourcesVK();
+    ReleasePlanarResourcesVK();
+
+    if (m_shadowSampler        != VK_NULL_HANDLE) { vkDestroySampler(m_device, m_shadowSampler, nullptr);               m_shadowSampler        = VK_NULL_HANDLE; }
+    for (auto& v : m_shadowLocalLayerViews)
+        if (v != VK_NULL_HANDLE) { vkDestroyImageView(m_device, v, nullptr); v = VK_NULL_HANDLE; }
+    if (m_shadowLocalArrayView != VK_NULL_HANDLE) { vkDestroyImageView(m_device, m_shadowLocalArrayView, nullptr);     m_shadowLocalArrayView = VK_NULL_HANDLE; }
+    if (m_shadowDirView        != VK_NULL_HANDLE) { vkDestroyImageView(m_device, m_shadowDirView, nullptr);            m_shadowDirView        = VK_NULL_HANDLE; }
+    if (m_shadowLocalImage     != VK_NULL_HANDLE) { vkDestroyImage(m_device, m_shadowLocalImage, nullptr);             m_shadowLocalImage     = VK_NULL_HANDLE; }
+    if (m_shadowLocalMemory    != VK_NULL_HANDLE) { vkFreeMemory(m_device, m_shadowLocalMemory, nullptr);              m_shadowLocalMemory    = VK_NULL_HANDLE; }
+    if (m_shadowDirImage       != VK_NULL_HANDLE) { vkDestroyImage(m_device, m_shadowDirImage, nullptr);               m_shadowDirImage       = VK_NULL_HANDLE; }
+    if (m_shadowDirMemory      != VK_NULL_HANDLE) { vkFreeMemory(m_device, m_shadowDirMemory, nullptr);                m_shadowDirMemory      = VK_NULL_HANDLE; }
+
+    for (uint32_t f = 0; f < VK_MAX_FRAMES_IN_FLIGHT; ++f)
+    {
+        if (m_lightUBOMapped[f])                 { vkUnmapMemory(m_device, m_lightUBOMemory[f]);  m_lightUBOMapped[f]  = nullptr; }
+        if (m_lightUBO[f]       != VK_NULL_HANDLE) { vkDestroyBuffer(m_device, m_lightUBO[f], nullptr);     m_lightUBO[f]       = VK_NULL_HANDLE; }
+        if (m_lightUBOMemory[f] != VK_NULL_HANDLE) { vkFreeMemory(m_device, m_lightUBOMemory[f], nullptr);  m_lightUBOMemory[f] = VK_NULL_HANDLE; }
+        if (m_shadowUBOMirrorMapped[f])          { vkUnmapMemory(m_device, m_shadowUBOMirrorMemory[f]); m_shadowUBOMirrorMapped[f] = nullptr; }
+        if (m_shadowUBOMirror[f]       != VK_NULL_HANDLE) { vkDestroyBuffer(m_device, m_shadowUBOMirror[f], nullptr);    m_shadowUBOMirror[f]       = VK_NULL_HANDLE; }
+        if (m_shadowUBOMirrorMemory[f] != VK_NULL_HANDLE) { vkFreeMemory(m_device, m_shadowUBOMirrorMemory[f], nullptr); m_shadowUBOMirrorMemory[f] = VK_NULL_HANDLE; }
+        if (m_shadowUBOMapped[f])                { vkUnmapMemory(m_device, m_shadowUBOMemory[f]); m_shadowUBOMapped[f] = nullptr; }
+        if (m_shadowUBO[f]       != VK_NULL_HANDLE) { vkDestroyBuffer(m_device, m_shadowUBO[f], nullptr);    m_shadowUBO[f]       = VK_NULL_HANDLE; }
+        if (m_shadowUBOMemory[f] != VK_NULL_HANDLE) { vkFreeMemory(m_device, m_shadowUBOMemory[f], nullptr); m_shadowUBOMemory[f] = VK_NULL_HANDLE; }
+    }
 }
 
 bool VulkanRenderer::CheckValidationLayerSupport() const
@@ -3421,6 +4782,48 @@ void VulkanRenderer::Blit2DAtlasTile(BlitObj2DIndexType iIndex, int iTileIndex, 
     if (tileRow >= tilesPerCol) return;                                        // Out-of-range index — guard against corrupt map data
 
     Blit2DObjectAtOffset(iIndex, iDestX, iDestY, tileCol * iTileSizeX, tileRow * iTileSizeY, iTileSizeX, iTileSizeY);
+}
+
+// Stretches the image to iWidth x iHeight while shifting its sampled content HORIZONTALLY by
+// scrollFraction * bitmap-width pixels, wrapping around the bitmap width, so the image's own
+// colour banding appears to travel sideways across the fixed destination rect. Drawn as two
+// DrawBitmap calls. reverseDirection=false travels left->right, true travels right->left.
+void VulkanRenderer::Blit2DScrollingObjectToSize(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float scrollFraction, bool reverseDirection)
+{
+    int idx = static_cast<int>(iIndex);
+    if (idx < 0 || idx >= MAX_TEXTURE_BUFFERS) return;
+    ComPtr<ID2D1Bitmap>       bitmap = m_d2dTextures[idx];
+    ComPtr<ID2D1RenderTarget> rt     = m_d2dRenderTarget;
+    if (!bitmap || !rt) return;
+
+    D2D1_SIZE_F bmpSize = bitmap->GetSize();
+    int bmpW = static_cast<int>(bmpSize.width);
+    int bmpH = static_cast<int>(bmpSize.height);
+    if (bmpW <= 0 || bmpH <= 0 || iWidth <= 0 || iHeight <= 0) return;
+
+    float wrappedFrac = scrollFraction - std::floor(scrollFraction);
+    float xOffFrac = reverseDirection ? wrappedFrac : (1.0f - wrappedFrac);
+    xOffFrac -= std::floor(xOffFrac);
+    int xOff = static_cast<int>(xOffFrac * static_cast<float>(bmpW));
+
+    int srcW1 = bmpW - xOff;
+    float scaleX = static_cast<float>(iWidth) / static_cast<float>(bmpW);
+    int destW1 = static_cast<int>(srcW1 * scaleX);
+
+    // Part 1: source columns [xOff, bmpW) drawn at the left of the destination rect
+    D2D1_RECT_F src1  = D2D1::RectF(static_cast<float>(xOff), 0.0f, static_cast<float>(bmpW), static_cast<float>(bmpH));
+    D2D1_RECT_F dest1 = D2D1::RectF(static_cast<float>(iX), static_cast<float>(iY),
+                                     static_cast<float>(iX + destW1), static_cast<float>(iY + iHeight));
+    rt->DrawBitmap(bitmap.Get(), dest1, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, src1);
+
+    // Part 2: wrapped source columns [0, xOff) drawn to the right of part 1
+    if (destW1 < iWidth)
+    {
+        D2D1_RECT_F src2  = D2D1::RectF(0.0f, 0.0f, static_cast<float>(xOff), static_cast<float>(bmpH));
+        D2D1_RECT_F dest2 = D2D1::RectF(static_cast<float>(iX + destW1), static_cast<float>(iY),
+                                         static_cast<float>(iX + iWidth), static_cast<float>(iY + iHeight));
+        rt->DrawBitmap(bitmap.Get(), dest2, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, src2);
+    }
 }
 
 void VulkanRenderer::Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, int iDestY, int iDestW, int iDestH, float zoomFactor)

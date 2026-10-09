@@ -1,0 +1,13 @@
+==================================================================================================
+HISTORY: DX12TitlePipeline.h
+Created: 09-10-2026 (Melbourne)   Merge: TSOO -> CPGE2026 ("merge updates to CPGE")
+==================================================================================================
+WHAT CHANGED
+NEW FILE. Native D3D12 SCENE_GAMETITLE layer (background, logos, starfield, fireworks, title logo) and DX12GpuProfiler timestamp queries. Added to CMakeLists.txt; CrossPlatformGameEngine.vcxproj must be edited by hand (protected file).
+
+WHY
+Engine-level work done in the TSOO project (shadows, reflections, emission, AA/MSAA, GUI capture, release diagnostics,
+DX12 title pipeline, music-player coexistence, scene inject/remove API) carried into the CPGE2026 base. PROJECT_ONLY_CODE
+blocks, TSOO identity constants and protected files were excluded. Nothing was built or run (UNVERIFIED).
+
+NEW FILE - there is no previous version. To reverse: delete the file and remove it from CMakeLists.txt (and the vcxproj if added).

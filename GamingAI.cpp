@@ -93,18 +93,14 @@ bool GamingAI::Initialize(const AIModelConfiguration& config) {
 
     // Prevent double initialization
     if (m_isInitialized.load()) {
-        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"GamingAI already initialized - skipping");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"GamingAI already initialized - skipping");
         return true;                                                    // Already initialized
     }
 
     // Use ThreadLockHelper for thread-safe initialization
     ThreadLockHelper initLock(threadManager, "gamingai_init", 5000);
     if (!initLock.IsLocked()) {
-        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire initialization lock - cannot initialize GamingAI");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire initialization lock - cannot initialize GamingAI");
         return false;                                                   // Failed to acquire lock
     }
 
@@ -114,16 +110,12 @@ bool GamingAI::Initialize(const AIModelConfiguration& config) {
 
         // Validate configuration parameters
         if (m_configuration.maxModelSizeBytes < 1024 * 1024) {          // Minimum 1MB model size
-            #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"Model size too small, setting to minimum 1MB");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Model size too small, setting to minimum 1MB");
             m_configuration.maxModelSizeBytes = 1024 * 1024;            // Set minimum size
         }
 
         if (m_configuration.analysisIntervalSeconds < 10) {             // Minimum 10 second analysis interval
-            #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"Analysis interval too short, setting to minimum 10 seconds");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Analysis interval too short, setting to minimum 10 seconds");
             m_configuration.analysisIntervalSeconds = 10;               // Set minimum interval
         }
 
@@ -131,9 +123,7 @@ bool GamingAI::Initialize(const AIModelConfiguration& config) {
         #if defined(PLATFORM_WINDOWS)
         m_performanceTimer = CreateWaitableTimer(NULL, TRUE, NULL);     // Create Windows waitable timer
         if (m_performanceTimer == NULL) {
-            #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to create Windows performance timer");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to create Windows performance timer");
             return false;                                               // Failed to create timer
         }
         #elif defined(PLATFORM_LINUX) || defined(PLATFORM_MACOS)
@@ -153,9 +143,7 @@ bool GamingAI::Initialize(const AIModelConfiguration& config) {
 #endif
 
             if (!LoadAIModel(modelPath)) {
-                #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                    debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to load existing AI model - creating new model");
-                #endif
+                debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Failed to load existing AI model - creating new model");
                 ResetAIModel();                                         // Create new model if loading fails
             }
         }
@@ -184,9 +172,7 @@ bool GamingAI::Initialize(const AIModelConfiguration& config) {
         return true;                                                    // Initialization successful
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception during GamingAI initialization: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception during GamingAI initialization: %S", e.what());
         return false;                                                   // Initialization failed
     }
 }
@@ -224,9 +210,7 @@ void GamingAI::Cleanup() {
         if (m_isInitialized.load() && m_currentModelSize.load() > 0) {
             std::string modelPath = GetDefaultModelFilename();         // Get model save path
             if (!SaveAIModel(modelPath)) {
-                #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                    debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to save AI model during cleanup");
-                #endif
+                debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Failed to save AI model during cleanup");
             }
         }
 
@@ -268,9 +252,7 @@ void GamingAI::Cleanup() {
         #endif
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception during GamingAI cleanup: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception during GamingAI cleanup: %S", e.what());
     }
 }
 
@@ -286,26 +268,20 @@ bool GamingAI::StartMonitoring() {
 
     // Check if system is initialized
     if (!m_isInitialized.load()) {
-        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Cannot start monitoring - GamingAI system not initialized");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Cannot start monitoring - GamingAI system not initialized");
         return false;                                                   // System not initialized
     }
 
     // Check if already monitoring
     if (m_isMonitoring.load()) {
-        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Already monitoring player behavior - ignoring start request");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Already monitoring player behavior - ignoring start request");
         return true;                                                    // Already monitoring
     }
 
     // Use ThreadLockHelper for thread-safe monitoring state change
     ThreadLockHelper monitorLock(threadManager, "gamingai_monitor_start", 3000);
     if (!monitorLock.IsLocked()) {
-        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire monitoring lock - cannot start monitoring");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire monitoring lock - cannot start monitoring");
         return false;                                                   // Failed to acquire lock
     }
 
@@ -379,9 +355,7 @@ bool GamingAI::StartMonitoring() {
         return true;                                                    // Monitoring started successfully
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception starting monitoring: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception starting monitoring: %S", e.what());
 
         // Ensure monitoring flag is cleared on error
         m_isMonitoring.store(false);                                    // Clear monitoring state
@@ -397,18 +371,14 @@ bool GamingAI::EndMonitoring() {
 
     // Check if currently monitoring
     if (!m_isMonitoring.load()) {
-        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Not currently monitoring - ignoring end request");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Not currently monitoring - ignoring end request");
         return true;                                                    // Not monitoring, nothing to stop
     }
 
     // Use ThreadLockHelper for thread-safe monitoring state change
     ThreadLockHelper monitorLock(threadManager, "gamingai_monitor_end", 3000);
     if (!monitorLock.IsLocked()) {
-        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire monitoring lock - forcing monitoring stop");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire monitoring lock - forcing monitoring stop");
 
         // Force stop monitoring even without lock in emergency situations
         m_isMonitoring.store(false);                                    // Force clear monitoring state
@@ -481,9 +451,7 @@ bool GamingAI::EndMonitoring() {
         return true;                                                    // Monitoring stopped successfully
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception stopping monitoring: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception stopping monitoring: %S", e.what());
 
         // Ensure monitoring flag is cleared even on error
         m_isMonitoring.store(false);                                    // Force clear monitoring state
@@ -541,9 +509,7 @@ void GamingAI::CollectPlayerPositionData(uint32_t playerID, const Vector2& posit
         }
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Exception collecting position data: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Exception collecting position data: %S", e.what());
     }
 }
 
@@ -575,9 +541,7 @@ void GamingAI::CollectInputEventData(uint32_t inputType, uint32_t inputValue) {
         }
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Exception collecting input data: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Exception collecting input data: %S", e.what());
     }
 }
 
@@ -595,26 +559,20 @@ bool GamingAI::InjectAICommand(AICommandType commandType, AICommandPriority prio
 
     // Check if system is initialized
     if (!m_isInitialized.load()) {
-    #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Cannot inject AI command - system not initialized");
-    #endif
+    debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Cannot inject AI command - system not initialized");
         return false;                                                   // System not initialized
     }
 
     // Check if shutdown is requested
     if (m_shouldShutdown.load()) {
-        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Cannot inject AI command - system shutting down");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Cannot inject AI command - system shutting down");
         return false;                                                   // System shutting down
     }
 
     // Use ThreadLockHelper for thread-safe command queue access
     ThreadLockHelper queueLock(threadManager, "gamingai_command_queue", 2000);
     if (!queueLock.IsLocked()) {
-        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire command queue lock - command rejected");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire command queue lock - command rejected");
         return false;                                                   // Failed to acquire lock
     }
 
@@ -626,19 +584,15 @@ bool GamingAI::InjectAICommand(AICommandType commandType, AICommandPriority prio
         if (playerID > 0) {
                 // Check if specified player ID is valid and active
                 if (!gamePlayer.IsPlayerValid(static_cast<int>(playerID))) {
-                #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                    debug.logDebugMessage(LogLevel::LOG_WARNING,
-                        L"Invalid player ID %u in AI command - using player 0", playerID);
-                #endif
+                debug.logDiagMessage(LogLevel::LOG_WARNING,
+                    L"Invalid player ID %u in AI command - using player 0", playerID);
                 newCommand.playerID = 0;                                // Default to player 0
             }
         }
 
         // Check command queue size to prevent memory exhaustion
         if (m_commandQueue.size() >= 1000) {                           // Maximum 1000 pending commands
-            #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"AI command queue full - removing oldest low priority commands");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"AI command queue full - removing oldest low priority commands");
 
             // Remove low priority commands to make space for new command
             std::priority_queue<AICommand> tempQueue;                  // Temporary queue for rebuilding
@@ -670,9 +624,7 @@ bool GamingAI::InjectAICommand(AICommandType commandType, AICommandPriority prio
 
         // Handle emergency commands immediately
         if (priority >= AICommandPriority::PRIORITY_EMERGENCY) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Emergency AI command injected - immediate processing required");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_CRITICAL, L"Emergency AI command injected - immediate processing required");
 
             // Wake up AI thread immediately for emergency processing
             m_commandAvailableCV.notify_all();                         // Notify AI thread immediately
@@ -691,9 +643,7 @@ bool GamingAI::InjectAICommand(AICommandType commandType, AICommandPriority prio
         return true;                                                    // Command injected successfully
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception injecting AI command: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception injecting AI command: %S", e.what());
         return false;                                                   // Failed to inject command
     }
 }
@@ -703,9 +653,7 @@ size_t GamingAI::GetCommandQueueSize() const {
     // Use ThreadLockHelper for thread-safe queue size access
     ThreadLockHelper queueLock(threadManager, "gamingai_queue_size", 500, true); // Silent with short timeout
     if (!queueLock.IsLocked()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for queue size - returning approximate size");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for queue size - returning approximate size");
         return 0;                                                       // Cannot determine size safely
     }
 
@@ -719,9 +667,7 @@ size_t GamingAI::GetCommandQueueSize() const {
         return queueSize;                                               // Return queue size
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Exception getting queue size: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Exception getting queue size: %S", e.what());
         return 0;                                                       // Return 0 on error
     }
 }
@@ -735,9 +681,7 @@ void GamingAI::ClearCommandQueue() {
     // Use ThreadLockHelper for thread-safe queue clearing
     ThreadLockHelper queueLock(threadManager, "gamingai_queue_clear", 3000);
     if (!queueLock.IsLocked()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire lock for queue clear - forcing clear");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire lock for queue clear - forcing clear");
         // Force clear even without lock in emergency situations
     }
 
@@ -753,9 +697,7 @@ void GamingAI::ClearCommandQueue() {
 #endif
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception clearing command queue: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception clearing command queue: %S", e.what());
     }
 }
 
@@ -847,9 +789,7 @@ void GamingAI::ProcessAICommand(const AICommand& command) {
 
             std::string filename = command.commandData.empty() ? GetDefaultModelFilename() : command.commandData;
             if (!SaveModelToDisk(filename)) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to save AI model during command processing");
-#endif
+                debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to save AI model during command processing");
             }
             break;
         }
@@ -862,9 +802,7 @@ void GamingAI::ProcessAICommand(const AICommand& command) {
 
             std::string filename = command.commandData.empty() ? GetDefaultModelFilename() : command.commandData;
             if (!LoadModelFromDisk(filename)) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to load AI model during command processing");
-#endif
+                debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to load AI model during command processing");
             }
             break;
         }
@@ -930,9 +868,7 @@ void GamingAI::ProcessAICommand(const AICommand& command) {
 
         case AICommandType::CMD_EMERGENCY_SHUTDOWN:
         {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Processing emergency shutdown command");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_CRITICAL, L"Processing emergency shutdown command");
 
             // Set shutdown flag and force immediate cleanup
             m_shouldShutdown.store(true);                           // Signal shutdown
@@ -946,10 +882,8 @@ void GamingAI::ProcessAICommand(const AICommand& command) {
 
         default:
         {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING,
+            debug.logDiagMessage(LogLevel::LOG_WARNING,
                 L"Unknown AI command type: 0x%08X - ignoring command", static_cast<uint32_t>(command.commandType));
-#endif
             break;
         }
         }
@@ -982,10 +916,8 @@ void GamingAI::ProcessAICommand(const AICommand& command) {
 #endif
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION,
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION,
             L"Exception processing AI command 0x%08X: %S", static_cast<uint32_t>(command.commandType), e.what());
-#endif
     }
 }
 
@@ -1001,9 +933,7 @@ AIAnalysisResult GamingAI::ReturnAIAnalysis() {
 
     // Check if system is initialized
     if (!m_isInitialized.load()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Cannot return analysis - GamingAI system not initialized");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Cannot return analysis - GamingAI system not initialized");
 
         // Return empty result with error indication
         AIAnalysisResult emptyResult;
@@ -1015,9 +945,7 @@ AIAnalysisResult GamingAI::ReturnAIAnalysis() {
     // Use ThreadLockHelper for thread-safe analysis data access with extended timeout
     ThreadLockHelper analysisLock(threadManager, "gamingai_analysis_result", 5000);
     if (!analysisLock.IsLocked()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire analysis lock - returning last known results");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire analysis lock - returning last known results");
 
         // Return last known analysis with warning
         AIAnalysisResult warningResult = m_currentAnalysisResult;
@@ -1072,11 +1000,9 @@ AIAnalysisResult GamingAI::ReturnAIAnalysis() {
 #endif
                 }
                 else {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                    debug.logDebugMessage(LogLevel::LOG_WARNING,
+                    debug.logDiagMessage(LogLevel::LOG_WARNING,
                         L"Player %u analysis data failed validation - excluding from results",
                         static_cast<uint32_t>(playerID));
-#endif
                 }
             }
         }
@@ -1101,9 +1027,7 @@ AIAnalysisResult GamingAI::ReturnAIAnalysis() {
             // Default difficulty if no valid player data
             analysisResult.overallDifficultyRecommendation = 0.5f;      // Medium difficulty default
 
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"No valid player data - using default difficulty");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"No valid player data - using default difficulty");
         }
 
         // Copy current enemy strategy recommendations
@@ -1162,9 +1086,7 @@ AIAnalysisResult GamingAI::ReturnAIAnalysis() {
 
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception generating analysis results: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception generating analysis results: %S", e.what());
 
         // Return error result on exception
         AIAnalysisResult errorResult;
@@ -1183,9 +1105,7 @@ bool GamingAI::ForceAnalysisUpdate() {
 
     // Check if system is initialized
     if (!m_isInitialized.load()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Cannot force analysis update - system not initialized");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Cannot force analysis update - system not initialized");
         return false;                                                   // System not initialized
     }
 
@@ -1196,41 +1116,31 @@ bool GamingAI::ForceAnalysisUpdate() {
         // Force player movement analysis
         if (!InjectAICommand(AICommandType::CMD_ANALYZE_PLAYER_MOVEMENT, AICommandPriority::PRIORITY_HIGH)) {
             allCommandsInjected = false;
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to inject movement analysis command");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to inject movement analysis command");
         }
 
         // Force player combat analysis
         if (!InjectAICommand(AICommandType::CMD_ANALYZE_PLAYER_COMBAT, AICommandPriority::PRIORITY_HIGH)) {
             allCommandsInjected = false;
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to inject combat analysis command");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to inject combat analysis command");
         }
 
         // Force input pattern analysis
         if (!InjectAICommand(AICommandType::CMD_ANALYZE_INPUT_PATTERNS, AICommandPriority::PRIORITY_HIGH)) {
             allCommandsInjected = false;
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to inject input analysis command");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to inject input analysis command");
         }
 
         // Force strategy generation
         if (!InjectAICommand(AICommandType::CMD_GENERATE_ENEMY_STRATEGY, AICommandPriority::PRIORITY_HIGH)) {
             allCommandsInjected = false;
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to inject strategy generation command");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to inject strategy generation command");
         }
 
         // Force difficulty update
         if (!InjectAICommand(AICommandType::CMD_UPDATE_DIFFICULTY, AICommandPriority::PRIORITY_HIGH)) {
             allCommandsInjected = false;
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to inject difficulty update command");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to inject difficulty update command");
         }
 
         // Wake up AI thread to process commands immediately
@@ -1257,9 +1167,7 @@ bool GamingAI::ForceAnalysisUpdate() {
         return allCommandsInjected;                                     // Return success status
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception forcing analysis update: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception forcing analysis update: %S", e.what());
         return false;                                                   // Failed to force update
     }
 }
@@ -1285,54 +1193,42 @@ bool GamingAI::ValidateAnalysisData(const PlayerAnalysisData& data) const {
 
         // Validate player ID range
         if (data.playerID >= 100) {                                     // Reasonable player ID limit
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Player ID %u exceeds reasonable range", data.playerID);
-#endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"Player ID %u exceeds reasonable range", data.playerID);
             return false;                                               // Invalid player ID
         }
 
         // Validate skill level range
         if (data.skillLevel > 100) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Player %u skill level %u exceeds maximum",
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"Player %u skill level %u exceeds maximum",
                 data.playerID, data.skillLevel);
-#endif
             return false;                                               // Invalid skill level
         }
 
         // Validate adaptability factor range
         if (data.adaptabilityFactor < 0.0f || data.adaptabilityFactor > 1.0f) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Player %u adaptability factor %.3f out of range",
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"Player %u adaptability factor %.3f out of range",
                 data.playerID, data.adaptabilityFactor);
-#endif
             return false;                                               // Invalid adaptability factor
         }
 
         // Validate movement data
         if (data.movementData.movementPredictability < 0.0f || data.movementData.movementPredictability > 1.0f) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Player %u movement predictability %.3f out of range",
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"Player %u movement predictability %.3f out of range",
                 data.playerID, data.movementData.movementPredictability);
-#endif
             return false;                                               // Invalid movement predictability
         }
 
         // Validate reaction time (should be reasonable for human players)
         if (data.movementData.reactionTime < 50.0f || data.movementData.reactionTime > 5000.0f) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Player %u reaction time %.1fms unrealistic",
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"Player %u reaction time %.1fms unrealistic",
                 data.playerID, data.movementData.reactionTime);
-#endif
             return false;                                               // Unrealistic reaction time
         }
 
         // Validate combat data
         if (data.combatData.accuracyPercentage < 0.0f || data.combatData.accuracyPercentage > 1.0f) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Player %u accuracy %.3f out of range",
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"Player %u accuracy %.3f out of range",
                 data.playerID, data.combatData.accuracyPercentage);
-#endif
             return false;                                               // Invalid accuracy percentage
         }
 
@@ -1349,10 +1245,8 @@ bool GamingAI::ValidateAnalysisData(const PlayerAnalysisData& data) const {
         auto dataAge = std::chrono::duration_cast<std::chrono::hours>(currentTime - data.lastAnalysisTime);
 
         if (dataAge.count() > 72) {                                     // Data older than 72 hours
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Player %u analysis data is %lld hours old",
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"Player %u analysis data is %lld hours old",
                 data.playerID, dataAge.count());
-#endif
             return false;                                               // Data too old
         }
 
@@ -1372,10 +1266,8 @@ bool GamingAI::ValidateAnalysisData(const PlayerAnalysisData& data) const {
         return true;                                                    // All validation checks passed
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception validating player %u data: %S",
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception validating player %u data: %S",
             data.playerID, e.what());
-#endif
         return false;                                                   // Failed validation due to exception
     }
 }
@@ -1389,9 +1281,7 @@ std::chrono::milliseconds GamingAI::GetAverageAnalysisTime() const {
     // Use ThreadLockHelper for thread-safe access to timing data
     ThreadLockHelper timingLock(threadManager, "gamingai_avg_timing", 1000, true); // Silent with timeout
     if (!timingLock.IsLocked()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire timing lock - returning zero");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire timing lock - returning zero");
         return std::chrono::milliseconds(0);                           // Cannot access timing data
     }
 
@@ -1417,9 +1307,7 @@ std::chrono::milliseconds GamingAI::GetAverageAnalysisTime() const {
         return std::chrono::milliseconds(averageTime);
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Exception calculating average analysis time: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Exception calculating average analysis time: %S", e.what());
         return std::chrono::milliseconds(0);                           // Return zero on error
     }
 }
@@ -1437,9 +1325,7 @@ bool GamingAI::GetThreadPerformanceMetrics(float& cpuUsage, uint64_t& memoryUsag
 
         // Check if AI thread exists and is running
         if (!threadManager.DoesThreadExist(THREAD_AI_PROCESSING)) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"AI thread does not exist - cannot get performance metrics");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"AI thread does not exist - cannot get performance metrics");
             return false;                                               // Thread doesn't exist
         }
 
@@ -1485,9 +1371,7 @@ bool GamingAI::GetThreadPerformanceMetrics(float& cpuUsage, uint64_t& memoryUsag
         return true;                                                    // Successfully retrieved metrics
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception getting performance metrics: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception getting performance metrics: %S", e.what());
 
         // Reset output parameters on error
         cpuUsage = 0.0f;
@@ -1508,18 +1392,14 @@ bool GamingAI::UpdateConfiguration(const AIModelConfiguration& config) {
 
     // Check if system is initialized
     if (!m_isInitialized.load()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Cannot update configuration - GamingAI system not initialized");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Cannot update configuration - GamingAI system not initialized");
         return false;                                                   // System not initialized
     }
 
     // Use ThreadLockHelper for thread-safe configuration update
     ThreadLockHelper configLock(threadManager, "gamingai_config_update", 3000);
     if (!configLock.IsLocked()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire configuration lock - update rejected");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire configuration lock - update rejected");
         return false;                                                   // Failed to acquire lock
     }
 
@@ -1532,82 +1412,60 @@ bool GamingAI::UpdateConfiguration(const AIModelConfiguration& config) {
 
         // Validate maximum model size (minimum 1MB, maximum 2GB)
         if (validatedConfig.maxModelSizeBytes < 1024 * 1024) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Model size too small, adjusting to minimum 1MB");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Model size too small, adjusting to minimum 1MB");
             validatedConfig.maxModelSizeBytes = 1024 * 1024;           // Set minimum 1MB
         }
         else if (validatedConfig.maxModelSizeBytes > 2ULL * 1024 * 1024 * 1024) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Model size too large, adjusting to maximum 2GB");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Model size too large, adjusting to maximum 2GB");
             validatedConfig.maxModelSizeBytes = 2ULL * 1024 * 1024 * 1024; // Set maximum 2GB
         }
 
         // Validate analysis interval (minimum 5 seconds, maximum 300 seconds)
         if (validatedConfig.analysisIntervalSeconds < 5) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Analysis interval too short, adjusting to minimum 5 seconds");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Analysis interval too short, adjusting to minimum 5 seconds");
             validatedConfig.analysisIntervalSeconds = 5;               // Set minimum 5 seconds
         }
         else if (validatedConfig.analysisIntervalSeconds > 300) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Analysis interval too long, adjusting to maximum 300 seconds");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Analysis interval too long, adjusting to maximum 300 seconds");
             validatedConfig.analysisIntervalSeconds = 300;             // Set maximum 5 minutes
         }
 
         // Validate data retention period (minimum 1 day, maximum 365 days)
         if (validatedConfig.dataRetentionDays < 1.0f) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Data retention too short, adjusting to minimum 1 day");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Data retention too short, adjusting to minimum 1 day");
             validatedConfig.dataRetentionDays = 1.0f;                  // Set minimum 1 day
         }
         else if (validatedConfig.dataRetentionDays > 365.0f) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Data retention too long, adjusting to maximum 365 days");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Data retention too long, adjusting to maximum 365 days");
             validatedConfig.dataRetentionDays = 365.0f;                // Set maximum 1 year
         }
 
         // Validate learning rate (must be between 0.01 and 1.0)
         if (validatedConfig.learningRate < 0.01f) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Learning rate too low, adjusting to minimum 0.01");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Learning rate too low, adjusting to minimum 0.01");
             validatedConfig.learningRate = 0.01f;                      // Set minimum learning rate
         }
         else if (validatedConfig.learningRate > 1.0f) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Learning rate too high, adjusting to maximum 1.0");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Learning rate too high, adjusting to maximum 1.0");
             validatedConfig.learningRate = 1.0f;                       // Set maximum learning rate
         }
 
         // Validate max player history entries (minimum 100, maximum 10000)
         if (validatedConfig.maxPlayerHistoryEntries < 100) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Player history entries too few, adjusting to minimum 100");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Player history entries too few, adjusting to minimum 100");
             validatedConfig.maxPlayerHistoryEntries = 100;             // Set minimum entries
         }
         else if (validatedConfig.maxPlayerHistoryEntries > 10000) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Player history entries too many, adjusting to maximum 10000");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Player history entries too many, adjusting to maximum 10000");
             validatedConfig.maxPlayerHistoryEntries = 10000;           // Set maximum entries
         }
 
         // Check if current model size exceeds new limit
         size_t currentModelSize = m_currentModelSize.load();
         if (currentModelSize > validatedConfig.maxModelSizeBytes) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING,
+            debug.logDiagMessage(LogLevel::LOG_WARNING,
                 L"Current model size (%zu bytes) exceeds new limit (%zu bytes) - cleanup required",
                 currentModelSize, validatedConfig.maxModelSizeBytes);
-#endif
 
             // Inject command to clean outdated data to reduce model size
             InjectAICommand(AICommandType::CMD_CLEAR_OUTDATED_DATA, AICommandPriority::PRIORITY_HIGH);
@@ -1650,9 +1508,7 @@ bool GamingAI::UpdateConfiguration(const AIModelConfiguration& config) {
         return true;                                                    // Configuration updated successfully
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception updating configuration: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception updating configuration: %S", e.what());
         return false;                                                   // Failed to update configuration
     }
 }
@@ -1666,9 +1522,7 @@ AIModelConfiguration GamingAI::GetConfiguration() const {
     // Use ThreadLockHelper for thread-safe configuration access
     ThreadLockHelper configLock(threadManager, "gamingai_config_get", 1000, true); // Silent with short timeout
     if (!configLock.IsLocked()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire configuration lock - returning default config");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire configuration lock - returning default config");
         return AIModelConfiguration();                                  // Return default configuration
     }
 
@@ -1685,9 +1539,7 @@ AIModelConfiguration GamingAI::GetConfiguration() const {
         return currentConfig;                                           // Return current configuration
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Exception getting configuration: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Exception getting configuration: %S", e.what());
         return AIModelConfiguration();                                  // Return default on error
     }
 }
@@ -1701,9 +1553,7 @@ void GamingAI::SetMaxModelSize(size_t sizeInBytes) {
     // Use ThreadLockHelper for thread-safe model size update
     ThreadLockHelper configLock(threadManager, "gamingai_modelsize_set", 2000);
     if (!configLock.IsLocked()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire lock for model size update");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire lock for model size update");
         return;                                                         // Failed to acquire lock
     }
 
@@ -1716,30 +1566,24 @@ void GamingAI::SetMaxModelSize(size_t sizeInBytes) {
         const size_t MAX_MODEL_SIZE = 2ULL * 1024 * 1024 * 1024;       // 2GB maximum
 
         if (validatedSize < MIN_MODEL_SIZE) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING,
+            debug.logDiagMessage(LogLevel::LOG_WARNING,
                 L"Model size %zu too small, adjusting to minimum %zu bytes",
                 validatedSize, MIN_MODEL_SIZE);
-#endif
             validatedSize = MIN_MODEL_SIZE;                             // Set to minimum
         }
         else if (validatedSize > MAX_MODEL_SIZE) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING,
+            debug.logDiagMessage(LogLevel::LOG_WARNING,
                 L"Model size %zu too large, adjusting to maximum %zu bytes",
                 validatedSize, MAX_MODEL_SIZE);
-#endif
             validatedSize = MAX_MODEL_SIZE;                             // Set to maximum
         }
 
         // Check if current model exceeds new size limit
         size_t currentModelSize = m_currentModelSize.load();
         if (currentModelSize > validatedSize) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING,
+            debug.logDiagMessage(LogLevel::LOG_WARNING,
                 L"Current model size (%zu) exceeds new limit (%zu) - triggering cleanup",
                 currentModelSize, validatedSize);
-#endif
 
             // Inject cleanup command to reduce model size
             InjectAICommand(AICommandType::CMD_CLEAR_OUTDATED_DATA, AICommandPriority::PRIORITY_HIGH);
@@ -1755,9 +1599,7 @@ void GamingAI::SetMaxModelSize(size_t sizeInBytes) {
 #endif
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception setting max model size: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception setting max model size: %S", e.what());
     }
 }
 
@@ -1770,9 +1612,7 @@ void GamingAI::SetAnalysisInterval(uint32_t seconds) {
     // Use ThreadLockHelper for thread-safe interval update
     ThreadLockHelper configLock(threadManager, "gamingai_interval_set", 2000);
     if (!configLock.IsLocked()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire lock for analysis interval update");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire lock for analysis interval update");
         return;                                                         // Failed to acquire lock
     }
 
@@ -1785,19 +1625,15 @@ void GamingAI::SetAnalysisInterval(uint32_t seconds) {
         const uint32_t MAX_INTERVAL = 300;                             // 5 minutes maximum
 
         if (validatedInterval < MIN_INTERVAL) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING,
+            debug.logDiagMessage(LogLevel::LOG_WARNING,
                 L"Analysis interval %u too short, adjusting to minimum %u seconds",
                 validatedInterval, MIN_INTERVAL);
-#endif
             validatedInterval = MIN_INTERVAL;                           // Set to minimum
         }
         else if (validatedInterval > MAX_INTERVAL) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING,
+            debug.logDiagMessage(LogLevel::LOG_WARNING,
                 L"Analysis interval %u too long, adjusting to maximum %u seconds",
                 validatedInterval, MAX_INTERVAL);
-#endif
             validatedInterval = MAX_INTERVAL;                           // Set to maximum
         }
 
@@ -1822,9 +1658,7 @@ void GamingAI::SetAnalysisInterval(uint32_t seconds) {
         }
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception setting analysis interval: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception setting analysis interval: %S", e.what());
     }
 }
 
@@ -1842,18 +1676,14 @@ bool GamingAI::UpdateConfigurationParameter(const std::string& parameterName, co
 
     // Check if system is initialized
     if (!m_isInitialized.load()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Cannot update parameter - system not initialized");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Cannot update parameter - system not initialized");
         return false;                                                   // System not initialized
     }
 
     // Use ThreadLockHelper for thread-safe parameter update
     ThreadLockHelper configLock(threadManager, "gamingai_param_update", 2000);
     if (!configLock.IsLocked()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire lock for parameter update");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire lock for parameter update");
         return false;                                                   // Failed to acquire lock
     }
 
@@ -1924,24 +1754,18 @@ bool GamingAI::UpdateConfigurationParameter(const std::string& parameterName, co
             return true;
         }
         else {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Unknown configuration parameter: %S", parameterName.c_str());
-#endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"Unknown configuration parameter: %S", parameterName.c_str());
             return false;                                               // Unknown parameter
         }
 
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_WARNING,
+        debug.logDiagMessage(LogLevel::LOG_WARNING,
             L"Parameter %S value %S out of valid range",
             parameterName.c_str(), parameterValue.c_str());
-#endif
         return false;                                                   // Parameter value out of range
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION,
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION,
             L"Exception updating parameter %S: %S", parameterName.c_str(), e.what());
-#endif
         return false;                                                   // Failed to update parameter
     }
 }
@@ -1955,9 +1779,7 @@ std::string GamingAI::ExportConfiguration() const {
     // Use ThreadLockHelper for thread-safe configuration export
     ThreadLockHelper configLock(threadManager, "gamingai_config_export", 1000, true); // Silent with timeout
     if (!configLock.IsLocked()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for config export - using cached data");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for config export - using cached data");
     }
 
     try {
@@ -1986,9 +1808,7 @@ std::string GamingAI::ExportConfiguration() const {
         return configString;                                            // Return configuration string
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Exception exporting configuration: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Exception exporting configuration: %S", e.what());
         return "";                                                      // Return empty string on error
     }
 }
@@ -2038,10 +1858,8 @@ bool GamingAI::ImportConfiguration(const std::string& configString) {
 #endif
             }
             else {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_WARNING,
+                debug.logDiagMessage(LogLevel::LOG_WARNING,
                     L"Failed to update parameter: %S = %S", paramName.c_str(), paramValue.c_str());
-#endif
             }
         }
 
@@ -2053,9 +1871,7 @@ bool GamingAI::ImportConfiguration(const std::string& configString) {
         return parametersUpdated > 0;                                   // Return success if any parameters updated
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception importing configuration: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception importing configuration: %S", e.what());
         return false;                                                   // Failed to import configuration
     }
 }
@@ -2072,9 +1888,7 @@ bool GamingAI::SaveAIModel(const std::string& filename) {
 
     // Check if system is initialized
     if (!m_isInitialized.load()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Cannot save AI model - system not initialized");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Cannot save AI model - system not initialized");
         return false;                                                   // System not initialized
     }
 
@@ -2084,9 +1898,7 @@ bool GamingAI::SaveAIModel(const std::string& filename) {
     // Use ThreadLockHelper for thread-safe model saving
     ThreadLockHelper modelLock(threadManager, "gamingai_model_save", 10000); // Extended timeout for save operations
     if (!modelLock.IsLocked()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire model lock for saving - operation aborted");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire model lock for saving - operation aborted");
         return false;                                                   // Failed to acquire lock
     }
 
@@ -2109,17 +1921,13 @@ bool GamingAI::SaveAIModel(const std::string& filename) {
 #endif
         }
         else {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to save AI model to: %S", saveFilename.c_str());
-#endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"Failed to save AI model to: %S", saveFilename.c_str());
         }
 
         return saveResult;                                              // Return save operation result
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception saving AI model: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception saving AI model: %S", e.what());
         return false;                                                   // Failed to save model
     }
 }
@@ -2132,9 +1940,7 @@ bool GamingAI::LoadAIModel(const std::string& filename) {
 
     // Check if system is initialized
     if (!m_isInitialized.load()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Cannot load AI model - system not initialized");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Cannot load AI model - system not initialized");
         return false;                                                   // System not initialized
     }
 
@@ -2143,18 +1949,14 @@ bool GamingAI::LoadAIModel(const std::string& filename) {
 
     // Check if model file exists before attempting load
     if (!ModelFileExists(loadFilename)) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"AI model file does not exist: %S", loadFilename.c_str());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"AI model file does not exist: %S", loadFilename.c_str());
         return false;                                                   // File doesn't exist
     }
 
     // Use ThreadLockHelper for thread-safe model loading
     ThreadLockHelper modelLock(threadManager, "gamingai_model_load", 10000); // Extended timeout for load operations
     if (!modelLock.IsLocked()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire model lock for loading - operation aborted");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire model lock for loading - operation aborted");
         return false;                                                   // Failed to acquire lock
     }
 
@@ -2179,23 +1981,17 @@ bool GamingAI::LoadAIModel(const std::string& filename) {
 #endif
             }
             else {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"Loaded AI model failed validation - using with caution");
-#endif
+                debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Loaded AI model failed validation - using with caution");
             }
         }
         else {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to load AI model from: %S", loadFilename.c_str());
-#endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"Failed to load AI model from: %S", loadFilename.c_str());
         }
 
         return loadResult;                                              // Return load operation result
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception loading AI model: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception loading AI model: %S", e.what());
         return false;                                                   // Failed to load model
     }
 }
@@ -2232,9 +2028,7 @@ bool GamingAI::ModelFileExists(const std::string& filename) const {
         return exists;                                                  // Return file existence status
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Exception checking model file existence: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Exception checking model file existence: %S", e.what());
         return false;                                                   // Assume file doesn't exist on error
     }
 }
@@ -2248,9 +2042,7 @@ void GamingAI::ResetAIModel() {
     // Use ThreadLockHelper for thread-safe model reset
     ThreadLockHelper modelLock(threadManager, "gamingai_model_reset", 5000);
     if (!modelLock.IsLocked()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire model lock for reset - operation aborted");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to acquire model lock for reset - operation aborted");
         return;                                                         // Failed to acquire lock
     }
 
@@ -2300,9 +2092,7 @@ void GamingAI::ResetAIModel() {
 #endif
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception resetting AI model: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception resetting AI model: %S", e.what());
     }
 }
 
@@ -2320,9 +2110,7 @@ bool GamingAI::LoadModelFromDisk(const std::string& filename) {
         // Open model file for binary reading
         std::ifstream modelFile(filename, std::ios::binary | std::ios::ate);
         if (!modelFile.is_open()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to open model file for reading: %S", filename.c_str());
-#endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"Failed to open model file for reading: %S", filename.c_str());
             return false;                                               // Failed to open file
         }
 
@@ -2332,11 +2120,9 @@ bool GamingAI::LoadModelFromDisk(const std::string& filename) {
 
         // Validate file size
         if (fileSize <= 0 || static_cast<size_t>(fileSize) > m_configuration.maxModelSizeBytes) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR,
+            debug.logDiagMessage(LogLevel::LOG_ERROR,
                 L"Invalid model file size: %lld bytes (max: %zu bytes)",
                 static_cast<long long>(fileSize), m_configuration.maxModelSizeBytes);
-#endif
             modelFile.close();
             return false;                                               // Invalid file size
         }
@@ -2353,9 +2139,7 @@ bool GamingAI::LoadModelFromDisk(const std::string& filename) {
 
         modelFile.read(reinterpret_cast<char*>(&header), sizeof(header));
         if (!modelFile.good()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to read model header");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to read model header");
             modelFile.close();
             return false;                                               // Failed to read header
         }
@@ -2363,11 +2147,9 @@ bool GamingAI::LoadModelFromDisk(const std::string& filename) {
         // Validate magic number
         const uint32_t EXPECTED_MAGIC = 0x41494D4F;                    // "AIMO" in hex
         if (header.magic != EXPECTED_MAGIC) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR,
+            debug.logDiagMessage(LogLevel::LOG_ERROR,
                 L"Invalid model file magic number: 0x%08X (expected: 0x%08X)",
                 header.magic, EXPECTED_MAGIC);
-#endif
             modelFile.close();
             return false;                                               // Invalid magic number
         }
@@ -2375,22 +2157,18 @@ bool GamingAI::LoadModelFromDisk(const std::string& filename) {
         // Validate version
         const uint32_t SUPPORTED_VERSION = 1;
         if (header.version > SUPPORTED_VERSION) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR,
+            debug.logDiagMessage(LogLevel::LOG_ERROR,
                 L"Unsupported model version: %u (max supported: %u)",
                 header.version, SUPPORTED_VERSION);
-#endif
             modelFile.close();
             return false;                                               // Unsupported version
         }
 
         // Validate data size
         if (header.dataSize != static_cast<uint64_t>(fileSize - sizeof(header))) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR,
+            debug.logDiagMessage(LogLevel::LOG_ERROR,
                 L"Model data size mismatch: header says %llu, file has %lld",
                 header.dataSize, static_cast<long long>(fileSize - sizeof(header)));
-#endif
             modelFile.close();
             return false;                                               // Size mismatch
         }
@@ -2401,9 +2179,7 @@ bool GamingAI::LoadModelFromDisk(const std::string& filename) {
 
         modelFile.read(reinterpret_cast<char*>(m_aiModelData.data()), static_cast<std::streamsize>(header.dataSize));
         if (!modelFile.good()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to read model data");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to read model data");
             modelFile.close();
             m_aiModelData.clear();
             return false;                                               // Failed to read data
@@ -2414,20 +2190,16 @@ bool GamingAI::LoadModelFromDisk(const std::string& filename) {
         // Verify checksum using MathPrecalculation for fast CRC32
         uint32_t calculatedChecksum = FAST_MATH.FastFNV1aHash(m_aiModelData.data(), m_aiModelData.size());
         if (calculatedChecksum != header.checksum) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING,
+            debug.logDiagMessage(LogLevel::LOG_WARNING,
                 L"Model checksum mismatch: calculated 0x%08X, expected 0x%08X",
                 calculatedChecksum, header.checksum);
-#endif
             // Continue loading despite checksum mismatch (with warning)
         }
 
         // Decompress model data if needed
         if (header.compressionType != 0) {
             if (!DecompressModelData()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to decompress model data");
-#endif
+                debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to decompress model data");
                 m_aiModelData.clear();
                 return false;                                           // Failed to decompress
             }
@@ -2435,9 +2207,7 @@ bool GamingAI::LoadModelFromDisk(const std::string& filename) {
 
         // Deserialize model data into analysis structures
         if (!DeserializeModelData()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to deserialize model data");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to deserialize model data");
             m_aiModelData.clear();
             return false;                                               // Failed to deserialize
         }
@@ -2454,9 +2224,7 @@ bool GamingAI::LoadModelFromDisk(const std::string& filename) {
         return true;                                                    // Model loaded successfully
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception loading model from disk: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception loading model from disk: %S", e.what());
         m_aiModelData.clear();                                          // Clear data on error
         return false;                                                   // Failed to load model
     }
@@ -2471,9 +2239,7 @@ bool GamingAI::SaveModelToDisk(const std::string& filename) {
     try {
         // Serialize current analysis data into model format
         if (!SerializeModelData()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to serialize model data for saving");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to serialize model data for saving");
             return false;                                               // Failed to serialize
         }
 
@@ -2512,18 +2278,14 @@ bool GamingAI::SaveModelToDisk(const std::string& filename) {
         // Open file for binary writing
         std::ofstream modelFile(filename, std::ios::binary | std::ios::trunc);
         if (!modelFile.is_open()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to open model file for writing: %S", filename.c_str());
-#endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"Failed to open model file for writing: %S", filename.c_str());
             return false;                                               // Failed to open file
         }
 
         // Write model header
         modelFile.write(reinterpret_cast<const char*>(&header), sizeof(header));
         if (!modelFile.good()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to write model header");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to write model header");
             modelFile.close();
             return false;                                               // Failed to write header
         }
@@ -2532,9 +2294,7 @@ bool GamingAI::SaveModelToDisk(const std::string& filename) {
         modelFile.write(reinterpret_cast<const char*>(m_aiModelData.data()),
             static_cast<std::streamsize>(m_aiModelData.size()));
         if (!modelFile.good()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to write model data");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to write model data");
             modelFile.close();
             return false;                                               // Failed to write data
         }
@@ -2553,9 +2313,7 @@ bool GamingAI::SaveModelToDisk(const std::string& filename) {
         return true;                                                    // Model saved successfully
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception saving model to disk: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception saving model to disk: %S", e.what());
         return false;                                                   // Failed to save model
     }
 }
@@ -2591,9 +2349,7 @@ std::string GamingAI::GetDefaultModelFilename() const {
         return defaultPath;                                             // Return platform-specific path
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Exception getting default model filename: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Exception getting default model filename: %S", e.what());
         return "GamingAI_Model.dat";                                    // Return fallback filename
     }
 }
@@ -2643,9 +2399,7 @@ void GamingAI::AIThreadTasking() {
 
                             // Check for emergency shutdown command
                             if (currentCommand.commandType == AICommandType::CMD_EMERGENCY_SHUTDOWN) {
-                                #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                                    debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Emergency shutdown command processed - terminating AI thread");
-                                #endif
+                                debug.logDiagLevelMessage(LogLevel::LOG_CRITICAL, L"Emergency shutdown command processed - terminating AI thread");
                                 m_shouldShutdown.store(true);
                                 break;                                  // Exit command processing loop
                             }
@@ -2703,9 +2457,7 @@ void GamingAI::AIThreadTasking() {
 
             }
             catch (const std::exception& e) {
-                #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                    debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception in AI thread main loop: %S", e.what());
-                #endif
+                debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception in AI thread main loop: %S", e.what());
 
                 // Continue operation unless it's a critical error
                 std::this_thread::sleep_for(std::chrono::milliseconds(1000)); // Brief pause before retry
@@ -2721,9 +2473,7 @@ void GamingAI::AIThreadTasking() {
     }
     catch (const std::exception& e) 
     {
-        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Fatal exception in AI thread: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Fatal exception in AI thread: %S", e.what());
     }
 
     #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
@@ -2816,9 +2566,7 @@ void GamingAI::PerformPeriodicAnalysis() {
 
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception in periodic analysis: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception in periodic analysis: %S", e.what());
     }
 }
 
@@ -2836,18 +2584,14 @@ void GamingAI::AnalyzePlayerMovement(uint32_t playerID) {
         // Get player information from GamePlayer system
         const PlayerInfo* playerInfo = gamePlayer.GetPlayerInfo(static_cast<int>(playerID));
         if (playerInfo == nullptr) {
-            #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_WARNING, L"Player %u not found for movement analysis", playerID);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"Player %u not found for movement analysis", playerID);
             return;                                                     // Player not found
         }
 
         // Use ThreadLockHelper for thread-safe analysis data access
         ThreadLockHelper analysisLock(threadManager, "gamingai_movement_analysis", 2000);
         if (!analysisLock.IsLocked()) {
-            #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for movement analysis");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for movement analysis");
             return;                                                     // Failed to acquire lock
         }
 
@@ -2968,9 +2712,7 @@ void GamingAI::AnalyzePlayerMovement(uint32_t playerID) {
 
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception analyzing player %u movement: %S", playerID, e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception analyzing player %u movement: %S", playerID, e.what());
     }
 }
 
@@ -2984,18 +2726,14 @@ void GamingAI::AnalyzePlayerCombat(uint32_t playerID) {
         // Get player information from GamePlayer system
         const PlayerInfo* playerInfo = gamePlayer.GetPlayerInfo(static_cast<int>(playerID));
         if (playerInfo == nullptr) {
-            #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_WARNING, L"Player %u not found for combat analysis", playerID);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"Player %u not found for combat analysis", playerID);
             return;                                                     // Player not found
         }
 
         // Use ThreadLockHelper for thread-safe analysis data access
         ThreadLockHelper analysisLock(threadManager, "gamingai_combat_analysis", 2000);
         if (!analysisLock.IsLocked()) {
-            #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for combat analysis");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for combat analysis");
             return;                                                     // Failed to acquire lock
         }
 
@@ -3073,9 +2811,7 @@ void GamingAI::AnalyzePlayerCombat(uint32_t playerID) {
 
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception analyzing player %u combat: %S", playerID, e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception analyzing player %u combat: %S", playerID, e.what());
     }
 }
 
@@ -3089,9 +2825,7 @@ void GamingAI::AnalyzePlayerInput(uint32_t playerID) {
         // Use ThreadLockHelper for thread-safe analysis data access
         ThreadLockHelper analysisLock(threadManager, "gamingai_input_analysis", 2000);
         if (!analysisLock.IsLocked()) {
-            #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for input analysis");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for input analysis");
             return;                                                     // Failed to acquire lock
         }
 
@@ -3176,9 +2910,7 @@ void GamingAI::AnalyzePlayerInput(uint32_t playerID) {
 
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception analyzing player %u input: %S", playerID, e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception analyzing player %u input: %S", playerID, e.what());
     }
 }
 
@@ -3196,9 +2928,7 @@ void GamingAI::GenerateEnemyStrategy() {
         // Use ThreadLockHelper for thread-safe strategy generation
         ThreadLockHelper strategyLock(threadManager, "gamingai_strategy_gen", 3000);
         if (!strategyLock.IsLocked()) {
-            #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for strategy generation");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for strategy generation");
             return;                                                     // Failed to acquire lock
         }
 
@@ -3227,9 +2957,7 @@ void GamingAI::GenerateEnemyStrategy() {
         }
 
         if (validPlayerCount == 0) {
-            #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"No valid player data for strategy generation - using defaults");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"No valid player data for strategy generation - using defaults");
 
             // Use default strategy for no player data
             newStrategy.recommendedDifficulty = 0.5f;                  // Medium difficulty
@@ -3383,9 +3111,7 @@ void GamingAI::GenerateEnemyStrategy() {
 
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception generating enemy strategy: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception generating enemy strategy: %S", e.what());
     }
 }
 
@@ -3399,9 +3125,7 @@ void GamingAI::UpdateDifficultyRecommendations() {
         // Use ThreadLockHelper for thread-safe difficulty update
         ThreadLockHelper difficultyLock(threadManager, "gamingai_difficulty_update", 2000);
         if (!difficultyLock.IsLocked()) {
-            #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for difficulty update");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for difficulty update");
             return;                                                     // Failed to acquire lock
         }
 
@@ -3429,9 +3153,7 @@ void GamingAI::UpdateDifficultyRecommendations() {
 
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception updating difficulty: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception updating difficulty: %S", e.what());
     }
 }
 
@@ -3445,9 +3167,7 @@ void GamingAI::ClearOutdatedData() {
         // Use ThreadLockHelper for thread-safe data cleanup
         ThreadLockHelper cleanupLock(threadManager, "gamingai_data_cleanup", 5000);
         if (!cleanupLock.IsLocked()) {
-            #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for data cleanup");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire lock for data cleanup");
             return;                                                     // Failed to acquire lock
         }
 
@@ -3524,9 +3244,7 @@ void GamingAI::ClearOutdatedData() {
 
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception clearing outdated data: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception clearing outdated data: %S", e.what());
     }
 }
 
@@ -3590,9 +3308,7 @@ uint32_t GamingAI::CalculatePlayerSkillLevel(const PlayerAnalysisData& playerDat
         return skillLevel;
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Exception calculating skill level: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Exception calculating skill level: %S", e.what());
         return 50;                                                      // Return average skill on error
     }
 }
@@ -3637,9 +3353,7 @@ Vector2 GamingAI::PredictPlayerNextAction(uint32_t playerID) const {
         }
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Exception predicting player action: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Exception predicting player action: %S", e.what());
         return Vector2(0.0f, 0.0f);                                     // Return neutral on error
     }
 }
@@ -3680,9 +3394,7 @@ float GamingAI::CalculateAdaptiveDifficulty(const PlayerAnalysisData& playerData
         return std::clamp(baseDifficulty, 0.1f, 0.95f);
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Exception calculating adaptive difficulty: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Exception calculating adaptive difficulty: %S", e.what());
         return 0.5f;                                                    // Return medium difficulty on error
     }
 }
@@ -3725,9 +3437,7 @@ float GamingAI::CalculatePerformanceTrend() const {
         return 0.0f;                                                    // No trend data available
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Exception calculating performance trend: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Exception calculating performance trend: %S", e.what());
         return 0.0f;                                                    // Return neutral trend on error
     }
 }
@@ -3760,9 +3470,7 @@ size_t GamingAI::CalculateCurrentModelSize() const {
         return totalSize;
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Exception calculating model size: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Exception calculating model size: %S", e.what());
         return m_currentModelSize.load();                               // Return last known size on error
     }
 }
@@ -3814,9 +3522,7 @@ bool GamingAI::SerializeModelData() {
         return true;
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception serializing model data: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception serializing model data: %S", e.what());
         m_aiModelData.clear();                                          // Clear data on error
         return false;                                                   // Failed to serialize
     }
@@ -3830,9 +3536,7 @@ bool GamingAI::DeserializeModelData() {
 
     try {
         if (m_aiModelData.empty()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"No model data available for deserialization");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"No model data available for deserialization");
             return false;                                               // No data to deserialize
         }
 
@@ -3841,9 +3545,7 @@ bool GamingAI::DeserializeModelData() {
 
         // Read player count
         if (m_aiModelData.size() < sizeof(uint32_t)) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Model data too small for player count");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Model data too small for player count");
             return false;                                               // Insufficient data
         }
 
@@ -3853,20 +3555,16 @@ bool GamingAI::DeserializeModelData() {
 
         // Validate player count
         if (playerCount > 100) {                                        // Reasonable limit
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid player count in model data: %u", playerCount);
-#endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid player count in model data: %u", playerCount);
             return false;                                               // Invalid player count
         }
 
         // Deserialize each player's data
         for (uint32_t i = 0; i < playerCount; ++i) {
             if (offset + sizeof(PlayerAnalysisData) > m_aiModelData.size()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_ERROR,
+                debug.logDiagMessage(LogLevel::LOG_ERROR,
                     L"Insufficient data for player %u (offset: %zu, total: %zu)",
                     i, offset, m_aiModelData.size());
-#endif
                 return false;                                           // Insufficient data
             }
 
@@ -3885,10 +3583,8 @@ bool GamingAI::DeserializeModelData() {
 #endif
             }
             else {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_WARNING,
+                debug.logDiagMessage(LogLevel::LOG_WARNING,
                     L"Player %u data failed validation - skipping", playerData.playerID);
-#endif
             }
         }
 
@@ -3900,9 +3596,7 @@ bool GamingAI::DeserializeModelData() {
         return true;                                                    // Deserialization successful
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception deserializing model data: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception deserializing model data: %S", e.what());
         m_playerAnalysisData.clear();                                   // Clear data on error
         return false;                                                   // Failed to deserialize
     }
@@ -3917,27 +3611,21 @@ bool GamingAI::ValidateModelData() const {
     try {
         // Check if model data exists
         if (m_aiModelData.empty()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"No model data to validate");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"No model data to validate");
             return false;                                               // No data to validate
         }
 
         // Check model size constraints
         if (m_aiModelData.size() > m_configuration.maxModelSizeBytes) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR,
+            debug.logDiagMessage(LogLevel::LOG_ERROR,
                 L"Model data exceeds size limit: %zu > %zu bytes",
                 m_aiModelData.size(), m_configuration.maxModelSizeBytes);
-#endif
             return false;                                               // Model too large
         }
 
         // Validate minimum data size
         if (m_aiModelData.size() < sizeof(uint32_t)) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Model data too small for basic structure");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Model data too small for basic structure");
             return false;                                               // Data too small
         }
 
@@ -3956,9 +3644,7 @@ bool GamingAI::ValidateModelData() const {
 
         // Require at least some valid data
         if (validPlayers == 0 && !m_playerAnalysisData.empty()) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"No valid player analysis data found in model");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"No valid player analysis data found in model");
             return false;                                               // No valid data
         }
 
@@ -3971,9 +3657,7 @@ bool GamingAI::ValidateModelData() const {
         return true;                                                    // Model validation passed
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception validating model data: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception validating model data: %S", e.what());
         return false;                                                   // Failed validation
     }
 }
@@ -4043,9 +3727,7 @@ bool GamingAI::CompressModelData() {
         }
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception compressing model data: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception compressing model data: %S", e.what());
         return false;                                                   // Failed to compress
     }
 }
@@ -4091,9 +3773,7 @@ bool GamingAI::DecompressModelData() {
         return true;                                                    // Decompression successful
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception decompressing model data: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception decompressing model data: %S", e.what());
         return false;                                                   // Failed to decompress
     }
 }
@@ -4113,9 +3793,7 @@ float GamingAI::FastVectorDistance(const Vector2& pos1, const Vector2& pos2) con
         return FAST_MATH.FastSqrt(dx * dx + dy * dy);
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Exception in fast vector distance: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Exception in fast vector distance: %S", e.what());
         return 0.0f;                                                    // Return 0 on error
     }
 }
@@ -4147,9 +3825,7 @@ float GamingAI::FastPatternMatch(const std::vector<Vector2>& pattern1, const std
         return totalSimilarity / static_cast<float>(minSize);
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Exception in fast pattern match: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Exception in fast pattern match: %S", e.what());
         return 0.0f;                                                    // Return 0 on error
     }
 }
@@ -4194,9 +3870,7 @@ float GamingAI::FastCorrelationAnalysis(const float* data1, const float* data2, 
         }
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Exception in fast correlation analysis: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Exception in fast correlation analysis: %S", e.what());
         return 0.0f;                                                    // Return 0 on error
     }
 }
@@ -4257,9 +3931,7 @@ void GamingAI::FastMemoryCopy(void* dest, const void* src, size_t size) const {
         }
     }
     catch (...) {
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Exception in optimized memory copy - falling back to memcpy");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Exception in optimized memory copy - falling back to memcpy");
 
         // Fallback to standard memory copy on any error
         memcpy(dest, src, size);                                       // Safe fallback implementation
@@ -4323,9 +3995,7 @@ uint32_t GamingAI::FastDataChecksum(const uint8_t* data, size_t size) const {
         return checksum;                                               // Return calculated checksum
     }
     catch (...) {
-        #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Exception in optimized checksum - using fallback");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Exception in optimized checksum - using fallback");
 
         // Fallback to MathPrecalculation hash function on error
         return FAST_MATH.FastFNV1aHash(data, size);                   // Safe fallback using existing hash

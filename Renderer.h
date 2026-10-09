@@ -351,6 +351,19 @@ public:
         bool backgroundPrePass = false;
         bool d2dAvailable = false;
         bool screenRecorderActive = false;
+
+        // GPU-side pass times (D3D12 timestamp queries; DX12 only, zero/invalid elsewhere).  The values belong to
+        // the frame that last used this frame-context slot (FrameCount frames earlier), since a frame's GPU
+        // work is only readable once its fence has completed.  CPU "present" absorbs whatever the GPU is late by,
+        // so these are what actually separates GPU-bound from CPU-bound.
+        bool   gpuValid = false;
+        double gpuTotalMs = 0.0;
+        double gpuBackdropMs = 0.0;
+        double gpuShadowsMs = 0.0;
+        double gpuReflectionsMs = 0.0;
+        double gpuModelsMs = 0.0;
+        double gpuTsooMs = 0.0;
+        double gpuOverlayMs = 0.0;
     };
 
     static constexpr uint32_t TIMING_CAPTURE_FRAME_COUNT = 25;
@@ -429,6 +442,9 @@ public:
         double avgExecute = 0.0;
         double avgD2D = 0.0;
         double avgPresent = 0.0;
+        double avgGpuTotal = 0.0, avgGpuBackdrop = 0.0, avgGpuShadows = 0.0, avgGpuRefl = 0.0;
+        double avgGpuModels = 0.0, avgGpuTsoo = 0.0, avgGpuOverlay = 0.0;
+        uint32_t gpuCount = 0;
 
         for (uint32_t i = 0; i < count; ++i)
         {
@@ -455,6 +471,19 @@ public:
                 s.backgroundPrePass ? 1 : 0,
                 s.d2dAvailable ? 1 : 0,
                 s.screenRecorderActive ? 1 : 0);
+
+            if (s.gpuValid)
+            {
+                ++gpuCount;
+                avgGpuTotal += s.gpuTotalMs;       avgGpuBackdrop += s.gpuBackdropMs; avgGpuShadows += s.gpuShadowsMs;
+                avgGpuRefl += s.gpuReflectionsMs;  avgGpuModels += s.gpuModelsMs;     avgGpuTsoo += s.gpuTsooMs;
+                avgGpuOverlay += s.gpuOverlayMs;
+
+                Debug::logDebugMessage(LogLevel::LOG_DEBUG,
+                    L"[Renderer Timing]   GPU (frame %u, 3 frames behind): total=%.3fms backdrop=%.3f shadows=%.3f reflections=%.3f models=%.3f tsoo=%.3f overlay=%.3f",
+                    s.frameNumber, s.gpuTotalMs, s.gpuBackdropMs, s.gpuShadowsMs, s.gpuReflectionsMs,
+                    s.gpuModelsMs, s.gpuTsooMs, s.gpuOverlayMs);
+            }
         }
 
         const double invCount = 1.0 / static_cast<double>(count);
@@ -467,6 +496,16 @@ public:
             avgExecute * invCount,
             avgD2D * invCount,
             avgPresent * invCount);
+
+        if (gpuCount > 0)
+        {
+            const double invGpu = 1.0 / static_cast<double>(gpuCount);
+            Debug::logDebugMessage(LogLevel::LOG_DEBUG,
+                L"[Renderer Timing] GPU average over %u frame(s): total=%.3fms backdrop=%.3f shadows=%.3f reflections=%.3f models=%.3f tsoo=%.3f overlay=%.3f",
+                gpuCount,
+                avgGpuTotal * invGpu, avgGpuBackdrop * invGpu, avgGpuShadows * invGpu, avgGpuRefl * invGpu,
+                avgGpuModels * invGpu, avgGpuTsoo * invGpu, avgGpuOverlay * invGpu);
+        }
     }
 
     void RecordTimingSample(const RenderTimingSample& sample)
@@ -604,6 +643,12 @@ public:
         // Tiles-per-row is derived from the atlas bitmap width divided by iTileSizeX. Used by the
         // FXManager 2D Tile Map Scroller to render individual tiles out of a shared tileset image.
         virtual void Blit2DAtlasTile(BlitObj2DIndexType iIndex, int iTileIndex, int iTileSizeX, int iTileSizeY, int iDestX, int iDestY) = 0;
+        // Blits a gradient image (iIndex) stretched to iWidth x iHeight with its horizontal
+        // (X-axis) sampling position shifted by scrollFraction (0.0..1.0, repeating/wraps) of
+        // the source width, so the image's own colour banding appears to travel sideways
+        // across the fixed destination rect. reverseDirection=false travels left->right,
+        // true travels right->left. Used by the FXManager ScrollColours effect.
+        virtual void Blit2DScrollingObjectToSize(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float scrollFraction, bool reverseDirection) = 0;
     #endif
     #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__) || (defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))
         virtual void Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 color) = 0;

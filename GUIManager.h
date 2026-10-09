@@ -68,6 +68,7 @@ const float GAMEMENU_BUTTON_WIDTH  = 250;
 const float GAMEMENU_WINDOW_WIDTH  = 300;
 const float CLOSEWINBUTTON_SIZE = 16;
 const float TITLEBAR_HEIGHT = 28;
+const float HSLIDER_KNOB_WIDTH = 16.0f;                 // Shared by HSlider hit-mapping and rendering so the knob tracks the cursor
 
 struct GUIControl {
     std::string id;
@@ -99,7 +100,8 @@ struct GUIControl {
     bool isPressed   = false;
     bool isActive    = false;                           // HSlider: active knob flag; ListBox: scrollbar drag in progress
     bool isReadOnly  = false;                           // HSlider: renders normally but ignores clicks/drags (display-only gauge)
-    bool lblCenterH  = true;                            // TitleBar: true=H+V centered, false=left-aligned+V centered
+    bool isDisabled  = false;                           // HSlider/ToggleSlider: greyed out and ignores clicks/drags (parent option is off)
+    bool lblCenterH  = true;                           // TitleBar: true=H+V centered, false=left-aligned+V centered
     bool clipContent = false;                           // true = this control is scissored to the window's m_clipRect
     bool bold           = false;                        // true = button label rendered bold
     bool useCircleShape = false;                        // true = Button renders as a filled circle
@@ -128,6 +130,7 @@ struct GUIControl {
     bool isDropdownOpen   = false;                      // ComboBox: true while the dropdown panel is visible
     int  dropdownMaxRows  = 6;                          // ComboBox: maximum rows shown in the open dropdown
     int  listItemHeight   = 22;                         // Pixel height of each list row
+    int  hoverIndex       = -1;                         // ComboBox: item row under the cursor in the open dropdown (-1 = none)
 
     // -----------------------------------------------------------------------
     // Callbacks for new control types
@@ -161,6 +164,17 @@ public:
     int maxScrollPosition = 0;                          // Maximum scroll position
     std::wstring contentText;                           // Text content for the window
 
+    // --- Exclusive pointer capture ---
+    // A press is claimed on the button-down edge by exactly ONE control (the topmost
+    // visible interactive control under the cursor). Until the button is released,
+    // only that control receives click/move/hover processing; every other control on
+    // the window is ignored, so a drag can never pick up a second control.
+    int  m_captureIndex  = -1;                          // Index into controls of the capturing control (-1 = none)
+    bool m_customCapture = false;                       // true when the press began on no control (owned by onCustomMouseInput)
+    bool m_mouseHeld     = false;                       // Left button state last seen by HandleMouseClick
+    int  FindPressTarget(const Vector2& mousePosition) const;
+    void ClearPointerCapture();
+
     // Clip rect applied to all controls that have clipContent=true.
     // Screen coordinates; set by the creator (e.g. GUIConfigWindow) to the
     // content area so tab controls are scissored inside the bevel box.
@@ -177,7 +191,7 @@ public:
     void Render();
     void UpdateScrollbar(int newPosition);
     void HandleMouseMove(const Vector2& mousePosition, const std::unordered_map<std::string, std::shared_ptr<GUIWindow>>& allWindows);
-    void HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick, GUIManager* guiMgr, bool& clickConsumed);
+    void HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick, bool pressEdge, GUIManager* guiMgr, bool& clickConsumed);
     void CalculateScrollbarRange(float FontSize);
     std::wstring WrapText(const std::wstring& text, float maxWidth, float FontSize);
     void MoveWindow(const Vector2& newPosition, const std::unordered_map<std::string, std::shared_ptr<GUIWindow>>& allWindows);
@@ -307,8 +321,15 @@ private:
 
     int  m_nextZOrder = 0;                                   // Monotonic counter assigned to each new window.
 
+    // Previous left-button state. Callers pass a HELD flag (true from WM_LBUTTONDOWN
+    // until WM_LBUTTONUP), so the press edge is derived here: held && !m_prevLeftDown.
+    bool m_prevLeftDown = false;
+
     // Click-event cooldown: prevents cross-window event bleed within the same frame
     // (clickConsumed flag) and across frames (1-second timestamp lock).
+    // Applies to Buttons only (guards against double-activation); list, combo, text
+    // and scrollbar controls are protected by press-edge capture instead, so fast
+    // follow-up clicks on them (e.g. open combo -> pick item) are never swallowed.
     std::chrono::steady_clock::time_point m_clickLockExpiry{};
     static constexpr std::chrono::milliseconds kClickCooldown{ 1000 };
     bool IsClickCoolingDown() const;

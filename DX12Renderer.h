@@ -37,7 +37,9 @@
 #include "DX12Models.h"
 #include "ThreadManager.h"
 #include "ConstantBuffer.h"
+#include "Lights.h"                                 // ShadowFrameData / ShadowBufferData
 #include "DX12RenderFrame.h"
+#include "DX12TitlePipeline.h"                    // Native SCENE_GAMETITLE layer + GPU frame profiler
 
 const std::string RENDERER_NAME_DX12 = "DX12Renderer";
 
@@ -48,8 +50,9 @@ const int DX12_ROOT_PARAM_DEBUG_BUFFER = 2;                                    /
 const int DX12_ROOT_PARAM_GLOBAL_LIGHT_BUFFER = 3;                             // b3: GlobalLightBuffer
 const int DX12_ROOT_PARAM_MATERIAL_BUFFER = 4;                                 // b4: MaterialBuffer
 const int DX12_ROOT_PARAM_ENVIRONMENT_BUFFER = 5;                              // b5: EnvBuffer       (env intensity/tint/fresnel)
-const int DX12_ROOT_PARAM_TEXTURE_TABLE = 6;                                   // Descriptor table: t0-t8 SRV textures
+const int DX12_ROOT_PARAM_TEXTURE_TABLE = 6;                                   // Descriptor table: t0-t7 per-model SRV textures
 const int DX12_ROOT_PARAM_SHADOW_BUFFER = 7;                                   // b6: ShadowBuffer    (PCF shadow map data)
+const int DX12_ROOT_PARAM_SHADOW_TABLE  = 8;                                   // Descriptor table: t8 dir shadow map + t9 spot/point array + t10 scene reflection probe
 
 // CBV/SRV/UAV descriptor heap layout for per-model texture SRVs.
 // Slots 0-8   : null SRVs (default texture table when a model has no textures; t0-t8 all null)
@@ -61,11 +64,25 @@ const UINT DX12_MODEL_TEXTURE_HEAP_BASE     = 10 + MAX_TEXTURE_BUFFERS_3D;  // F
 const UINT DX12_MODEL_TEXTURE_HEAP_CAPACITY = 18432;                         // 2048 models * 9 SRV slots each
 // 3 SRV slots immediately after model textures — one per swap-chain frame, for the D2D off-screen composite
 const UINT DX12_D2D_COMPOSITE_SRV_BASE      = DX12_MODEL_TEXTURE_HEAP_BASE + DX12_MODEL_TEXTURE_HEAP_CAPACITY;
-// 2 SRV slots after the D2D composite range (which reserves 3 = FrameCount slots): native
-// (non-D2D) sprite textures used by the SCENE_GAMETITLE fast path — [0]=background image, [1]=company logo.
+// DX12_SPRITE2D_SRV_COUNT SRV slots after the D2D composite range (which reserves 3 = FrameCount slots): native
+// (non-D2D) sprite textures used by the SCENE_GAMETITLE pipeline (DX12TitlePipeline) - [0]=background image,
+// [1]=company logo, [2]=TSOO logo.
+const UINT DX12_SPRITE2D_SRV_COUNT          = 3;
 const UINT DX12_SPRITE2D_SRV_BASE           = DX12_D2D_COMPOSITE_SRV_BASE + 3;
-// One SRV slot for the native particle instance StructuredBuffer (starfield + fireworks).
-const UINT DX12_SPRITE2D_PARTICLE_SRV_BASE  = DX12_SPRITE2D_SRV_BASE + 2;
+// One SRV slot for the native particle instance StructuredBuffer (starfield + fireworks). The buffer is a ring of
+// FrameCount slices; the slice is selected with a root constant, so one view covers all of them.
+const UINT DX12_SPRITE2D_PARTICLE_SRV_BASE  = DX12_SPRITE2D_SRV_BASE + DX12_SPRITE2D_SRV_COUNT;
+// 4 SRV slots bound as root param 8: [0]=t8 directional shadow map, [1]=t9 spot/point shadow array,
+// [2]=t10 scene reflection probe cube map (see "Scene Reflections" in Lights.h), [3]=t11 planar mirror render.
+// A second copy of the table follows ([4..7]) for the planar mirror pass: identical t8-t10 but a NULL t11,
+// so the planar target is never referenced by a bound table while it is a render target.
+const UINT DX12_SHADOW_SRV_BASE             = DX12_SPRITE2D_PARTICLE_SRV_BASE + 1;
+const UINT DX12_SHADOW_SRV_COUNT            = 4;
+// Third copy ([8..11]): the "live" table - identical to the main one except t10 is the live capture cube.
+const UINT DX12_SHADOW_SRV_ALLOC            = DX12_SHADOW_SRV_COUNT * 3;
+// Mip-chain generation for the live capture cube: one SRV per (face, source mip), 6 x (REFLECTION_MAX_MIPS - 1).
+const UINT DX12_CAPTURE_SRV_BASE            = DX12_SHADOW_SRV_BASE + DX12_SHADOW_SRV_ALLOC;
+const UINT DX12_CAPTURE_SRV_COUNT           = 6 * 8;
 
 // Reserved Descriptor Table Slots for DirectX 12 Textures
 const int DX12_DESCRIPTOR_DIFFUSE_TEXTURE = 0;                                 // Diffuse Textures
@@ -163,14 +180,89 @@ public:
 
     // Root signature and pipeline state
     ComPtr<ID3D12RootSignature> m_rootSignature{ nullptr };                    // Root signature
-    ComPtr<ID3D12PipelineState> m_pipelineState{ nullptr };                    // Pipeline state object
+    ComPtr<ID3D12PipelineState> m_pipelineState{ nullptr };                    // Pipeline state object (1 sample: planar / capture passes)
+
+    // --- Multisampled anti-aliasing (Video settings: Anti-Aliasing + MSAA + MSAA Samples) ---
+    // The swap chain stays a 1-sample flip-model chain (required by DXGI and by the D3D11-on-12 / Direct2D UI
+    // overlay that draws on the back buffer).  With MSAA on, the main 3D pass renders into m_msaaColorTex + a
+    // multisampled m_depthStencilBuffer, and the colour is resolved into the back buffer just before the
+    // overlay.  The sample count is fixed at Initialize() (restart-required) and clamped to device support.
+    // m_pipelineState / the title PSOs are built 1-sample for offscreen use; the *MS variants are for the main pass.
+    UINT                        m_msaaSampleCount = 1;
+    ComPtr<ID3D12Resource>      m_msaaColorTex{ nullptr };                     // multisampled colour target of the main pass
+    D3D12_CPU_DESCRIPTOR_HANDLE m_msaaRtv{};                                   // RTV in slot [FrameCount] of m_rtvHeap
+    ComPtr<ID3D12PipelineState> m_pipelineStateMS{ nullptr };                  // main model PSO at m_msaaSampleCount
+    bool                        UsingMsaa() const { return m_msaaSampleCount > 1 && m_msaaColorTex != nullptr; }
+    UINT                        GetMsaaSampleCount() const { return m_msaaSampleCount; }
+    // Render target / pipeline of the MAIN pass (the MSAA colour target when active, else the back buffer).
+    D3D12_CPU_DESCRIPTOR_HANDLE MainRTV(UINT frameIndex) const { return UsingMsaa() ? m_msaaRtv : m_frameContexts[frameIndex].rtvHandle; }
+    ID3D12PipelineState*        MainPSO() const { return (UsingMsaa() && m_pipelineStateMS) ? m_pipelineStateMS.Get() : m_pipelineState.Get(); }
+    void ChooseMsaaSampleCount();                                              // Called once from Initialize()
+    void CreateMsaaTargets(UINT width, UINT height);                           // (Re)creates m_msaaColorTex + RTV; called with the depth buffer
+    void ResolveMsaaToBackBuffer(ID3D12GraphicsCommandList* cl);               // MSAA colour -> back buffer (both end in RENDER_TARGET)
 
     // Resources
     ComPtr<ID3D12Resource> m_depthStencilBuffer{ nullptr };                    // Depth stencil buffer
     ComPtr<ID3D12Resource> m_constantBuffer{ nullptr };                        // b0: ConstantBuffer
     ComPtr<ID3D12Resource> m_globalLightBuffer{ nullptr };                     // b3: GlobalLightBuffer
     ComPtr<ID3D12Resource> m_envBuffer{ nullptr };                             // b5: EnvBuffer
-    ComPtr<ID3D12Resource> m_shadowBuffer{ nullptr };                          // b6: ShadowBuffer (PCF)
+    ComPtr<ID3D12Resource> m_shadowBuffer{ nullptr };                          // b6: ShadowBuffer (PCF), FrameCount x 256-aligned ShadowBufferData slices
+    uint8_t*               m_shadowBufferMapped = nullptr;                     // Persistently mapped base of m_shadowBuffer
+    UINT                   m_shadowBufferStride = 0;                           // Bytes per frame slice (256-aligned)
+
+    // --- Shadow mapping (shared planner in Lights.h) ---
+    ComPtr<ID3D12Resource>      m_shadowDirTex;                                // t8: directional depth map (R32_TYPELESS)
+    ComPtr<ID3D12Resource>      m_shadowLocalTex;                              // t9: spot/point depth array (MAX_LOCAL_SHADOW_SLICES)
+    DX12DescriptorHeap          m_shadowDsvHeap;                               // [0]=dir, [1..32]=local slices
+    ComPtr<ID3D12RootSignature> m_shadowRootSignature;                         // 20 root constants (worldLightVP + scale)
+    ComPtr<ID3D12PipelineState> m_shadowPSO;                                   // Depth-only, D32_FLOAT, biased
+    D3D12_GPU_DESCRIPTOR_HANDLE m_shadowSRVTable = {};                         // DX12_SHADOW_SRV_BASE (t8, t9)
+    int                         m_shadowDirSize   = 0;
+    int                         m_shadowLocalSize = 0;
+    bool                        m_shadowResourcesReady = false;
+    ShadowFrameData             m_shadowFrame;
+    std::vector<ShadowCaster>   m_shadowCasters;
+    std::vector<int>            m_shadowCasterModels;                          // scene_models[] index per caster
+    std::vector<LightStruct>    m_frameGlobalLights;                           // Exact vector uploaded to b3 this frame
+
+    // --- Scene reflections (shared probe builder in Lights.h) ---
+    // t10 = scene probe cube map (RGBA8, 6 slices x mipCount).  Created lazily on the first upload
+    // at the probe's size; one persistently mapped upload buffer per frame in flight.
+    ReflectionProbe                        m_reflProbe;
+    ComPtr<ID3D12Resource>                 m_reflTex;
+    ComPtr<ID3D12Resource>                 m_reflUpload[FrameCount];
+    uint8_t*                               m_reflUploadMapped[FrameCount] = {};
+    std::vector<D3D12_PLACED_SUBRESOURCE_FOOTPRINT> m_reflFootprints;   // Indexed by subresource (mip + slice * mipCount)
+    std::vector<UINT>                      m_reflNumRows;
+    std::vector<UINT64>                    m_reflRowBytes;
+    uint64_t                               m_reflUploadedVersion = 0;
+    bool                                   m_reflCreateFailed = false;
+
+    // --- Live scene capture (see "Live scene capture" in Lights.h) ---
+    // Cube (RGBA8, full mip chain, 6 slices) = sky face copy + the real scene drawn over it, one face per frame.
+    // Mips are rebuilt after the sixth face with a small fullscreen-triangle downsample PSO.
+    ComPtr<ID3D12Resource>      m_capTex;                                      // Rests in PIXEL_SHADER_RESOURCE
+    ComPtr<ID3D12Resource>      m_capDepth;                                    // Rests in DEPTH_WRITE
+    DX12DescriptorHeap          m_capRtvHeap;                                  // 6 x mips RTVs, index face * mips + mip
+    DX12DescriptorHeap          m_capDsvHeap;                                  // 1 DSV
+    ComPtr<ID3D12RootSignature> m_capDownRootSig;
+    ComPtr<ID3D12PipelineState> m_capDownPSO;
+    int                         m_capSize = 0;
+    int                         m_capMips = 0;
+    bool                        m_capFailed = false;
+
+    // --- Planar reflections (shared planner in Lights.h): t11 = mirror render of the scene ---
+    // Colour R8G8B8A8_UNORM + depth D24_UNORM_S8_UINT (must match the main PSO).  Created lazily when
+    // a reflector model exists; SRV in slot DX12_SHADOW_SRV_BASE + 3.
+    ComPtr<ID3D12Resource>      m_planarTex;                                   // Texture2DArray (MAX_PLANAR_PLANES slices); rests in PIXEL_SHADER_RESOURCE
+    ComPtr<ID3D12Resource>      m_planarDepth;                                 // Rests in DEPTH_WRITE
+    DX12DescriptorHeap          m_planarRtvHeap;                               // MAX_PLANAR_PLANES RTVs (one per slice)
+    DX12DescriptorHeap          m_planarDsvHeap;                               // 1 DSV
+    D3D12_GPU_DESCRIPTOR_HANDLE m_planarMirrorTable = {};                      // DX12_SHADOW_SRV_BASE + 4 (t8-t10 + null t11)
+    D3D12_GPU_DESCRIPTOR_HANDLE m_shadowSRVTableLive = {};                     // DX12_SHADOW_SRV_BASE + 8 (t10 = live capture cube)
+    int                         m_planarW = 0;
+    int                         m_planarH = 0;
+    bool                        m_planarFailed = false;
 
     // Texture resources
     ComPtr<ID3D12Resource> m_d3d12Textures[MAX_TEXTURE_BUFFERS_3D];            // 3D texture resources
@@ -191,23 +283,23 @@ public:
     ComPtr<ID3D12RootSignature> m_compositeRS;
     ComPtr<ID3D12PipelineState> m_compositePSO;
 
-    // Native (non-D2D) 2D sprite pipeline — used for the SCENE_GAMETITLE background image,
-    // company logo, and starfield/firework particles, so the common-case title-screen frame
-    // never needs a Direct2D/D3D11-on-12 interop handoff (see DX12RenderFrame.cpp STEP 6.5).
-    ComPtr<ID3D12RootSignature> m_sprite2DImageRS;
-    ComPtr<ID3D12PipelineState> m_sprite2DImagePSO;
-    ComPtr<ID3D12RootSignature> m_sprite2DParticleRS;
-    ComPtr<ID3D12PipelineState> m_sprite2DParticlePSO;
-    ComPtr<ID3D12Resource>      m_sprite2DTex[2];                          // [0]=background image, [1]=company logo
-    D3D12_GPU_DESCRIPTOR_HANDLE m_sprite2DSRV[2] = {};                     // SRV handles in m_cbvSrvUavHeap
+    // Native SCENE_GAMETITLE pipeline (background, logos, starfield + fireworks particle ring) - see
+    // DX12TitlePipeline.h.  Declared after the device/heap members so it is destroyed before them.
+    DX12TitlePipeline m_title;
 
-    static constexpr UINT kMaxNative2DParticles = 512;                     // Covers 90 stars + 288 firework particles with headroom
-    struct Sprite2DParticleInstance { float centerX, centerY, halfW, halfH, r, g, b, a; }; // Matches HLSL ParticleInstance (32 bytes)
-    ComPtr<ID3D12Resource>      m_sprite2DParticleBuffer;                  // Upload-heap StructuredBuffer<ParticleInstance>, persistently mapped
-    Sprite2DParticleInstance*   m_sprite2DParticleMapped = nullptr;
-    D3D12_GPU_DESCRIPTOR_HANDLE m_sprite2DParticleSRV = {};
-    bool m_native2DBatchActive  = false;                                   // True only while FXManager is queueing stars/fireworks for the native path
-    UINT m_native2DParticleCount = 0;
+#if defined(_DEBUG)
+    DX12GpuProfiler   m_gpuProf;                                           // Timestamp queries behind the F12 timing capture
+#endif
+
+    // Per-frame-in-flight slicing of the frame-level constant buffers.  The CPU rewrites these every frame while
+    // the GPU may still be executing the previous 1-2 frames, so each frame owns its own 256-byte aligned slice
+    // (indexed by m_frameIndex).  Persistently mapped.
+    UINT   m_cameraCBStride      = 0;                                      // Bytes per frame slice of m_constantBuffer (b0)
+    UINT   m_globalLightCBStride = 0;                                      // Bytes per frame slice of m_globalLightBuffer (b3)
+    uint8_t* m_constantBufferMapped    = nullptr;
+    uint8_t* m_globalLightBufferMapped = nullptr;
+    D3D12_GPU_VIRTUAL_ADDRESS CameraCBAddress() const        { return m_constantBuffer->GetGPUVirtualAddress()    + static_cast<UINT64>(m_frameIndex) * m_cameraCBStride; }
+    D3D12_GPU_VIRTUAL_ADDRESS GlobalLightCBAddress() const   { return m_globalLightBuffer->GetGPUVirtualAddress() + static_cast<UINT64>(m_frameIndex) * m_globalLightCBStride; }
 
 #ifdef _DEBUG
     ComPtr<ID3D12InfoQueue> m_infoQueue;                                         // Cached info-queue for routing D3D12 validation errors to our log
@@ -262,14 +354,13 @@ public:
     void Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 color);     // Draw colored pixel
     void Blit2DColoredPixelFast(int x, int y, float pixelSize, const XMFLOAT4& color); // Hot-path draw for FX code already inside a valid D2D pass
 
-    // Native 2D particle batch — bracketed around FXManager::Render(true)/RenderFireworks()
-    // in the SCENE_GAMETITLE fast path (DX12RenderFrame.cpp STEP 6.5) so DrawFXPixel's DX12
-    // branch queues into m_sprite2DParticleBuffer instead of going through Direct2D. Every
-    // other DrawFXPixel call site (outside the bracketed window) is unaffected.
-    void BeginNative2DBatch();
-    void EndNative2DBatch();
-    void QueueNativeParticle(int x, int y, float pixelSize, const XMFLOAT4& color);
-    bool IsNative2DBatchActive() const { return m_native2DBatchActive; }
+    // Native 2D particle batch - bracketed around FXManager::Render(true)/RenderFireworks() inside
+    // DX12TitlePipeline::RecordBackdrop() so DrawFXPixel's DX12 branch queues into the title particle
+    // ring instead of going through Direct2D. Every other DrawFXPixel call site is unaffected.
+    void BeginNative2DBatch()                                                         { m_title.BeginParticles(m_frameIndex); }
+    void EndNative2DBatch()                                                           { m_title.EndParticles(); }
+    void QueueNativeParticle(int x, int y, float pixelSize, const XMFLOAT4& color)    { m_title.QueueParticle(x, y, pixelSize, color); }
+    bool IsNative2DBatchActive() const                                                { return m_title.IsBatchActive(); }
     void Blit2DObject(BlitObj2DIndexType iIndex, int iX, int iY);               // Blit 2D object
     void Blit2DObjectToSize(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight); // Blit 2D object to size
     void Blit2DObjectAtOffset(BlitObj2DIndexType iIndex, int iBlitX, int iBlitY,
@@ -280,6 +371,7 @@ public:
         int iDestW, int iDestH, float zoomFactor);                              // Blit 2D object with centered zoom crop
     void Blit2DObjectToSizeWithAlpha(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float alpha); // Blit with custom opacity
     void Blit2DAtlasTile(BlitObj2DIndexType iIndex, int iTileIndex, int iTileSizeX, int iTileSizeY, int iDestX, int iDestY); // Blit one tile from a tileset atlas
+    void Blit2DScrollingObjectToSize(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float scrollFraction, bool reverseDirection); // Blit 2D object to size with horizontally wrapped/scrolled content
     void Clear2DBlitQueue();                                                    // Clear 2D blit queue
 
     // Device access (base class interface)
@@ -473,6 +565,22 @@ private:
         D3D12_RESOURCE_STATES stateBefore,
         D3D12_RESOURCE_STATES stateAfter);                                      // Transition resource state
 
+    // Shadow mapping (DX12Renderer.cpp / DX12RenderFrame.cpp)
+    bool CreateShadowResources();                                               // Called from Initialize()
+    void ReleaseShadowResources();                                              // Called from Cleanup()
+    void RenderShadowPassDX12();                                                // Depth passes + b6 upload; called from RenderGamePlay
+    void UpdateReflectionProbeDX12(float deltaTime);                            // Rebuild + upload scene probe, publish g_reflectionFrame
+    void ReleaseReflectionResourcesDX12();                                      // Called from Cleanup() (GPU idle)
+    bool CreatePlanarResourcesDX12();                                           // Lazy; sized from config planarQuality
+    void ReleasePlanarResourcesDX12();                                          // Called from Cleanup() (GPU idle)
+    bool CreateCaptureResourcesDX12();                                          // Lazy, at the sky probe's size
+    void ReleaseCaptureResourcesDX12();                                         // Called from Cleanup() (GPU idle)
+    void RenderReflectionCaptureDX12(float deltaTime);                          // One face per frame; AFTER the planar pass
+    void RestoreMainPassDX12();                                                 // Re-binds the main root signature / PSO / targets / root arguments
+    D3D12_GPU_DESCRIPTOR_HANDLE CurrentShadowTableDX12() const;                 // Main t8-t11 table, live variant once a capture cycle completed
+    void PlanarPlanDX12();                                                      // Registers reflector planes + decides active (BEFORE the shadow pass / b6)
+    void RenderPlanarPassDX12();                                                // Mirror render of every plane; called from RenderGamePlay
+
     // Game scene render helpers (implemented in DX12RenderFrame.cpp)
     inline void RenderGamePlay(float deltaTime);
     inline void RenderIntroMovie();
@@ -488,12 +596,6 @@ private:
         D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle,
         const D3D12_VIEWPORT&       vp,
         const D3D12_RECT&           scissor);
-
-    // Native (non-D2D) 2D sprite pipeline — see member declarations above for context
-    bool CreateSprite2DPipelines();                                        // Compile + create the image and particle PSOs/root sigs
-    bool LoadSprite2DNativeTexture(int slot, const std::wstring& filename); // WIC-decode straight to a native SRV (bypasses D2D)
-    void DrawSprite2DImage(int slot, int iX, int iY, int iWidth, int iHeight, float alpha = 1.0f); // Native textured-quad draw
-    void FlushNative2DParticles();                                         // Issue the single DrawInstanced call for all queued particles
 
 #ifdef _DEBUG
     void DrainInfoQueue();                          // Drain m_infoQueue and route pending D3D12 validation messages to the game log

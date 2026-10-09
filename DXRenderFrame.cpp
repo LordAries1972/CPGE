@@ -97,9 +97,7 @@ void DX11Renderer::RenderFrame()
 
     // Double-check rendering state after acquiring lock
     if (threadManager.threadVars.bIsRendering.load()) {
-        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[RENDERFRAME] Another render operation already active - aborting");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[RENDERFRAME] Another render operation already active - aborting");
         return;
     }
 
@@ -167,9 +165,7 @@ void DX11Renderer::RenderFrame()
                     // Verify window is not minimized before attempting device reset
                     if (!sysUtils.IsWindowMinimized()) 
                     {
-                        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[RENDERFRAME] Device removed detected (0x%08X). Attempting reset.", deviceStatus);
-                        #endif
+                        debug.logDiagMessage(LogLevel::LOG_WARNING, L"[RENDERFRAME] Device removed detected (0x%08X). Attempting reset.", deviceStatus);
                         
                         threadManager.threadVars.bIsResizing.store(true); // Set resize flag for reset operation
                         
@@ -180,9 +176,7 @@ void DX11Renderer::RenderFrame()
                             ResumeLoader();                              
                         }
                         catch (const std::exception& e) {
-                            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Device reset failed: %hs", e.what());
-                            #endif
+                            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Device reset failed: %hs", e.what());
                         }
                         
                         // Clear resize flag
@@ -260,16 +254,12 @@ void DX11Renderer::RenderFrame()
                 }
                 else
                 {
-                    #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[RENDERFRAME] Could not acquire D2D lock for clearing - skipping clear");
-                    #endif
+                    debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[RENDERFRAME] Could not acquire D2D lock for clearing - skipping clear");
                 }
             }
             catch (const std::exception& e)
             {
-                #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                    debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Clear operation failed: %hs", e.what());
-                #endif
+                debug.logDiagMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Clear operation failed: %hs", e.what());
                 threadManager.threadVars.bIsRendering.store(false);     // Clear rendering flag on error
                 #ifdef RENDERER_IS_THREAD
                     continue;                                           // Continue thread loop on error
@@ -341,7 +331,24 @@ void DX11Renderer::RenderFrame()
             #endif
 
             // STEP 3: Re-bind render targets for 3D rendering (also restores after D2D EndDraw)
-            m_d3dContext->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
+            // With MSAA on, scenes that draw 3D render into the multisampled target (the D2D background drawn
+            // above is blitted into it first) and are resolved into the back buffer before the D2D overlay.
+            // Scenes without 3D content keep drawing straight to the single-sample back buffer.
+            const bool msaaPass = UsingMsaa() &&
+                (scene.stSceneType == SceneType::SCENE_GAMETITLE || scene.stSceneType == SceneType::SCENE_GAMEPLAY);
+            if (msaaPass)
+            {
+                BeginMsaaScenePass();
+            }
+            else if (UsingMsaa())
+            {
+                // The depth buffer is multisampled, so it cannot be bound with the single-sample back buffer
+                m_d3dContext->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), nullptr);
+            }
+            else
+            {
+                m_d3dContext->OMSetRenderTargets(1, m_renderTargetView.GetAddressOf(), m_depthStencilView.Get());
+            }
 
             // Scene-specific 3D rendering
             switch (scene.stSceneType)
@@ -408,6 +415,10 @@ void DX11Renderer::RenderFrame()
                 }
             #endif
 
+            // End of the 3D pass: resolve the MSAA target into the back buffer (D2D overlay + fade draw on it)
+            if (msaaPass)
+                ResolveMsaaScenePass();
+
             // Pre-update the video frame BEFORE D2D BeginDraw.
             // context->Map() and CopyResource() between BeginDraw/EndDraw trigger
             // SEH exception 0x87D from the D3D11 debug layer (D3D11_3SDKLayers.dll).
@@ -435,9 +446,7 @@ void DX11Renderer::RenderFrame()
                         m_d2dRenderTarget->BeginDraw();                  
                     }
                     catch (const std::exception& e) {
-                        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Failed to begin 2D draw: %hs", e.what());
-                        #endif
+                        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Failed to begin 2D draw: %hs", e.what());
                         
                         // Clear rendering flag
                         threadManager.threadVars.bIsRendering.store(false); 
@@ -688,9 +697,7 @@ void DX11Renderer::RenderFrame()
                        fxManager.Render2D();                                  // Render 2D effects overlay
                    }
                    catch (const std::exception& e) {
-                       #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                           debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] 2D effects rendering failed: %hs", e.what());
-                       #endif
+                       debug.logDiagMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] 2D effects rendering failed: %hs", e.what());
                    }
 
                    // Render GUI windows and interface elements
@@ -698,9 +705,7 @@ void DX11Renderer::RenderFrame()
                        guiManager.Render();                                   // Render all GUI windows and controls
                    }
                    catch (const std::exception& e) {
-                       #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                           debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] GUI rendering failed: %hs", e.what());
-                       #endif
+                       debug.logDiagMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] GUI rendering failed: %hs", e.what());
                    }
 
                    // Console window rendering is now handled by GUIManager::Render()
@@ -730,9 +735,7 @@ void DX11Renderer::RenderFrame()
                        HRESULT hr = m_d2dRenderTarget->EndDraw();             // End Direct2D rendering session
                        if (FAILED(hr))
                        {
-                           #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                               debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Direct2D EndDraw failed (0x%08X)", hr);
-                           #endif
+                           debug.logDiagMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Direct2D EndDraw failed (0x%08X)", hr);
                        }
 
                        // STEP 8G: Render post-processing effects (after 2D but before present)
@@ -740,9 +743,7 @@ void DX11Renderer::RenderFrame()
                    }
                    catch (const std::exception& e)
                    {
-                       #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                           debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Post-processing effects failed: %hs", e.what());
-                       #endif
+                       debug.logDiagMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Post-processing effects failed: %hs", e.what());
                    }
 
                    #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
@@ -751,9 +752,7 @@ void DX11Renderer::RenderFrame()
                }
                else
                {
-                   #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                       debug.logLevelMessage(LogLevel::LOG_WARNING, L"[RENDERFRAME] Could not acquire D2D render lock - skipping 2D operations");
-                   #endif
+                   debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[RENDERFRAME] Could not acquire D2D render lock - skipping 2D operations");
                }
            }
 
@@ -791,9 +790,7 @@ void DX11Renderer::RenderFrame()
 
                    // Check for present failure.
                    if (FAILED(presentResult)) {
-                       #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                           debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Present failed (0x%08X)", presentResult);
-                       #endif
+                       debug.logDiagMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Present failed (0x%08X)", presentResult);
                    }
 
                    // If VSync is disabled, apply a conservative software cap to reduce runaway CPU usage.
@@ -811,9 +808,7 @@ void DX11Renderer::RenderFrame()
                }
            }
            catch (const std::exception& e) {
-               #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                   debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Present operation failed: %hs", e.what());
-               #endif
+               debug.logDiagMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Present operation failed: %hs", e.what());
            }
 
            #if defined(_DEBUG)
@@ -840,9 +835,7 @@ void DX11Renderer::RenderFrame()
    catch (const std::exception& e)
    {
        // CRITICAL: Exception handling with proper cleanup
-       #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-           debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"[RENDERFRAME] Critical exception occurred: %hs", e.what());
-       #endif
+       debug.logDiagMessage(LogLevel::LOG_CRITICAL, L"[RENDERFRAME] Critical exception occurred: %hs", e.what());
        
        // Ensure rendering flag is cleared on exception
        threadManager.threadVars.bIsRendering.store(false);
@@ -859,6 +852,337 @@ void DX11Renderer::RenderFrame()
    threadManager.threadVars.bIsRendering.store(false);
 
    // Note: exclusiveRenderLock will be automatically released when it goes out of scope
+}
+
+/* ---------------------------------------------------------------------
+   Shadow depth passes + per-frame shadow binding (b6 / t8 / t9 / s2).
+   `lights` MUST be the exact vector uploaded to the GlobalLightBuffer so
+   lightShadowInfo[i] lines up with globalLights[i] in the pixel shader.
+   Always leaves b6 bound (useShadowMap = 0 when shadows are off) so the
+   pixel shader never reads an unbound constant buffer.
+   --------------------------------------------------------------------- */
+void DX11Renderer::RenderShadowPass(const std::vector<LightStruct>& lights)
+{
+    ID3D11DeviceContext* ctx = m_d3dContext.Get();
+    if (!ctx) return;
+
+    // Unbind t8/t9 first - the depth textures cannot be SRV and DSV at the same time.
+    ID3D11ShaderResourceView* nullSRVs[2] = { nullptr, nullptr };
+    ctx->PSSetShaderResources(SLOT_shadowMap, 2, nullSRVs);
+
+    m_shadowFrame.enabled = false;
+    m_shadowFrame.views.clear();
+
+    if (m_shadowResourcesReady && threadManager.threadVars.bLoaderTaskFinished.load())
+    {
+        // Gather world-space bounding spheres of every shadow-casting mesh.
+        m_shadowCasters.clear();
+        m_shadowCasterModels.clear();
+        for (int i = 0; i < MAX_SCENE_MODELS; ++i)
+        {
+            Model& m = scene.scene_models[i];
+            if (!m.m_isLoaded || m.bIsDestroyed) continue;
+            ModelInfo& mi = m.m_modelInfo;
+            if (mi.bIsTransformProxy || mi.bIsTransformOnly || !mi.castShadows) continue;
+            if (!mi.vertexBuffer || !mi.indexBuffer || mi.indices.empty()) continue;
+            if (!ModelComputeShadowBounds(mi)) continue;
+
+            XMFLOAT4X4 w;
+            XMStoreFloat4x4(&w, mi.worldMatrix);
+            const float scale[3] = { mi.scale.x, mi.scale.y, mi.scale.z };
+            ShadowCaster c{};
+            ShadowMakeWorldSphere(mi.shadowBoundsCenter, mi.shadowBoundsRadius, scale, &w._11, c);
+            m_shadowCasters.push_back(c);
+            m_shadowCasterModels.push_back(i);
+        }
+
+        const XMFLOAT3 cp = myCamera.GetPosition();
+        const float camPos[3] = { cp.x, cp.y, cp.z };
+        BuildShadowFrame(lights, m_shadowCasters, camPos, m_shadowFrame);
+    }
+
+    if (m_shadowFrame.enabled)
+    {
+        // Save the main-pass state the depth passes overwrite.
+        ComPtr<ID3D11RenderTargetView> savedRTV;
+        ComPtr<ID3D11DepthStencilView> savedDSV;
+        ctx->OMGetRenderTargets(1, savedRTV.GetAddressOf(), savedDSV.GetAddressOf());
+        UINT numVP = 1;
+        D3D11_VIEWPORT savedVP = {};
+        ctx->RSGetViewports(&numVP, &savedVP);
+        ComPtr<ID3D11RasterizerState> savedRS;
+        ctx->RSGetState(savedRS.GetAddressOf());
+
+        ctx->RSSetState(m_shadowRasterState.Get());
+        ctx->IASetInputLayout(m_shadowInputLayout.Get());
+        ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ctx->VSSetShader(m_shadowVS.Get(), nullptr, 0);
+        ctx->PSSetShader(nullptr, nullptr, 0);                                  // depth only
+        ctx->VSSetConstantBuffers(0, 1, m_shadowPassCB.GetAddressOf());
+
+        const UINT stride = sizeof(Vertex);
+        const UINT offset = 0;
+
+        for (const ShadowView& view : m_shadowFrame.views)
+        {
+            const bool isDir = (view.target == SHADOW_TARGET_DIRECTIONAL);
+            ID3D11DepthStencilView* dsv = isDir ? m_shadowDirDSV.Get() : m_shadowLocalDSV[view.target].Get();
+            if (!dsv) continue;
+            const float size = static_cast<float>(isDir ? m_shadowDirSize : m_shadowLocalSize);
+
+            ctx->OMSetRenderTargets(0, nullptr, dsv);
+            ctx->ClearDepthStencilView(dsv, D3D11_CLEAR_DEPTH, 1.0f, 0);
+            D3D11_VIEWPORT vp = { 0.0f, 0.0f, size, size, 0.0f, 1.0f };
+            ctx->RSSetViewports(1, &vp);
+
+            for (size_t c = 0; c < m_shadowCasters.size(); ++c)
+            {
+                if (!ShadowViewAffectsCaster(view, m_shadowCasters[c])) continue;
+                ModelInfo& mi = scene.scene_models[m_shadowCasterModels[c]].m_modelInfo;
+
+                XMFLOAT4X4 w;
+                XMStoreFloat4x4(&w, mi.worldMatrix);
+                float wlvp[16];
+                ShadowMat4Mul(&w._11, view.viewProj, wlvp);
+
+                D3D11_MAPPED_SUBRESOURCE mapped = {};
+                if (FAILED(ctx->Map(m_shadowPassCB.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) continue;
+                float* dst = static_cast<float*>(mapped.pData);
+                for (int r = 0; r < 4; ++r)                                     // transpose for HLSL column_major
+                    for (int col = 0; col < 4; ++col)
+                        dst[col * 4 + r] = wlvp[r * 4 + col];
+                dst[16] = mi.scale.x; dst[17] = mi.scale.y; dst[18] = mi.scale.z; dst[19] = 1.0f;
+                ctx->Unmap(m_shadowPassCB.Get(), 0);
+
+                ctx->IASetVertexBuffers(0, 1, mi.vertexBuffer.GetAddressOf(), &stride, &offset);
+                ctx->IASetIndexBuffer(mi.indexBuffer.Get(), DXGI_FORMAT_R32_UINT, 0);
+                ctx->DrawIndexed(static_cast<UINT>(mi.indices.size()), 0, 0);
+            }
+        }
+
+        // Restore the main pass.
+        ctx->OMSetRenderTargets(1, savedRTV.GetAddressOf(), savedDSV.Get());
+        ctx->RSSetViewports(1, &savedVP);
+        ctx->RSSetState(savedRS.Get());
+    }
+
+    // b6 for this frame (always uploaded; zeroed flags when shadows are off).
+    if (m_shadowFrameCB)
+    {
+        ShadowBufferData sb;
+        ShadowPackGPU(m_shadowFrame, true, sb);
+        D3D11_MAPPED_SUBRESOURCE mapped = {};
+        if (SUCCEEDED(ctx->Map(m_shadowFrameCB.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+        {
+            memcpy(mapped.pData, &sb, sizeof(ShadowBufferData));
+            ctx->Unmap(m_shadowFrameCB.Get(), 0);
+        }
+        ctx->PSSetConstantBuffers(SLOT_SHADOW_BUFFER, 1, m_shadowFrameCB.GetAddressOf());
+    }
+
+    // t8 / t9 / s2 stay bound for every model drawn this frame (Model::Render no longer touches them).
+    if (m_shadowFrame.enabled)
+    {
+        ID3D11ShaderResourceView* srvs[2] = { m_shadowDirSRV.Get(), m_shadowLocalSRV.Get() };
+        ctx->PSSetShaderResources(SLOT_shadowMap, 2, srvs);                     // t8, t9
+    }
+    if (m_shadowCmpSampler)
+        ctx->PSSetSamplers(SLOT_SHADOW_SAMPLER_STATE, 1, m_shadowCmpSampler.GetAddressOf());
+}
+
+/* ---------------------------------------------------------------------
+   Planar reflections (see "Planar Reflections" in Lights.h).
+   PlanarPlan(): registers every reflector's plane for this frame and decides whether the planar array
+   is active.  Runs BEFORE RenderShadowPass so the b6 upload already carries the planes.
+   --------------------------------------------------------------------- */
+void DX11Renderer::PlanarPlan()
+{
+    PlanarBeginPlan();
+
+    if (config.myConfig.planarEnabled && threadManager.threadVars.bLoaderTaskFinished.load())
+    {
+        const XMFLOAT3 cp = myCamera.GetPosition();
+        const float camPos[3] = { cp.x, cp.y, cp.z };
+        for (int i = 0; i < MAX_SCENE_MODELS; ++i)
+        {
+            Model& m = scene.scene_models[i];
+            m.m_modelInfo.planarPlaneIndex = -1;
+            if (!m.m_isLoaded || m.bIsDestroyed || m.m_modelInfo.bIsTransformProxy || m.m_modelInfo.bIsTransformOnly) continue;
+            if (!ModelIsPlanarReflector(m.m_modelInfo)) continue;
+            XMFLOAT4X4 w;
+            XMStoreFloat4x4(&w, m.m_modelInfo.worldMatrix);
+            const float scale[3] = { m.m_modelInfo.scale.x, m.m_modelInfo.scale.y, m.m_modelInfo.scale.z };
+            ModelPlanarRegister(m.m_modelInfo, &w._11, scale, camPos);
+        }
+    }
+
+    if (g_planarFrame.planeCount > 0 && !m_planarColorTex && !m_planarFailed)
+        CreatePlanarResources();
+
+    PlanarFrameBegin(m_planarColorTex != nullptr, static_cast<float>(m_renderTargetWidth), static_cast<float>(m_renderTargetHeight));
+}
+
+/* ---------------------------------------------------------------------
+   Planar reflection pass: re-renders every non-reflector model through each plane's mirrored camera
+   into that plane's array slice, then binds the array at t11.  Runs AFTER RenderShadowPass (shadow maps
+   + b6 already bound) and BEFORE the main model loop.  The model loop re-sets every model's view /
+   projection / camera each frame, so overwriting them here is safe.  t11 is unbound while a slice is a
+   render target.
+   --------------------------------------------------------------------- */
+void DX11Renderer::RenderPlanarPass()
+{
+    ID3D11DeviceContext* ctx = m_d3dContext.Get();
+    if (!ctx) return;
+
+    ID3D11ShaderResourceView* nullSRV = nullptr;
+    ctx->PSSetShaderResources(SLOT_planarMap, 1, &nullSRV);
+
+    if (g_planarFrame.active && g_planarFrame.renderThisFrame && m_planarColorTex)
+    {
+        // Save the main-pass state.
+        ComPtr<ID3D11RenderTargetView> savedRTV;
+        ComPtr<ID3D11DepthStencilView> savedDSV;
+        ctx->OMGetRenderTargets(1, savedRTV.GetAddressOf(), savedDSV.GetAddressOf());
+        UINT numVP = 1;
+        D3D11_VIEWPORT savedVP = {};
+        ctx->RSGetViewports(&numVP, &savedVP);
+
+        D3D11_VIEWPORT vp = { 0.0f, 0.0f, static_cast<float>(m_planarW), static_cast<float>(m_planarH), 0.0f, 1.0f };
+
+        // Real camera (row-vector float[16] == XMMATRIX bytes).
+        XMFLOAT4X4 v4, p4;
+        XMStoreFloat4x4(&v4, myCamera.GetViewMatrix());
+        XMStoreFloat4x4(&p4, myCamera.GetProjectionMatrix());
+        const XMFLOAT3 cp = myCamera.GetPosition();
+        const float camPos[3] = { cp.x, cp.y, cp.z };
+
+        for (int plane = 0; plane < g_planarFrame.planeCount; ++plane)
+        {
+            ID3D11RenderTargetView* rtv = m_planarRTV[plane].Get();
+            ctx->OMSetRenderTargets(1, &rtv, m_planarDSV.Get());
+            const float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+            ctx->ClearRenderTargetView(rtv, clearColor);
+            ctx->ClearDepthStencilView(m_planarDSV.Get(), D3D11_CLEAR_DEPTH, 1.0f, 0);
+            ctx->RSSetViewports(1, &vp);
+
+            XMFLOAT4X4 mv4, mp4;
+            float rcam[3];
+            PlanarBuildCamera(&v4._11, &p4._11, camPos, g_planarFrame.planes[plane].n, g_planarFrame.planes[plane].d,
+                              true, &mv4._11, &mp4._11, rcam);
+            const XMMATRIX mirrorView = XMLoadFloat4x4(&mv4);
+            const XMMATRIX mirrorProj = XMLoadFloat4x4(&mp4);
+
+            for (int i = 0; i < MAX_SCENE_MODELS; ++i)
+            {
+                Model& m = scene.scene_models[i];
+                if (!m.m_isLoaded || m.m_modelInfo.bIsTransformProxy) continue;
+                if (ModelIsPlanarReflector(m.m_modelInfo)) continue;           // a reflector never reflects itself
+
+                m.m_modelInfo.fxActive         = false;
+                m.m_modelInfo.viewMatrix       = mirrorView;
+                m.m_modelInfo.projectionMatrix = mirrorProj;
+                m.m_modelInfo.cameraPosition   = XMFLOAT3(rcam[0], rcam[1], rcam[2]);
+                m.Render(ctx, 0.0f);
+            }
+        }
+
+        ctx->OMSetRenderTargets(1, savedRTV.GetAddressOf(), savedDSV.Get());
+        ctx->RSSetViewports(1, &savedVP);
+        g_planarFrame.hasImage = true;
+    }
+
+    if (g_planarFrame.active && g_planarFrame.hasImage && m_planarSRV)
+    {
+        ID3D11ShaderResourceView* srv = m_planarSRV.Get();
+        ctx->PSSetShaderResources(SLOT_planarMap, 1, &srv);
+    }
+}
+
+/* ---------------------------------------------------------------------
+   Live scene capture (see "Live scene capture" in Lights.h).  Captures ONE face of the capture cube per
+   frame: the face starts as a copy of the sky probe face, every model is drawn over it with a 90 degree
+   camera at the capture point, and after the sixth face the mip chain is regenerated and the cube becomes
+   the t10 source.  Runs AFTER RenderShadowPass (shadow maps + b6 bound) and before the main model loop.
+   --------------------------------------------------------------------- */
+void DX11Renderer::RenderReflectionCapture(float deltaTime)
+{
+    ID3D11DeviceContext* ctx = m_d3dContext.Get();
+    if (!ctx || !m_reflTex || !m_reflSRV || !g_reflectionFrame.active) return;
+
+    if (!config.myConfig.reflectionLive || !threadManager.threadVars.bLoaderTaskFinished.load())
+    {
+        g_reflectionCapture.ready = false;
+        return;
+    }
+    if (!m_capTex && !m_capFailed)
+        CreateCaptureResources();
+    if (!m_capTex) return;
+
+    const XMFLOAT3 cp = myCamera.GetPosition();
+    const float camPos[3] = { cp.x, cp.y, cp.z };
+    int face = 0;
+    bool lastFace = false;
+    if (ReflectionCaptureNext(deltaTime, camPos, face, lastFace))
+    {
+        // t10 -> sky while a face of the capture cube is a render target.
+        ID3D11ShaderResourceView* skySRV = m_reflSRV.Get();
+        ctx->PSSetShaderResources(SLOT_sceneProbe, 1, &skySRV);
+
+        ComPtr<ID3D11RenderTargetView> savedRTV;
+        ComPtr<ID3D11DepthStencilView> savedDSV;
+        ctx->OMGetRenderTargets(1, savedRTV.GetAddressOf(), savedDSV.GetAddressOf());
+        UINT numVP = 1;
+        D3D11_VIEWPORT savedVP = {};
+        ctx->RSGetViewports(&numVP, &savedVP);
+
+        // Base: the sky probe's face (mip 0), so the background behind the models is the procedural sky.
+        const UINT sub = D3D11CalcSubresource(0, static_cast<UINT>(face), static_cast<UINT>(m_reflProbe.mipCount));
+        ctx->CopySubresourceRegion(m_capTex.Get(), sub, 0, 0, 0, m_reflTex.Get(), sub, nullptr);
+
+        ID3D11RenderTargetView* rtv = m_capRTV[face].Get();
+        ctx->OMSetRenderTargets(1, &rtv, m_capDSV.Get());
+        ctx->ClearDepthStencilView(m_capDSV.Get(), D3D11_CLEAR_DEPTH, 1.0f, 0);
+        D3D11_VIEWPORT vp = { 0.0f, 0.0f, static_cast<float>(m_reflProbe.size), static_cast<float>(m_reflProbe.size), 0.0f, 1.0f };
+        ctx->RSSetViewports(1, &vp);
+
+        float v[16], p[16];
+        const float nearZ = std::max(static_cast<float>(config.myConfig.nearPlane), 0.05f);
+        const float farZ  = std::max(static_cast<float>(config.myConfig.farPlane), nearZ + 1.0f);
+        ReflectionCaptureFaceCamera(face, g_reflectionCapture.origin, nearZ, farZ, true, false, v, p);
+        XMFLOAT4X4 v4, p4;
+        std::memcpy(&v4, v, sizeof(v));
+        std::memcpy(&p4, p, sizeof(p));
+        const XMMATRIX capView = XMLoadFloat4x4(&v4);
+        const XMMATRIX capProj = XMLoadFloat4x4(&p4);
+        const XMFLOAT3 origin(g_reflectionCapture.origin[0], g_reflectionCapture.origin[1], g_reflectionCapture.origin[2]);
+
+        const bool planarWasActive = g_planarFrame.active;                      // reflectors' screen-space planar mix is meaningless here
+        g_planarFrame.active = false;
+        for (int i = 0; i < MAX_SCENE_MODELS; ++i)
+        {
+            Model& m = scene.scene_models[i];
+            if (!m.m_isLoaded || m.m_modelInfo.bIsTransformProxy) continue;
+            m.m_modelInfo.fxActive         = false;
+            m.m_modelInfo.viewMatrix       = capView;
+            m.m_modelInfo.projectionMatrix = capProj;
+            m.m_modelInfo.cameraPosition   = origin;
+            m.Render(ctx, 0.0f);
+        }
+        g_planarFrame.active = planarWasActive;
+
+        ctx->OMSetRenderTargets(1, savedRTV.GetAddressOf(), savedDSV.Get());
+        ctx->RSSetViewports(1, &savedVP);
+
+        if (lastFace)
+        {
+            ctx->GenerateMips(m_capSRV.Get());
+            g_reflectionCapture.ready = true;
+        }
+    }
+
+    // t10: the capture cube once a full cycle exists, otherwise the sky cube.
+    ID3D11ShaderResourceView* probeSRV = g_reflectionCapture.ready ? m_capSRV.Get() : m_reflSRV.Get();
+    ctx->PSSetShaderResources(SLOT_sceneProbe, 1, &probeSRV);
 }
 
 /* ---------------------------------------------------------------------
@@ -894,9 +1218,7 @@ inline void DX11Renderer::RenderGamePlay(float deltaTime)
             m_d3dContext->VSSetConstantBuffers(SLOT_CONST_BUFFER, 1, m_cameraConstantBuffer.GetAddressOf());
         }
         else {
-            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Failed to map camera constant buffer (0x%08X)", hr);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Failed to map camera constant buffer (0x%08X)", hr);
         }
 
         // Debug pixel shader controls (debug builds only)
@@ -921,8 +1243,9 @@ inline void DX11Renderer::RenderGamePlay(float deltaTime)
         // DrawIndexed in the loop below sees the correct scene lights in b3.
         // Previously this block sat after the loop — causing all models to be
         // drawn with stale/zero light data on every frame.
+        // globalLights is hoisted so the shadow pass uses the SAME vector (same order).
+        std::vector<LightStruct> globalLights = lightsManager.GetAllLights();
         {
-            std::vector<LightStruct> globalLights = lightsManager.GetAllLights();
 
             GlobalLightBuffer glb = {};
             glb.numLights = static_cast<int>(globalLights.size());
@@ -959,6 +1282,22 @@ inline void DX11Renderer::RenderGamePlay(float deltaTime)
                 m_d3dContext->PSSetConstantBuffers(SLOT_GLOBAL_LIGHT_BUFFER, 1, m_globalLightBuffer.GetAddressOf());
             }
         }
+
+        // Planar reflection planning: registers reflector planes + decides active BEFORE b6 is uploaded.
+        PlanarPlan();
+
+        // Scene reflection probe (t5 for models without their own environment map).  Must run
+        // BEFORE RenderShadowPass: that uploads b6, which carries the reflection scale / mip range.
+        UpdateReflectionProbe(globalLights, deltaTime);
+
+        // Shadow depth passes, then bind b6 / t8 / t9 / s2 for the model loop below.
+        RenderShadowPass(globalLights);
+
+        // Planar reflection mirror render (needs the shadow maps / b6 bound above), then t11.
+        RenderPlanarPass();
+
+        // Live scene capture into the reflection cube (one face per frame), then t10.
+        RenderReflectionCapture(deltaTime);
 
         // Render 3D models if loading is complete
         if (threadManager.threadVars.bLoaderTaskFinished.load())
@@ -1051,9 +1390,7 @@ void DX11Renderer::RenderBackgroundImage()
     ThreadLockHelper d2dBgLock(threadManager, D2DLockName, 100);
     if (!d2dBgLock.IsLocked())
     {
-        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[RenderBackgroundImage] Could not acquire D2D lock - skipping background");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[RenderBackgroundImage] Could not acquire D2D lock - skipping background");
         return;
     }
 
@@ -1155,16 +1492,12 @@ void DX11Renderer::RenderBackgroundImage()
         HRESULT hr = m_d2dRenderTarget->EndDraw();
         if (FAILED(hr))
         {
-            #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RenderBackgroundImage] EndDraw failed (0x%08X)", hr);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[RenderBackgroundImage] EndDraw failed (0x%08X)", hr);
         }
     }
     catch (const std::exception& e)
     {
-        #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[RenderBackgroundImage] EndDraw exception: %hs", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[RenderBackgroundImage] EndDraw exception: %hs", e.what());
     }
 } // End of RenderBackgroundImage()
 

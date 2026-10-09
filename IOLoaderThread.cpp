@@ -60,7 +60,9 @@
 
 #if defined(__USE_MP3PLAYER__)
     #include "WinMediaPlayer.h"
-#elif defined(__USE_XMPLAYER__)
+#endif 
+
+#if defined(__USE_XMPLAYER__)
     #include "XMMODPlayer.h"
 #elif defined(__USE_S3MPLAYER__)
     #include "S3MPlayer.h"
@@ -75,7 +77,12 @@
 // Include our Music Playback system we are using.
 #if defined(__USE_MP3PLAYER__)
     extern MediaPlayer player;
-#elif defined(__USE_XMPLAYER__)
+    #if defined(PLATFORM_WINDOWS)
+        extern HWND hwnd;                                   // Main window (main.cpp) - needed by player.Initialize()
+    #endif
+#endif
+
+#if defined(__USE_XMPLAYER__)
     extern XMMODPlayer modPlayer;
 #elif defined(__USE_S3MPLAYER__)
     extern S3MPlayer modPlayer;
@@ -106,7 +113,7 @@ extern LightsManager    lightsManager;
 extern GamePlayer       gamePlayer;
 extern bool             bResizing;
 extern int              textScrollerEffectID;
-extern bool             Load_Music();                                               // Declared in main.cpp
+extern bool             Load_Music(wchar_t* wcFileName);                                               // Declared in main.cpp
 extern std::wstring     baseDir;
 
 /* Windows-only system references (DX builds are inherently Windows). */
@@ -131,6 +138,35 @@ extern std::wstring     baseDir;
 
 // Forward Declarations
 PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, const Vector2& startPosition);
+
+// Title-screen 3D starfield size. DX12 trimmed by 10% (80 -> 72) to hold 60fps.
+#if defined(__USE_DIRECTX_12__)
+    constexpr int kTitleStarCount = 80;
+#else
+    constexpr int kTitleStarCount = 80;
+#endif
+
+/* ----------------------------------------------------------------
+   LoadMusicFile -- adapter for main.cpp's Load_Music(wchar_t*).
+   Load_Music() takes a MUTABLE wchar_t* relative to AssetsDir, so
+   string literals / std::filesystem::path cannot be passed directly.
+   An empty name means "the default tune":
+     MP3 player     : SingleMP3Filename (Load_Music() builds
+                      AssetsDir / name, so an empty name would resolve
+                      to the Assets folder itself and fail to load).
+     Tracker players: the name is ignored; Load_Music() picks the tune
+                      from the current scene type.
+---------------------------------------------------------------- */
+static bool LoadMusicFile(const std::wstring& assetsRelativeName)
+{
+    std::wstring name = assetsRelativeName;
+    #if defined(__USE_MP3PLAYER__)
+        if (name.empty())
+            name = SingleMP3Filename.wstring();
+    #endif
+    return Load_Music(name.data());
+}
+
 
 /* ================================================================
    UNIFIED LoaderTaskThread() -- one body covers all pipelines.
@@ -205,6 +241,7 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
                 {
                     fxManager.StopZooming();                                        // In case we are returning from somewhere where a zooming effect maybe active.
                     fxManager.StopFireworks();                                      // In case we are returning from somewhere where fireworks maybe active.
+                    fxManager.StopEmissionPulsator(fxManager.emissionPulsatorID);   // The looping emission pulse must not outlive the title scene.
                     threadManager.threadVars.bLoaderTaskFinished.store(false);
                     threadManager.threadVars.b2DTexturesLoaded.store(false);
                     if (LoadAllKnownTextures())
@@ -254,6 +291,7 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
                 {
                     fxManager.StopZooming();                                        // In case we are returning from somewhere where a zooming effect maybe active.
                     fxManager.StopFireworks();                                      // In case we are returning from somewhere where fireworks maybe active.
+                    fxManager.StopEmissionPulsator(fxManager.emissionPulsatorID);   // The looping emission pulse must not outlive the title scene.
                     threadManager.threadVars.bLoaderTaskFinished.store(false);
                     debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene Intro Movie.");
 
@@ -288,8 +326,6 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
                         std::wstring MyFilename = L"loader.s3m";
                     #elif defined(__USE_MPTMPLAYER__)
                         std::wstring MyFilename = L"loader.mptm";
-                    #else
-                        std::wstring MyFilename = L"loader.mp3";
                     #endif
 
                     auto fileName = AssetsDir / MyFilename;
@@ -302,6 +338,17 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
                     g_currentMusicFile = fileName.wstring();
                     if (!config.myConfig.playMusic)
                         modPlayer.Pause();
+                #endif
+
+                // Start the loader music track if using MP3
+                #if defined(__USE_MP3PLAYER__)
+                    const std::wstring MyFilename = L"loader.mp3";
+                    if (!LoadMusicFile(MyFilename))                         // Load_Music() prepends AssetsDir itself
+                    {
+                        threadManager.threadVars.bLoaderTaskFinished.store(true);
+                        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[LOADER]: Failed to load the requested MP3 file.");
+                        return;
+                    }
                 #endif
 
                 threadManager.threadVars.bLoaderTaskFinished.store(false);
@@ -348,7 +395,7 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
                     #if defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
                         modPlayer.FadeOutAndStop(1000);
                     #endif
-                    Load_Music();
+                    LoadMusicFile(L"");
 
                     // Camera setup:
                     //   Vulkan uses iOrigWidth/iOrigHeight directly (original behaviour).
@@ -418,11 +465,12 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
                         [this]()
                         {
                             guiManager.CreateGameMenuWindow(L"winGameMenu");
-                            fxManager.CreateStarfield(80, 800.0f, 1000.0f, gtStarOrigin, true);
+                            fxManager.CreateStarfield(kTitleStarCount, 800.0f, 1000.0f, gtStarOrigin, true);
                             fxManager.StopLoadingText();
                             fxManager.ZoomInitialise(ZoomFXFunction::Zoom2D, 0.20f, 0.15f, int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
                             fxManager.StartZoom(0.015f);
                             fxManager.StartFireworks(0.5f);
+                            fxManager.EmissionPulsator(3.0f);                       // Model emission fades in then out over 5 seconds, capped at the Emission Intensity setting
                             // Gentle brightness pulse — only fades to 75% opacity, 2-second half-cycles
                             fxManager.StartImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO, 25.0f, 3.0f);
 
@@ -511,11 +559,12 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
                         {
                             // Reopen title-screen GUI and restart FX at the new dimensions.
                             guiManager.CreateGameMenuWindow(L"winGameMenu");
-                            fxManager.CreateStarfield(80, 800.0f, 1000.0f, gtStarOrigin, true);
+                            fxManager.CreateStarfield(kTitleStarCount, 800.0f, 1000.0f, gtStarOrigin, true);
                             fxManager.StopLoadingText();
                             fxManager.ZoomInitialise(ZoomFXFunction::Zoom2D, 0.20f, 0.15f, int(BlitObj2DIndexType::IMG_GAMEINTRO1), 0, 0, iOrigWidth, iOrigHeight);
                             fxManager.StartZoom(0.015f);
                             fxManager.StartFireworks(0.5f);
+                            fxManager.EmissionPulsator(3.0f);                       // Same 3 second emission pulse on the resize path
                             // Gentle brightness pulse — only fades to 75% opacity, 2-second half-cycles
                             fxManager.StartImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO, 25.0f, 3.0f);
 
@@ -638,6 +687,7 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
             case SceneType::SCENE_GAMEPLAY:
             {
                 threadManager.threadVars.bLoaderTaskFinished.store(false);
+
                 // Start the loader music track, this depends
                 // on the music play back system being initialized first.
                 #if defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
@@ -670,6 +720,7 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
 
                 fxManager.StopZooming();                                        // In case we are returning from somewhere where a zooming effect maybe active.
                 fxManager.StopFireworks();                                      // In case we are returning from somewhere where fireworks maybe active.
+                fxManager.StopEmissionPulsator(fxManager.emissionPulsatorID);   // The looping emission pulse must not outlive the title scene.
                 fxManager.StopImageFadeStrobe(BlitObj2DIndexType::IMG_TSOO);
                 auto showStage = [](const wchar_t* msg) {
                     TextRenderStyle s;
@@ -733,7 +784,7 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
                         #if defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
                             modPlayer.FadeOutAndStop(1000);
                         #endif
-                        Load_Music();
+                        LoadMusicFile(L"");
                         // IMPORTANT: MediaPlayer needs to process messages before starting playback.
                         #if defined(PLATFORM_WINDOWS)
                             sysUtils.ProcessMessages();
@@ -842,6 +893,7 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
             case SceneType::SCENE_GAMEOVER:
             {
                 fxManager.StopFireworks();                                      // In case we are returning from somewhere where fireworks maybe active.
+                fxManager.StopEmissionPulsator(fxManager.emissionPulsatorID);   // The looping emission pulse must not outlive the title scene.
                 threadManager.threadVars.b2DTexturesLoaded.store(false);
                 debug.logLevelMessage(LogLevel::LOG_INFO, L"[LOADER]: Scene Game Over.");
                 threadManager.threadVars.bLoaderTaskFinished.store(true);
@@ -852,6 +904,7 @@ PlayerInfo CreateShootEmUpPlayer(int playerID, const std::string& playerName, co
             default:
             {
                 fxManager.StopFireworks();                                      // In case we are returning from somewhere where fireworks maybe active.
+                fxManager.StopEmissionPulsator(fxManager.emissionPulsatorID);   // The looping emission pulse must not outlive the title scene.
                 threadManager.threadVars.bLoaderTaskFinished.store(true);
                 break;
             }

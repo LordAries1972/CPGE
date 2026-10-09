@@ -88,10 +88,8 @@ bool ScreenRecorder::StartRecording(UINT width, UINT height,
     UINT32 fpsVal = static_cast<UINT32>(fps);
     if (fpsVal != 30 && fpsVal != 60 && fpsVal != 120)
     {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING,
-                L"ScreenRecorder: Unsupported fps " + std::to_wstring(fpsVal) + L" - defaulting to 60fps");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
+            L"ScreenRecorder: Unsupported fps " + std::to_wstring(fpsVal) + L" - defaulting to 60fps");
         fpsVal = 60; fps = RecordFPS::FPS_60;
     }
 
@@ -123,10 +121,8 @@ bool ScreenRecorder::StartRecording(UINT width, UINT height,
     if (pAttribs) { pAttribs->Release(); pAttribs = nullptr; }
     if (FAILED(hr))
     {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR,
-                L"ScreenRecorder: MFCreateSinkWriterFromURL failed (" + HRStr(hr) + L")");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR,
+            L"ScreenRecorder: MFCreateSinkWriterFromURL failed (" + HRStr(hr) + L")");
         return false;
     }
 
@@ -145,9 +141,7 @@ bool ScreenRecorder::StartRecording(UINT width, UINT height,
         if (pOut) pOut->Release();
         if (FAILED(hr))
         {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder: Failed to add H.264 stream (" + HRStr(hr) + L")");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder: Failed to add H.264 stream (" + HRStr(hr) + L")");
             m_pSinkWriter->Release(); m_pSinkWriter = nullptr; return false;
         }
     }
@@ -166,9 +160,7 @@ bool ScreenRecorder::StartRecording(UINT width, UINT height,
         if (pIn) pIn->Release();
         if (FAILED(hr))
         {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder: Failed to set ARGB32 input (" + HRStr(hr) + L")");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder: Failed to set ARGB32 input (" + HRStr(hr) + L")");
             m_pSinkWriter->Release(); m_pSinkWriter = nullptr; return false;
         }
     }
@@ -177,9 +169,7 @@ bool ScreenRecorder::StartRecording(UINT width, UINT height,
     bool hasAudio = InitAudioCapture();
     if (!hasAudio)
     {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"ScreenRecorder: Game audio unavailable");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"ScreenRecorder: Game audio unavailable");
     }
 
     // 5. Mic
@@ -194,18 +184,14 @@ bool ScreenRecorder::StartRecording(UINT width, UINT height,
     // 6. Mic monitoring - render mic audio to speakers in real-time
     if (hasMic && !InitMonitor())
     {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"ScreenRecorder: Mic monitoring unavailable");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"ScreenRecorder: Mic monitoring unavailable");
     }
 
     // 7. Begin writing
     hr = m_pSinkWriter->BeginWriting();
     if (FAILED(hr))
     {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder: BeginWriting failed (" + HRStr(hr) + L")");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder: BeginWriting failed (" + HRStr(hr) + L")");
         CleanupAudio(); CleanupMic();
         m_pSinkWriter->Release(); m_pSinkWriter = nullptr; return false;
     }
@@ -348,9 +334,7 @@ void ScreenRecorder::CaptureFrame(ID3D12Device*       device,
             &bufDesc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
             IID_PPV_ARGS(&m_dx12ReadbackBuffer));
         if (FAILED(hr)) {
-            #if defined(_DEBUG_SCREEN_RECORDER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder: Failed to create DX12 readback buffer.");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder: Failed to create DX12 readback buffer.");
             return;
         }
         m_dx12ReadbackRowPitch = rowPitch256;
@@ -480,10 +464,8 @@ void ScreenRecorder::CaptureFrame(ID3D11Device*        device,
     // Skip if the back buffer is smaller than the encoder's frame - can't crop upward.
     if (bbDesc.Width < m_width || bbDesc.Height < m_height)
     {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING,
-                L"ScreenRecorder: back buffer smaller than recording dimensions - frame skipped.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
+            L"ScreenRecorder: back buffer smaller than recording dimensions - frame skipped.");
         return;
     }
 
@@ -503,11 +485,9 @@ void ScreenRecorder::CaptureFrame(ID3D11Device*        device,
 
         if (FAILED(device->CreateTexture2D(&desc, nullptr, m_stagingTexture.GetAddressOf())))
         {
-            #if defined(_DEBUG_SCREEN_RECORDER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR,
-                    L"ScreenRecorder: Failed to create staging texture (bbDesc.Format=" +
-                    std::to_wstring(bbDesc.Format) + L")");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR,
+                L"ScreenRecorder: Failed to create staging texture (bbDesc.Format=" +
+                std::to_wstring(bbDesc.Format) + L")");
             return;
         }
     }
@@ -814,9 +794,7 @@ void ScreenRecorder::WriteVideoFrame(const BYTE* pData, UINT rowPitch, LONGLONG 
 
     if (FAILED(m_pSinkWriter->WriteSample(m_videoStreamIndex, pS)))
     {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"ScreenRecorder: Video frame dropped");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"ScreenRecorder: Video frame dropped");
     }
     pS->Release();
 }
@@ -1270,13 +1248,11 @@ bool ScreenRecorder::InitMonitor()
 
     if (m_pMonitorFormat->nSamplesPerSec != m_pMicWaveFormat->nSamplesPerSec)
     {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING,
-                L"ScreenRecorder Monitor: Sample rate mismatch (mic=" +
-                std::to_wstring(m_pMicWaveFormat->nSamplesPerSec) +
-                L" render=" + std::to_wstring(m_pMonitorFormat->nSamplesPerSec) +
-                L") - monitoring disabled");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
+            L"ScreenRecorder Monitor: Sample rate mismatch (mic=" +
+            std::to_wstring(m_pMicWaveFormat->nSamplesPerSec) +
+            L" render=" + std::to_wstring(m_pMonitorFormat->nSamplesPerSec) +
+            L") - monitoring disabled");
         CleanupMonitor();
         return false;
     }
@@ -1447,9 +1423,7 @@ bool ScreenRecorder::InitMicCapture()
     hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&pEnum));
     if (FAILED(hr))
     {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: MMDeviceEnumerator failed (" + HRStr(hr) + L")");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: MMDeviceEnumerator failed (" + HRStr(hr) + L")");
         return false;
     }
 
@@ -1474,9 +1448,7 @@ bool ScreenRecorder::InitMicCapture()
     pEnum->Release();
     if (FAILED(hr) || !pColl)
     {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: EnumAudioEndpoints failed (" + HRStr(hr) + L")");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: EnumAudioEndpoints failed (" + HRStr(hr) + L")");
         return false;
     }
 
@@ -1523,10 +1495,8 @@ bool ScreenRecorder::InitMicCapture()
 
     if (!pBestDevice)
     {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING,
-                L"ScreenRecorder Mic: No suitable microphone endpoint found");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
+            L"ScreenRecorder Mic: No suitable microphone endpoint found");
         return false;
     }
 
@@ -1547,18 +1517,14 @@ bool ScreenRecorder::InitMicCapture()
         }
         else
         {
-            #if defined(_DEBUG_SCREEN_RECORDER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: Activate failed (" + HRStr(hr) + L")");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: Activate failed (" + HRStr(hr) + L")");
         }
         return false;
     }
 
     if (FAILED(m_pMicAudioClient->GetMixFormat(&m_pMicWaveFormat)))
     {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: GetMixFormat failed");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: GetMixFormat failed");
         return false;
     }
 
@@ -1595,17 +1561,13 @@ bool ScreenRecorder::InitMicCapture()
     hr = m_pMicAudioClient->Initialize(AUDCLNT_SHAREMODE_SHARED, micStreamFlags,
                                         200 * 10000, 0, m_pMicWaveFormat, nullptr);
     if (FAILED(hr)) {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: Initialize failed (" + HRStr(hr) + L")");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: Initialize failed (" + HRStr(hr) + L")");
         return false;
     }
 
     if (FAILED(m_pMicAudioClient->GetService(IID_PPV_ARGS(&m_pMicCaptureClient))))
     {
-        #if defined(_DEBUG_SCREEN_RECORDER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: GetService failed");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: GetService failed");
         return false;
     }
 
@@ -1638,9 +1600,7 @@ bool ScreenRecorder::InitMicCapture()
 
         if (FAILED(hr))
         {
-            #if defined(_DEBUG_SCREEN_RECORDER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: Failed to add separate stream (" + HRStr(hr) + L")");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"ScreenRecorder Mic: Failed to add separate stream (" + HRStr(hr) + L")");
             return false;
         }
     }

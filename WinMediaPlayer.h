@@ -35,11 +35,15 @@ public:
     void resume();
     void stop();
     void terminate();
+    void applyPlayMusic(bool on);
     void setVolume(float volume);
     void fadeIn(int durationMs = 3000);
     void fadeOut(int durationMs = 3000);
     void seek(double positionMs);
     double getSeekPosition();
+
+    // config.myConfig.musicVolume as 0.0-1.0 (master volume is applied by the output device).
+    static float ConfigMusicVolume();
 
     // Playlist management
     void AddToPlaylist(const std::wstring& filePath);
@@ -63,6 +67,8 @@ private:
     size_t currentPlaylistIndex = 0;     // Current index in the playlist
     std::thread playbackThread;
     std::atomic<bool> bNotStarted{ false };
+    std::atomic<bool> itemReady{ false };       // Set by MFP_EVENT_TYPE_MEDIAITEM_SET: Play() is only valid after this
+    std::atomic<bool> pendingPlay{ false };     // play() was requested before the media item was ready
     std::atomic<bool> playing{ false };
     std::atomic<bool> paused{ false };
     std::atomic<bool> terminateFlag{ false };

@@ -61,9 +61,7 @@ bool MyRandomizer::Initialize() {
 
     // Prevent double initialization
     if (m_isInitialized) {
-        #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"MyRandomizer already initialized - skipping initialization");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"MyRandomizer already initialized - skipping initialization");
         return true;
     }
 
@@ -85,11 +83,9 @@ bool MyRandomizer::Initialize() {
         return true;
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-            std::string errorMsg = e.what();
-            std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
-            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"MyRandomizer initialization failed with exception: " + wErrorMsg);
-        #endif
+        std::string errorMsg = e.what();
+        std::wstring wErrorMsg(errorMsg.begin(), errorMsg.end());
+        debug.logDiagLevelMessage(LogLevel::LOG_CRITICAL, L"MyRandomizer initialization failed with exception: " + wErrorMsg);
         return false;
     }
 }
@@ -834,17 +830,13 @@ bool MyRandomizer::HasActiveTracker(float startRange, float endRange) const {
 bool MyRandomizer::ValidateIntegerRange(int startRange, int endRange) const {
     // Check if start range is valid (must be >= 1)
     if (startRange < MYRANDOMIZER_MIN_STARTRANGE) {
-        #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid start range: %d (must be >= %d)", startRange, MYRANDOMIZER_MIN_STARTRANGE);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid start range: %d (must be >= %d)", startRange, MYRANDOMIZER_MIN_STARTRANGE);
         return false;
     }
 
     // Check if end range is greater than or equal to start range
     if (endRange < startRange) {
-        #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid range: end (%d) < start (%d)", endRange, startRange);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid range: end (%d) < start (%d)", endRange, startRange);
         return false;
     }
 
@@ -855,17 +847,13 @@ bool MyRandomizer::ValidateIntegerRange(int startRange, int endRange) const {
 bool MyRandomizer::ValidateFloatRange(float startRange, float endRange) const {
     // Check if start range is valid (must be > 0.0f)
     if (startRange <= 0.0f) {
-        #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid start range: %.3f (must be > 0.0)", startRange);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid start range: %.3f (must be > 0.0)", startRange);
         return false;
     }
 
     // Check if end range is greater than start range
     if (endRange <= startRange) {
-        #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid range: end (%.3f) <= start (%.3f)", endRange, startRange);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid range: end (%.3f) <= start (%.3f)", endRange, startRange);
         return false;
     }
 
@@ -876,10 +864,8 @@ bool MyRandomizer::ValidateFloatRange(float startRange, float endRange) const {
 bool MyRandomizer::ValidateDifficulty(float difficulty) const {
     // Check if difficulty is within valid range
     if (difficulty < MYRANDOMIZER_MIN_DIFFICULTY || difficulty > MYRANDOMIZER_MAX_DIFFICULTY) {
-        #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid difficulty: %.3f (must be between %.3f and %.3f)",
-                difficulty, MYRANDOMIZER_MIN_DIFFICULTY, MYRANDOMIZER_MAX_DIFFICULTY);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid difficulty: %.3f (must be between %.3f and %.3f)",
+            difficulty, MYRANDOMIZER_MIN_DIFFICULTY, MYRANDOMIZER_MAX_DIFFICULTY);
         return false;
     }
 
@@ -890,10 +876,8 @@ bool MyRandomizer::ValidateDifficulty(float difficulty) const {
 bool MyRandomizer::ValidateTargetNumber(int startRange, int endRange, int targetNumber) const {
     // Check if target number is within range
     if (targetNumber < startRange || targetNumber > endRange) {
-        #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid target number: %d (must be between %d and %d)",
-                targetNumber, startRange, endRange);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid target number: %d (must be between %d and %d)",
+            targetNumber, startRange, endRange);
         return false;
     }
 
@@ -904,10 +888,8 @@ bool MyRandomizer::ValidateTargetNumber(int startRange, int endRange, int target
 bool MyRandomizer::ValidateTargetNumber(float startRange, float endRange, float targetNumber) const {
     // Check if target number is within range
     if (targetNumber < startRange || targetNumber > endRange) {
-        #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid target number: %.3f (must be between %.3f and %.3f)",
-                targetNumber, startRange, endRange);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid target number: %.3f (must be between %.3f and %.3f)",
+            targetNumber, startRange, endRange);
         return false;
     }
 
@@ -1103,11 +1085,9 @@ bool MyRandomizer::ShouldAttemptSucceed(float difficulty) {
 
 // Log error messages with consistent formatting
 void MyRandomizer::LogError(const std::string& functionName, const std::string& errorMessage) const {
-    #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-        std::string fullMessage = "[MyRandomizer::" + functionName + "] " + errorMessage;
-        std::wstring wFullMessage(fullMessage.begin(), fullMessage.end());
-        debug.logLevelMessage(LogLevel::LOG_ERROR, wFullMessage);
-    #endif
+    std::string fullMessage = "[MyRandomizer::" + functionName + "] " + errorMessage;
+    std::wstring wFullMessage(fullMessage.begin(), fullMessage.end());
+    debug.logDiagLevelMessage(LogLevel::LOG_ERROR, wFullMessage);
 }
 
 // Log debug messages with consistent formatting
@@ -1121,11 +1101,9 @@ void MyRandomizer::LogDebug(const std::string& functionName, const std::string& 
 
 // Log warning messages with consistent formatting
 void MyRandomizer::LogWarning(const std::string& functionName, const std::string& warningMessage) const {
-    #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-        std::string fullMessage = "[MyRandomizer::" + functionName + "] " + warningMessage;
-        std::wstring wFullMessage(fullMessage.begin(), fullMessage.end());
-        debug.logLevelMessage(LogLevel::LOG_WARNING, wFullMessage);
-    #endif
+    std::string fullMessage = "[MyRandomizer::" + functionName + "] " + warningMessage;
+    std::wstring wFullMessage(fullMessage.begin(), fullMessage.end());
+    debug.logDiagLevelMessage(LogLevel::LOG_WARNING, wFullMessage);
 }
 
 //==============================================================================
@@ -1213,18 +1191,14 @@ template<typename T>
 bool MyRandomizer::ValidateElementsAndWeights(const std::vector<T>& elements, const std::vector<float>& weights) const {
     // Check if vectors are empty
     if (elements.empty() || weights.empty()) {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Empty elements or weights vector");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Empty elements or weights vector");
         return false;
     }
 
     // Check if vectors have same size
     if (elements.size() != weights.size()) {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Elements and weights size mismatch: %zu vs %zu",
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Elements and weights size mismatch: %zu vs %zu",
             elements.size(), weights.size());
-#endif
         return false;
     }
 
@@ -1981,17 +1955,13 @@ uint8_t MyRandomizer::GetRandColorComponent() {
 bool MyRandomizer::ValidateVector2Bounds(const Vector2& minBounds, const Vector2& maxBounds) const {
     // Check if maximum bounds are greater than minimum bounds for X coordinate
     if (maxBounds.x <= minBounds.x) {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid Vector2 X bounds: max (%.3f) <= min (%.3f)", maxBounds.x, minBounds.x);
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid Vector2 X bounds: max (%.3f) <= min (%.3f)", maxBounds.x, minBounds.x);
         return false;
     }
 
     // Check if maximum bounds are greater than minimum bounds for Y coordinate
     if (maxBounds.y <= minBounds.y) {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid Vector2 Y bounds: max (%.3f) <= min (%.3f)", maxBounds.y, minBounds.y);
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid Vector2 Y bounds: max (%.3f) <= min (%.3f)", maxBounds.y, minBounds.y);
         return false;
     }
 
@@ -2003,25 +1973,19 @@ bool MyRandomizer::ValidateVector2Bounds(const Vector2& minBounds, const Vector2
 bool MyRandomizer::ValidateVector3Bounds(const Vector3& minBounds, const Vector3& maxBounds) const {
     // Check if maximum bounds are greater than minimum bounds for X coordinate
     if (maxBounds.x <= minBounds.x) {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid Vector3 X bounds: max (%.3f) <= min (%.3f)", maxBounds.x, minBounds.x);
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid Vector3 X bounds: max (%.3f) <= min (%.3f)", maxBounds.x, minBounds.x);
         return false;
     }
 
     // Check if maximum bounds are greater than minimum bounds for Y coordinate
     if (maxBounds.y <= minBounds.y) {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid Vector3 Y bounds: max (%.3f) <= min (%.3f)", maxBounds.y, minBounds.y);
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid Vector3 Y bounds: max (%.3f) <= min (%.3f)", maxBounds.y, minBounds.y);
         return false;
     }
 
     // Check if maximum bounds are greater than minimum bounds for Z coordinate
     if (maxBounds.z <= minBounds.z) {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid Vector3 Z bounds: max (%.3f) <= min (%.3f)", maxBounds.z, minBounds.z);
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid Vector3 Z bounds: max (%.3f) <= min (%.3f)", maxBounds.z, minBounds.z);
         return false;
     }
 
@@ -2033,18 +1997,14 @@ bool MyRandomizer::ValidateVector3Bounds(const Vector3& minBounds, const Vector3
 bool MyRandomizer::ValidateNormalDistributionParams(float mean, float standardDeviation) const {
     // Check if standard deviation is positive and above minimum threshold
     if (standardDeviation <= 0.0f || standardDeviation < MYRANDOMIZER_MIN_STANDARD_DEV) {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid standard deviation: %.3f (must be > %.3f)",
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid standard deviation: %.3f (must be > %.3f)",
             standardDeviation, MYRANDOMIZER_MIN_STANDARD_DEV);
-#endif
         return false;
     }
 
     // Check if mean is finite (not NaN or infinity)
     if (!std::isfinite(mean)) {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid mean: %.3f (must be finite)", mean);
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid mean: %.3f (must be finite)", mean);
         return false;
     }
 
@@ -2055,10 +2015,8 @@ bool MyRandomizer::ValidateNormalDistributionParams(float mean, float standardDe
 bool MyRandomizer::ValidateExponentialParam(float lambda) const {
     // Check if lambda is positive and above minimum threshold
     if (lambda <= 0.0f || lambda < MYRANDOMIZER_MIN_LAMBDA) {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid lambda: %.3f (must be > %.3f)",
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid lambda: %.3f (must be > %.3f)",
             lambda, MYRANDOMIZER_MIN_LAMBDA);
-#endif
         return false;
     }
 
@@ -2074,10 +2032,8 @@ bool MyRandomizer::ValidateTriangularParams(float min, float max, float mode) co
 
     // Check if mode is within range
     if (mode < min || mode > max) {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid mode: %.3f (must be between %.3f and %.3f)",
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid mode: %.3f (must be between %.3f and %.3f)",
             mode, min, max);
-#endif
         return false;
     }
 
@@ -2088,9 +2044,7 @@ bool MyRandomizer::ValidateTriangularParams(float min, float max, float mode) co
 bool MyRandomizer::ValidateWeights(const std::vector<float>& weights) const {
     // Check if weights vector is empty
     if (weights.empty()) {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Empty weights vector");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Empty weights vector");
         return false;
     }
 
@@ -2103,17 +2057,13 @@ bool MyRandomizer::ValidateWeights(const std::vector<float>& weights) const {
 
         // Check if weight is finite
         if (!std::isfinite(weight)) {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid weight at index %zu: %.3f (must be finite)", i, weight);
-#endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid weight at index %zu: %.3f (must be finite)", i, weight);
             return false;
         }
 
         // Check if weight is non-negative
         if (weight < 0.0f) {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Negative weight at index %zu: %.3f", i, weight);
-#endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"Negative weight at index %zu: %.3f", i, weight);
             return false;
         }
 
@@ -2126,17 +2076,13 @@ bool MyRandomizer::ValidateWeights(const std::vector<float>& weights) const {
 
     // Check if at least one weight is positive
     if (!hasPositiveWeight) {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"All weights are zero - no valid selection possible");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"All weights are zero - no valid selection possible");
         return false;
     }
 
     // Check if total weight is reasonable (not too small)
     if (totalWeight < 0.001f) {
-#if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_WARNING, L"Very small total weight: %.6f - may cause precision issues", totalWeight);
-#endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"Very small total weight: %.6f - may cause precision issues", totalWeight);
     }
 
     return true;
@@ -2196,16 +2142,12 @@ float MyRandomizer::CalculateSpawnUrgency(float baseDelay, float urgencyFactor) 
 
     // Validate parameters
     if (baseDelay <= 0.0f) {
-        #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid base delay: %.3f (must be > 0)", baseDelay);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid base delay: %.3f (must be > 0)", baseDelay);
         return 1.0f;  // Return minimum delay as fallback
     }
 
     if (urgencyFactor <= 0.0f) {
-        #if defined(_DEBUG_MYRANDOMIZER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid urgency factor: %.3f (must be > 0)", urgencyFactor);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid urgency factor: %.3f (must be > 0)", urgencyFactor);
         return baseDelay;  // Return base delay as fallback
     }
 
@@ -2474,10 +2416,10 @@ int MyRandomizer::GetRandAIBehavior(const std::vector<float>& behaviorWeights) {
         if (selectedBehavior >= 0) {
             debug.logDebugMessage(LogLevel::LOG_DEBUG, L"GetRandAIBehavior selected behavior: %d", selectedBehavior);
         }
-        else {
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"GetRandAIBehavior failed to select behavior");
-        }
     #endif
+    if (selectedBehavior < 0) {
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"GetRandAIBehavior failed to select behavior");
+    }
 
     return selectedBehavior;
 }

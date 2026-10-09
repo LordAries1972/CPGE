@@ -104,26 +104,20 @@ bool ShaderManager::Initialize(std::shared_ptr<Renderer> rendererPtr) {
 
     // Validate input parameters
     if (!rendererPtr) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Initialize() failed - null renderer provided.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Initialize() failed - null renderer provided.");
         return false;
     }
 
     // Prevent double initialization
     if (m_isInitialized) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Initialize() called but already initialized.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Initialize() called but already initialized.");
         return true;
     }
 
     // Acquire thread lock for safe initialization with proper RAII cleanup
     ThreadLockHelper lock(threadManager, m_lockName, 5000);                     // 5 second timeout for initialization
     if (!lock.IsLocked()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Initialize() failed - could not acquire thread lock.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Initialize() failed - could not acquire thread lock.");
         return false;
     }
 
@@ -132,9 +126,7 @@ bool ShaderManager::Initialize(std::shared_ptr<Renderer> rendererPtr) {
 
     // Detect current rendering platform from active renderer
     if (!DetectPlatformFromRenderer()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Initialize() failed - could not detect rendering platform.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Initialize() failed - could not detect rendering platform.");
         m_renderer = nullptr;                                                   // Clear renderer reference on failure
         return false;                                                           // ThreadLockHelper destructor will release lock
     }
@@ -154,9 +146,7 @@ bool ShaderManager::Initialize(std::shared_ptr<Renderer> rendererPtr) {
 
     // Load default engine shaders required for basic rendering (outside of lock)
     if (!LoadDefaultShaders()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Initialize() completed with warnings - some default shaders failed to load.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Initialize() completed with warnings - some default shaders failed to load.");
     }
 
     #if defined(_DEBUG_SHADERMANAGER_)
@@ -221,58 +211,44 @@ bool ShaderManager::LoadShader(const std::string& name, const std::wstring& file
 
     // Validate input parameters
     if (name.empty()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShader() failed - empty shader name provided.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShader() failed - empty shader name provided.");
         return false;
     }
 
     if (filePath.empty()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShader() failed - empty file path provided.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShader() failed - empty file path provided.");
         return false;
     }
 
     if (type == ShaderType::UNKNOWN_SHADER) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShader() failed - unknown shader type specified.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShader() failed - unknown shader type specified.");
         return false;
     }
 
     // Ensure manager is initialized
     if (!m_isInitialized) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShader() failed - shader manager not initialized.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShader() failed - shader manager not initialized.");
         return false;
     }
 
 /*    // Acquire thread lock for safe shader loading
     ThreadLockHelper lock(threadManager, m_lockName, LOCK_TIMEOUT);
     if (!lock.IsLocked()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShader() failed - could not acquire thread lock.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShader() failed - could not acquire thread lock.");
         return false;
     }
 */
 
     // Check if shader with same name already exists
     if (m_shaders.find(name) != m_shaders.end()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[ShaderManager] LoadShader() - shader '%hs' already exists, unloading previous version.",
-                name.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"[ShaderManager] LoadShader() - shader '%hs' already exists, unloading previous version.",
+            name.c_str());
         UnloadShader(name);                                                     // Remove existing shader before reloading
     }
 
     // Verify shader file exists
     if (!std::filesystem::exists(filePath)) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShader() failed - shader file not found: %ls", filePath.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShader() failed - shader file not found: %ls", filePath.c_str());
         IncrementCompilationFailure();                                          // Record failure in statistics
         return false;
     }
@@ -280,9 +256,7 @@ bool ShaderManager::LoadShader(const std::string& name, const std::wstring& file
     // Read shader source code from file
     std::string shaderCode;
     if (!ReadShaderFile(filePath, shaderCode)) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShader() failed - could not read shader file: %ls", filePath.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShader() failed - could not read shader file: %ls", filePath.c_str());
         IncrementCompilationFailure();                                          // Record failure in statistics
         return false;
     }
@@ -320,19 +294,15 @@ bool ShaderManager::LoadShader(const std::string& name, const std::wstring& file
             break;
 
         default:
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShader() failed - unsupported platform for compilation.");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShader() failed - unsupported platform for compilation.");
             IncrementCompilationFailure();                                      // Record failure in statistics
             return false;
     }
 
     // Handle compilation results
     if (!compilationSuccess) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShader() failed - compilation error for '%hs': %hs",
-                  name.c_str(), shaderResource->compilationErrors.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShader() failed - compilation error for '%hs': %hs",
+              name.c_str(), shaderResource->compilationErrors.c_str());
         IncrementCompilationFailure();                                          // Record failure in statistics
         return false;
     }
@@ -362,49 +332,37 @@ bool ShaderManager::LoadShaderFromString(const std::string& name, const std::str
 
     // Validate input parameters
     if (name.empty()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShaderFromString() failed - empty shader name provided.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShaderFromString() failed - empty shader name provided.");
         return false;
     }
 
     if (shaderCode.empty()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShaderFromString() failed - empty shader code provided.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShaderFromString() failed - empty shader code provided.");
         return false;
     }
 
     if (type == ShaderType::UNKNOWN_SHADER) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShaderFromString() failed - unknown shader type specified.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShaderFromString() failed - unknown shader type specified.");
         return false;
     }
 
     // Ensure manager is initialized
     if (!m_isInitialized) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShaderFromString() failed - shader manager not initialized.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShaderFromString() failed - shader manager not initialized.");
         return false;
     }
 
     // Acquire thread lock for safe shader loading
     ThreadLockHelper lock(threadManager, m_lockName, 5000);                     // 5 second timeout for loading
     if (!lock.IsLocked()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShaderFromString() failed - could not acquire thread lock.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShaderFromString() failed - could not acquire thread lock.");
         return false;
     }
 
     // Check if shader with same name already exists
     if (m_shaders.find(name) != m_shaders.end()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[ShaderManager] LoadShaderFromString() - shader '%hs' already exists, unloading previous version.",
-                name.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"[ShaderManager] LoadShaderFromString() - shader '%hs' already exists, unloading previous version.",
+            name.c_str());
         UnloadShader(name);                                                     // Remove existing shader before reloading
     }
 
@@ -440,19 +398,15 @@ bool ShaderManager::LoadShaderFromString(const std::string& name, const std::str
             break;
 
         default:
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShaderFromString() failed - unsupported platform for compilation.");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShaderFromString() failed - unsupported platform for compilation.");
             IncrementCompilationFailure();                                      // Record failure in statistics
             return false;
     }
 
     // Handle compilation results
     if (!compilationSuccess) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShaderFromString() failed - compilation error for '%hs': %hs",
-                  name.c_str(), shaderResource->compilationErrors.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadShaderFromString() failed - compilation error for '%hs': %hs",
+              name.c_str(), shaderResource->compilationErrors.c_str());
         IncrementCompilationFailure();                                          // Record failure in statistics
         return false;
     }
@@ -480,51 +434,39 @@ bool ShaderManager::ReloadShader(const std::string& name) {
 
     // Validate input parameters
     if (name.empty()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ReloadShader() failed - empty shader name provided.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ReloadShader() failed - empty shader name provided.");
         return false;
     }
 
     // Ensure manager is initialized
     if (!m_isInitialized) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ReloadShader() failed - shader manager not initialized.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ReloadShader() failed - shader manager not initialized.");
         return false;
     }
 
     // Acquire thread lock for safe shader reloading
     ThreadLockHelper lock(threadManager, m_lockName, 5000);                     // 5 second timeout for reloading
     if (!lock.IsLocked()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ReloadShader() failed - could not acquire thread lock.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ReloadShader() failed - could not acquire thread lock.");
         return false;
     }
 
     // Find existing shader
     auto shaderIt = m_shaders.find(name);
     if (shaderIt == m_shaders.end()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ReloadShader() failed - shader '%hs' not found.", name.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ReloadShader() failed - shader '%hs' not found.", name.c_str());
         return false;
     }
 
     ShaderResource* shader = shaderIt->second.get();
     if (!shader) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ReloadShader() failed - shader '%hs' resource is null.", name.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ReloadShader() failed - shader '%hs' resource is null.", name.c_str());
         return false;
     }
 
     // Check if shader was loaded from file (inline shaders cannot be reloaded)
     if (shader->filePath == L"<inline>") {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[ShaderManager] ReloadShader() failed - cannot reload inline shader '%hs'.", name.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"[ShaderManager] ReloadShader() failed - cannot reload inline shader '%hs'.", name.c_str());
         return false;
     }
 
@@ -535,9 +477,7 @@ bool ShaderManager::ReloadShader(const std::string& name) {
 
     // Check if file still exists
     if (!std::filesystem::exists(originalFilePath)) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ReloadShader() failed - shader file no longer exists: %ls", originalFilePath.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ReloadShader() failed - shader file no longer exists: %ls", originalFilePath.c_str());
         return false;
     }
 
@@ -562,9 +502,7 @@ bool ShaderManager::ReloadShader(const std::string& name) {
         #endif
     }
     else {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ReloadShader() failed - could not reload shader '%hs' from file.", name.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ReloadShader() failed - could not reload shader '%hs' from file.", name.c_str());
     }
 
     return reloadSuccess;
@@ -580,52 +518,40 @@ bool ShaderManager::UnloadShader(const std::string& name) {
 
     // Validate input parameters
     if (name.empty()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UnloadShader() failed - empty shader name provided.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UnloadShader() failed - empty shader name provided.");
         return false;
     }
 
     // Ensure manager is initialized
     if (!m_isInitialized) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UnloadShader() failed - shader manager not initialized.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UnloadShader() failed - shader manager not initialized.");
         return false;
     }
 
     // Acquire thread lock for safe shader unloading
     ThreadLockHelper lock(threadManager, m_lockName, 5000);                     // 5 second timeout for unloading
     if (!lock.IsLocked()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UnloadShader() failed - could not acquire thread lock.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UnloadShader() failed - could not acquire thread lock.");
         return false;
     }
 
     // Find shader to unload
     auto shaderIt = m_shaders.find(name);
     if (shaderIt == m_shaders.end()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[ShaderManager] UnloadShader() - shader '%hs' not found.", name.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"[ShaderManager] UnloadShader() - shader '%hs' not found.", name.c_str());
         return false;
     }
 
     ShaderResource* shader = shaderIt->second.get();
     if (!shader) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UnloadShader() failed - shader '%hs' resource is null.", name.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UnloadShader() failed - shader '%hs' resource is null.", name.c_str());
         return false;
     }
 
     // Check if shader is currently in use
     if (shader->isInUse || shader->referenceCount > 0) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[ShaderManager] UnloadShader() - shader '%hs' is currently in use (refs: %d), forcing unload.",
-                  name.c_str(), shader->referenceCount);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"[ShaderManager] UnloadShader() - shader '%hs' is currently in use (refs: %d), forcing unload.",
+              name.c_str(), shader->referenceCount);
     }
 
     // Check if shader is part of any linked programs
@@ -637,10 +563,8 @@ bool ShaderManager::UnloadShader(const std::string& name) {
             program->hullShaderName == name ||
             program->domainShaderName == name ||
             program->computeShaderName == name)) {
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_WARNING, L"[ShaderManager] UnloadShader() - shader '%hs' is referenced by program '%hs'.",
-                    name.c_str(), programPair.first.c_str());
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"[ShaderManager] UnloadShader() - shader '%hs' is referenced by program '%hs'.",
+                name.c_str(), programPair.first.c_str());
         }
     }
 
@@ -676,33 +600,25 @@ bool ShaderManager::CreateShaderProgram(const std::string& programName,
 
         // Validate input parameters
         if (programName.empty()) {
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CreateShaderProgram() failed - empty program name provided.");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CreateShaderProgram() failed - empty program name provided.");
             return false;
         }
 
         if (vertexShaderName.empty() || pixelShaderName.empty()) {
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CreateShaderProgram() failed - vertex and pixel shaders are required.");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CreateShaderProgram() failed - vertex and pixel shaders are required.");
             return false;
         }
 
         // Ensure manager is initialized
         if (!m_isInitialized) {
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CreateShaderProgram() failed - shader manager not initialized.");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CreateShaderProgram() failed - shader manager not initialized.");
             return false;
         }
 
         // Check if program with same name already exists
         if (m_programs.find(programName) != m_programs.end()) {
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_WARNING, L"[ShaderManager] CreateShaderProgram() - program '%hs' already exists, replacing.",
-                    programName.c_str());
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"[ShaderManager] CreateShaderProgram() - program '%hs' already exists, replacing.",
+                programName.c_str());
 
             // Clean up existing program
             auto existingIt = m_programs.find(programName);
@@ -715,47 +631,37 @@ bool ShaderManager::CreateShaderProgram(const std::string& programName,
 
         // Verify required shaders exist
         if (m_shaders.find(vertexShaderName) == m_shaders.end()) {
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CreateShaderProgram() failed - vertex shader '%hs' not found.",
-                    vertexShaderName.c_str());
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CreateShaderProgram() failed - vertex shader '%hs' not found.",
+                vertexShaderName.c_str());
             IncrementLinkingFailure();                                              // Record failure in statistics
             return false;
         }
 
         if (m_shaders.find(pixelShaderName) == m_shaders.end()) {
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CreateShaderProgram() failed - pixel shader '%hs' not found.",
-                    pixelShaderName.c_str());
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CreateShaderProgram() failed - pixel shader '%hs' not found.",
+                pixelShaderName.c_str());
             IncrementLinkingFailure();                                              // Record failure in statistics
             return false;
         }
 
         // Verify optional shaders exist if specified
         if (!geometryShaderName.empty() && m_shaders.find(geometryShaderName) == m_shaders.end()) {
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CreateShaderProgram() failed - geometry shader '%hs' not found.",
-                    geometryShaderName.c_str());
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CreateShaderProgram() failed - geometry shader '%hs' not found.",
+                geometryShaderName.c_str());
             IncrementLinkingFailure();                                              // Record failure in statistics
             return false;
         }
 
         if (!hullShaderName.empty() && m_shaders.find(hullShaderName) == m_shaders.end()) {
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CreateShaderProgram() failed - hull shader '%hs' not found.",
-                    hullShaderName.c_str());
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CreateShaderProgram() failed - hull shader '%hs' not found.",
+                hullShaderName.c_str());
             IncrementLinkingFailure();                                              // Record failure in statistics
             return false;
         }
 
         if (!domainShaderName.empty() && m_shaders.find(domainShaderName) == m_shaders.end()) {
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CreateShaderProgram() failed - domain shader '%hs' not found.",
-                    domainShaderName.c_str());
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CreateShaderProgram() failed - domain shader '%hs' not found.",
+                domainShaderName.c_str());
             IncrementLinkingFailure();                                              // Record failure in statistics
             return false;
         }
@@ -787,9 +693,7 @@ bool ShaderManager::CreateShaderProgram(const std::string& programName,
             #if defined(__USE_OPENGL__)
                 linkingSuccess = LinkOpenGLProgram(*shaderProgram);             // Link OpenGL shader program
             #else
-                #if defined(_DEBUG_SHADERMANAGER_)
-                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] OpenGL not available for program linking.");
-                #endif
+                debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] OpenGL not available for program linking.");
             linkingSuccess = false;
             #endif
             break;
@@ -804,19 +708,15 @@ bool ShaderManager::CreateShaderProgram(const std::string& programName,
             break;
 
         default:
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CreateShaderProgram() failed - unsupported platform for program linking.");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CreateShaderProgram() failed - unsupported platform for program linking.");
             IncrementLinkingFailure();                                          // Record failure in statistics
             return false;
         }
 
         // Handle linking results
         if (!linkingSuccess) {
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CreateShaderProgram() failed - linking error for '%hs': %hs",
-                    programName.c_str(), shaderProgram->linkingErrors.c_str());
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CreateShaderProgram() failed - linking error for '%hs': %hs",
+                programName.c_str(), shaderProgram->linkingErrors.c_str());
             IncrementLinkingFailure();                                              // Record failure in statistics
             return false;
         }
@@ -854,24 +754,18 @@ bool ShaderManager::CreateShaderProgram(const std::string& programName,
 // DiagnoseShaderLinkageErrors - Analyze and report shader linkage mismatches
 //==============================================================================
 void ShaderManager::DiagnoseShaderLinkageErrors(const std::string& programName) {
-    #if defined(_DEBUG_SHADERMANAGER_)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] DiagnoseShaderLinkageErrors() called for program: %hs", programName.c_str());
-    #endif
+    debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] DiagnoseShaderLinkageErrors() called for program: %hs", programName.c_str());
 
     // Find the shader program
     auto programIt = m_programs.find(programName);
     if (programIt == m_programs.end()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Program '%hs' not found for diagnosis.", programName.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Program '%hs' not found for diagnosis.", programName.c_str());
         return;
     }
 
     ShaderProgram* program = programIt->second.get();
     if (!program) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Program '%hs' is null.", programName.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Program '%hs' is null.", programName.c_str());
         return;
     }
 
@@ -882,9 +776,7 @@ void ShaderManager::DiagnoseShaderLinkageErrors(const std::string& programName) 
 #else
     if (!vertexShader) {
 #endif
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Vertex shader '%hs' not found or has no blob.", program->vertexShaderName.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Vertex shader '%hs' not found or has no blob.", program->vertexShaderName.c_str());
         return;
     }
 
@@ -921,14 +813,10 @@ void ShaderManager::DiagnoseShaderLinkageErrors(const std::string& programName) 
         }
     }
     else {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Failed to create shader reflection for diagnosis (HRESULT: 0x%08X).", hr);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Failed to create shader reflection for diagnosis (HRESULT: 0x%08X).", hr);
     }
 #else
-    #if defined(_DEBUG_SHADERMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] DiagnoseShaderLinkageErrors() - DirectX not available for reflection.");
-    #endif
+    debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] DiagnoseShaderLinkageErrors() - DirectX not available for reflection.");
 #endif
 }
 //==============================================================================
@@ -937,42 +825,32 @@ void ShaderManager::DiagnoseShaderLinkageErrors(const std::string& programName) 
 bool ShaderManager::UseShaderProgram(const std::string& programName) {
     // Validate input parameters
     if (programName.empty()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UseShaderProgram() failed - empty program name provided.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UseShaderProgram() failed - empty program name provided.");
         return false;
     }
 
     // Ensure manager is initialized
     if (!m_isInitialized) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UseShaderProgram() failed - shader manager not initialized.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UseShaderProgram() failed - shader manager not initialized.");
         return false;
     }
 
     // Check if renderer is available
     if (!m_renderer) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UseShaderProgram() failed - no renderer available.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UseShaderProgram() failed - no renderer available.");
         return false;
     }
 
     // Find shader program
     auto programIt = m_programs.find(programName);
     if (programIt == m_programs.end()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UseShaderProgram() failed - program '%hs' not found.", programName.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UseShaderProgram() failed - program '%hs' not found.", programName.c_str());
         return false;
     }
 
     ShaderProgram* program = programIt->second.get();
     if (!program || !program->isLinked) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UseShaderProgram() failed - program '%hs' is not linked.", programName.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UseShaderProgram() failed - program '%hs' is not linked.", programName.c_str());
         return false;
     }
 
@@ -986,9 +864,7 @@ bool ShaderManager::UseShaderProgram(const std::string& programName) {
             // Get device context from renderer
             void* deviceContext = m_renderer->GetDeviceContext();
             if (!deviceContext) {
-                #if defined(_DEBUG_SHADERMANAGER_)
-                    debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UseShaderProgram() failed - no DirectX device context available.");
-                #endif
+                debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UseShaderProgram() failed - no DirectX device context available.");
                 return false;
             }
 
@@ -1002,17 +878,13 @@ bool ShaderManager::UseShaderProgram(const std::string& programName) {
                     d3dContext->IASetInputLayout(vertexShader->inputLayout.Get()); // Set input layout for vertex shader
                 }
                 else {
-                    #if defined(_DEBUG_SHADERMANAGER_)
-                        debug.logDebugMessage(LogLevel::LOG_WARNING, L"[ShaderManager] No input layout available for vertex shader '%hs' - this may cause linkage errors.", program->vertexShaderName.c_str());
-                    #endif
+                    debug.logDiagMessage(LogLevel::LOG_WARNING, L"[ShaderManager] No input layout available for vertex shader '%hs' - this may cause linkage errors.", program->vertexShaderName.c_str());
                     // Diagnose the shader linkage issue
                     DiagnoseShaderLinkageErrors(programName);
                 }
             }
             else {
-                #if defined(_DEBUG_SHADERMANAGER_)
-                    debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Vertex shader '%hs' not available for binding.", program->vertexShaderName.c_str());
-                #endif
+                debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Vertex shader '%hs' not available for binding.", program->vertexShaderName.c_str());
                 return false;
             }
 
@@ -1022,9 +894,7 @@ bool ShaderManager::UseShaderProgram(const std::string& programName) {
                 d3dContext->PSSetShader(pixelShader->d3d11PixelShader.Get(), nullptr, 0); // Bind pixel shader to pipeline
             }
             else {
-                #if defined(_DEBUG_SHADERMANAGER_)
-                    debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Pixel shader '%hs' not available for binding.", program->pixelShaderName.c_str());
-                #endif
+                debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Pixel shader '%hs' not available for binding.", program->pixelShaderName.c_str());
                 return false;
             }
 
@@ -1063,9 +933,7 @@ bool ShaderManager::UseShaderProgram(const std::string& programName) {
 
             bindingSuccess = true;
         #else
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] DirectX not available for shader binding.");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] DirectX not available for shader binding.");
             bindingSuccess = false;
         #endif
         break;
@@ -1079,10 +947,8 @@ bool ShaderManager::UseShaderProgram(const std::string& programName) {
             // Check for OpenGL errors
             GLenum error = glGetError();
             if (error != GL_NO_ERROR) {
-#if defined(_DEBUG_SHADERMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] OpenGL error binding program '%hs': %d",
+                debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] OpenGL error binding program '%hs': %d",
                     programName.c_str(), error);
-#endif
                 bindingSuccess = false;
             }
             else {
@@ -1093,15 +959,11 @@ bool ShaderManager::UseShaderProgram(const std::string& programName) {
             }
         }
         else {
-#if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] OpenGL program '%hs' has invalid program ID.", programName.c_str());
-#endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] OpenGL program '%hs' has invalid program ID.", programName.c_str());
             bindingSuccess = false;
         }
 #else
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] OpenGL not available for shader binding.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] OpenGL not available for shader binding.");
         bindingSuccess = false;
 #endif
         break;
@@ -1116,18 +978,14 @@ bool ShaderManager::UseShaderProgram(const std::string& programName) {
         debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[ShaderManager] Vulkan program '%hs' marked for pipeline binding.", programName.c_str());
 #endif
 #else
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Vulkan not available for shader binding.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Vulkan not available for shader binding.");
         bindingSuccess = false;
 #endif
         break;
     }
 
     default:
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UseShaderProgram() failed - unsupported platform for shader binding.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UseShaderProgram() failed - unsupported platform for shader binding.");
         bindingSuccess = false;
         break;
     }
@@ -1200,17 +1058,13 @@ void ShaderManager::UnbindShaderProgram() {
 
     // Ensure manager is initialized
     if (!m_isInitialized) {
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UnbindShaderProgram() failed - shader manager not initialized.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UnbindShaderProgram() failed - shader manager not initialized.");
         return;
     }
 
     // Check if renderer is available
     if (!m_renderer) {
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UnbindShaderProgram() failed - no renderer available.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] UnbindShaderProgram() failed - no renderer available.");
         return;
     }
 
@@ -1263,9 +1117,7 @@ void ShaderManager::UnbindShaderProgram() {
     }
 
     default:
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[ShaderManager] UnbindShaderProgram() - unsupported platform for shader unbinding.");
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"[ShaderManager] UnbindShaderProgram() - unsupported platform for shader unbinding.");
         break;
     }
 
@@ -1311,26 +1163,20 @@ ShaderResource* ShaderManager::GetShader(const std::string& name) {
 
     // Validate input parameters
     if (name.empty()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] GetShader() failed - empty shader name provided.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] GetShader() failed - empty shader name provided.");
         return nullptr;
     }
 
     // Ensure manager is initialized
     if (!m_isInitialized) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] GetShader() failed - shader manager not initialized.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] GetShader() failed - shader manager not initialized.");
         return nullptr;
     }
 
     // Find shader in container
     auto shaderIt = m_shaders.find(name);
     if (shaderIt == m_shaders.end()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[ShaderManager] GetShader() - shader '%hs' not found.", name.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"[ShaderManager] GetShader() - shader '%hs' not found.", name.c_str());
         return nullptr;
     }
 
@@ -1347,26 +1193,20 @@ ShaderProgram* ShaderManager::GetShaderProgram(const std::string& programName) {
 
     // Validate input parameters
     if (programName.empty()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] GetShaderProgram() failed - empty program name provided.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] GetShaderProgram() failed - empty program name provided.");
         return nullptr;
     }
 
     // Ensure manager is initialized
     if (!m_isInitialized) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] GetShaderProgram() failed - shader manager not initialized.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] GetShaderProgram() failed - shader manager not initialized.");
         return nullptr;
     }
 
     // Find program in container
     auto programIt = m_programs.find(programName);
     if (programIt == m_programs.end()) {
-    #if defined(_DEBUG_SHADERMANAGER_)
-        debug.logDebugMessage(LogLevel::LOG_WARNING, L"[ShaderManager] GetShaderProgram() - program '%hs' not found.", programName.c_str());
-    #endif
+    debug.logDiagMessage(LogLevel::LOG_WARNING, L"[ShaderManager] GetShaderProgram() - program '%hs' not found.", programName.c_str());
         return nullptr;
     }
 
@@ -1449,9 +1289,7 @@ void ShaderManager::EnableHotReloading(bool enable) {
     // Acquire thread lock for safe hot-reloading state change
     ThreadLockHelper lock(threadManager, m_lockName, 1000);                     // 1 second timeout for state change
     if (!lock.IsLocked()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] EnableHotReloading() failed - could not acquire thread lock.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] EnableHotReloading() failed - could not acquire thread lock.");
         return;
     }
 
@@ -1490,18 +1328,14 @@ void ShaderManager::CheckForShaderFileChanges() {
 
     // Ensure manager is initialized
     if (!m_isInitialized) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CheckForShaderFileChanges() failed - shader manager not initialized.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CheckForShaderFileChanges() failed - shader manager not initialized.");
         return;
     }
 
     // Acquire thread lock for safe file checking
     ThreadLockHelper lock(threadManager, m_lockName, 2000);                     // 2 second timeout for file checking
     if (!lock.IsLocked()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CheckForShaderFileChanges() failed - could not acquire thread lock.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] CheckForShaderFileChanges() failed - could not acquire thread lock.");
         return;
     }
 
@@ -1516,9 +1350,7 @@ void ShaderManager::CheckForShaderFileChanges() {
 
         // Check if file exists
         if (!std::filesystem::exists(shader->filePath)) {
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Shader file no longer exists: %ls", shader->filePath.c_str());
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Shader file no longer exists: %ls", shader->filePath.c_str());
             continue;
         }
 
@@ -1650,6 +1482,15 @@ bool ShaderManager::CompileHLSL(ShaderResource& shader) {
         }
         HandleCompilationError(shader, shader.compilationErrors);
         return false;
+    }
+
+    // DirectX 12 builds its pipeline state objects from precompiled bytecode inside DX12Renderer, and
+    // GetDevice() returns an ID3D12Device*.  The D3D11 shader objects below would be created through a
+    // mis-typed ID3D11Device* (E_INVALIDARG), so on DX12 keep the validated blob and stop here.
+    if (m_currentPlatform == ShaderPlatform::PLATFORM_DIRECTX12) {
+        shader.isCompiled = true;
+        shader.isLoaded   = true;
+        return true;
     }
 
     // Create platform-specific shader object
@@ -1928,42 +1769,32 @@ bool ShaderManager::BindShaderToModel(const std::string& shaderProgramName, Mode
 
     // Validate input parameters
     if (shaderProgramName.empty()) {
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] BindShaderToModel() failed - empty shader program name provided.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] BindShaderToModel() failed - empty shader program name provided.");
         return false;
     }
 
     if (!model) {
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] BindShaderToModel() failed - null model pointer provided.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] BindShaderToModel() failed - null model pointer provided.");
         return false;
     }
 
     // Ensure manager is initialized
     if (!m_isInitialized) {
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] BindShaderToModel() failed - shader manager not initialized.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] BindShaderToModel() failed - shader manager not initialized.");
         return false;
     }
 
     // Find shader program
     ShaderProgram* program = GetShaderProgram(shaderProgramName);
     if (!program || !program->isLinked) {
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] BindShaderToModel() failed - program '%hs' not found or not linked.",
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] BindShaderToModel() failed - program '%hs' not found or not linked.",
             shaderProgramName.c_str());
-#endif
         return false;
     }
 
     // Setup model-shader bindings
     if (!SetupModelShaderBindings(model, program)) {
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] BindShaderToModel() failed - could not setup shader bindings for model.");
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] BindShaderToModel() failed - could not setup shader bindings for model.");
         return false;
     }
 
@@ -1985,17 +1816,13 @@ bool ShaderManager::SetupLightingShaders(LightsManager* lightManager) {
 
     // Validate input parameters
     if (!lightManager) {
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] SetupLightingShaders() failed - null light manager pointer provided.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] SetupLightingShaders() failed - null light manager pointer provided.");
         return false;
     }
 
     // Ensure manager is initialized
     if (!m_isInitialized) {
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] SetupLightingShaders() failed - shader manager not initialized.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] SetupLightingShaders() failed - shader manager not initialized.");
         return false;
     }
 
@@ -2005,10 +1832,8 @@ bool ShaderManager::SetupLightingShaders(LightsManager* lightManager) {
         ShaderProgram* program = programPair.second.get();
         if (program && program->isLinked) {
             if (!ConfigureLightingUniforms(program, lightManager)) {
-#if defined(_DEBUG_SHADERMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to configure lighting for program '%hs'.",
+                debug.logDiagMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to configure lighting for program '%hs'.",
                     programPair.first.c_str());
-#endif
                 overallSuccess = false;                                         // Mark as partial failure but continue
             }
         }
@@ -2032,17 +1857,13 @@ bool ShaderManager::LoadSceneShaders(SceneManager* sceneManager) {
 
     // Validate input parameters
     if (!sceneManager) {
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadSceneShaders() failed - null scene manager pointer provided.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadSceneShaders() failed - null scene manager pointer provided.");
         return false;
     }
 
     // Ensure manager is initialized
     if (!m_isInitialized) {
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadSceneShaders() failed - shader manager not initialized.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] LoadSceneShaders() failed - shader manager not initialized.");
         return false;
     }
 
@@ -2054,53 +1875,39 @@ bool ShaderManager::LoadSceneShaders(SceneManager* sceneManager) {
     if (detectedExporter == L"Sketchfab") {
         // Load Sketchfab-optimized shaders with PBR support
         if (!LoadShader("SketchfabVertex", L"./Assets/Shaders/SketchfabVertex.hlsl", ShaderType::VERTEX_SHADER)) {
-#if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to load Sketchfab vertex shader, using default.");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to load Sketchfab vertex shader, using default.");
         }
 
         if (!LoadShader("SketchfabPixel", L"./Assets/Shaders/SketchfabPixel.hlsl", ShaderType::PIXEL_SHADER)) {
-#if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to load Sketchfab pixel shader, using default.");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to load Sketchfab pixel shader, using default.");
         }
     }
     else if (detectedExporter == L"Blender") {
         // Load Blender-optimized shaders
         if (!LoadShader("BlenderVertex", L"./Assets/Shaders/BlenderVertex.hlsl", ShaderType::VERTEX_SHADER)) {
-#if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to load Blender vertex shader, using default.");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to load Blender vertex shader, using default.");
         }
 
         if (!LoadShader("BlenderPixel", L"./Assets/Shaders/BlenderPixel.hlsl", ShaderType::PIXEL_SHADER)) {
-#if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to load Blender pixel shader, using default.");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to load Blender pixel shader, using default.");
         }
     }
 
     // Load universal scene shaders
     if (!LoadShader("SceneVertex", L"./Assets/Shaders/SceneVertex.hlsl", ShaderType::VERTEX_SHADER)) {
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Failed to load scene vertex shader.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Failed to load scene vertex shader.");
         loadSuccess = false;
     }
 
     if (!LoadShader("ScenePixel", L"./Assets/Shaders/ScenePixel.hlsl", ShaderType::PIXEL_SHADER)) {
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Failed to load scene pixel shader.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Failed to load scene pixel shader.");
         loadSuccess = false;
     }
 
     // Create scene shader program
     if (loadSuccess) {
         if (!CreateShaderProgram("SceneProgram", "SceneVertex", "ScenePixel")) {
-#if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Failed to create scene shader program.");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Failed to create scene shader program.");
             loadSuccess = false;
         }
     }
@@ -2184,9 +1991,7 @@ bool ShaderManager::ValidateAllShaders() {
 
     // Ensure manager is initialized
     if (!m_isInitialized) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ValidateAllShaders() failed - shader manager not initialized.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ValidateAllShaders() failed - shader manager not initialized.");
         return false;
     }
 
@@ -2197,18 +2002,14 @@ bool ShaderManager::ValidateAllShaders() {
     for (const auto& shaderPair : m_shaders) {
         const ShaderResource* shader = shaderPair.second.get();
         if (!shader) {
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Shader '%hs' has null resource.", shaderPair.first.c_str());
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Shader '%hs' has null resource.", shaderPair.first.c_str());
             allValid = false;
             continue;
         }
 
         // Validate shader resource integrity
         if (!ValidateShaderResource(*shader)) {
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Shader '%hs' failed validation.", shaderPair.first.c_str());
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Shader '%hs' failed validation.", shaderPair.first.c_str());
             allValid = false;
         }
         else {
@@ -2220,18 +2021,14 @@ bool ShaderManager::ValidateAllShaders() {
     for (const auto& programPair : m_programs) {
         const ShaderProgram* program = programPair.second.get();
         if (!program) {
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Program '%hs' has null resource.", programPair.first.c_str());
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Program '%hs' has null resource.", programPair.first.c_str());
             allValid = false;
             continue;
         }
 
         // Validate shader program integrity
         if (!ValidateShaderProgram(*program)) {
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Program '%hs' failed validation.", programPair.first.c_str());
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Program '%hs' failed validation.", programPair.first.c_str());
             allValid = false;
         }
     }
@@ -2411,9 +2208,7 @@ ShaderType ShaderManager::GetShaderTypeFromName(const std::string& shaderName) {
     }
 
     // Default fallback - assume vertex shader if no pattern matches
-#if defined(_DEBUG_SHADERMANAGER_)
-    debug.logDebugMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Could not determine shader type from name '%hs', defaulting to VERTEX_SHADER", shaderName.c_str());
-#endif
+    debug.logDiagMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Could not determine shader type from name '%hs', defaulting to VERTEX_SHADER", shaderName.c_str());
 
     return ShaderType::VERTEX_SHADER;
 }
@@ -2450,9 +2245,7 @@ bool ShaderManager::DetectPlatformFromRenderer() {
 
     // Validate renderer is available
     if (!m_renderer) {
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] DetectPlatformFromRenderer() failed - no renderer available.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] DetectPlatformFromRenderer() failed - no renderer available.");
         return false;
     }
 
@@ -2474,9 +2267,7 @@ bool ShaderManager::DetectPlatformFromRenderer() {
         m_currentPlatform = ShaderPlatform::PLATFORM_VULKAN;
         break;
     default:
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] DetectPlatformFromRenderer() failed - unknown renderer type.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] DetectPlatformFromRenderer() failed - unknown renderer type.");
         return false;
     }
 
@@ -2498,26 +2289,20 @@ bool ShaderManager::ReadShaderFile(const std::wstring& filePath, std::string& ou
 
     // Validate file path
     if (filePath.empty() || filePath == L"<inline>") {
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ReadShaderFile() failed - invalid file path.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ReadShaderFile() failed - invalid file path.");
         return false;
     }
 
     // Check if file exists
     if (!std::filesystem::exists(filePath)) {
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ReadShaderFile() failed - file does not exist: %ls", filePath.c_str());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ReadShaderFile() failed - file does not exist: %ls", filePath.c_str());
         return false;
     }
 
     // Open file for reading
     std::ifstream file(filePath, std::ios::in | std::ios::binary);
     if (!file.is_open()) {
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ReadShaderFile() failed - could not open file: %ls", filePath.c_str());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ReadShaderFile() failed - could not open file: %ls", filePath.c_str());
         return false;
     }
 
@@ -2540,9 +2325,7 @@ bool ShaderManager::ReadShaderFile(const std::wstring& filePath, std::string& ou
         return true;
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ReadShaderFile() exception: %hs", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ReadShaderFile() exception: %hs", e.what());
         file.close();
         return false;
     }
@@ -3113,10 +2896,8 @@ bool ShaderManager::LinkOpenGLProgram(ShaderProgram& program) {
             glAttachShader(program.openglProgramID, geometryShader->openglShaderID);
         }
         else {
-#if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Geometry shader '%hs' not available for linking.",
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Geometry shader '%hs' not available for linking.",
                 program.geometryShaderName.c_str());
-#endif
         }
     }
 
@@ -3127,10 +2908,8 @@ bool ShaderManager::LinkOpenGLProgram(ShaderProgram& program) {
             glAttachShader(program.openglProgramID, tessControlShader->openglShaderID);
         }
         else {
-#if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Tessellation control shader '%hs' not available for linking.",
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Tessellation control shader '%hs' not available for linking.",
                 program.hullShaderName.c_str());
-#endif
         }
     }
 
@@ -3141,10 +2920,8 @@ bool ShaderManager::LinkOpenGLProgram(ShaderProgram& program) {
             glAttachShader(program.openglProgramID, tessEvalShader->openglShaderID);
         }
         else {
-#if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Tessellation evaluation shader '%hs' not available for linking.",
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Tessellation evaluation shader '%hs' not available for linking.",
                 program.domainShaderName.c_str());
-#endif
         }
     }
 
@@ -3270,9 +3047,7 @@ bool ShaderManager::AcquireShaderLock(int timeoutMs) {
 
     // Validate timeout parameter
     if (timeoutMs < 0) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] AcquireShaderLock() failed - invalid timeout value.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] AcquireShaderLock() failed - invalid timeout value.");
         return false;
     }
 
@@ -3285,9 +3060,7 @@ bool ShaderManager::AcquireShaderLock(int timeoutMs) {
         #endif
     }
     else {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to acquire thread lock within %d ms timeout.", timeoutMs);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to acquire thread lock within %d ms timeout.", timeoutMs);
     }
 
     return lockAcquired;
@@ -3310,9 +3083,7 @@ void ShaderManager::ReleaseShaderLock() {
         #endif
     }
     else {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to release thread lock - lock may not exist or not owned by this thread.");
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to release thread lock - lock may not exist or not owned by this thread.");
     }
 }
 
@@ -3324,10 +3095,8 @@ void ShaderManager::ReleaseShaderLock() {
 // HandleCompilationError - Process compilation error
 //==============================================================================
 void ShaderManager::HandleCompilationError(ShaderResource& shader, const std::string& error) {
-#if defined(_DEBUG_SHADERMANAGER_)
-    debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Compilation error for shader '%hs': %hs",
+    debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Compilation error for shader '%hs': %hs",
         shader.name.c_str(), error.c_str());
-#endif
 
     // Store error message in shader resource
     shader.compilationErrors = error;
@@ -3343,10 +3112,8 @@ void ShaderManager::HandleCompilationError(ShaderResource& shader, const std::st
 // HandleLinkingError - Process linking error
 //==============================================================================
 void ShaderManager::HandleLinkingError(ShaderProgram& program, const std::string& error) {
-#if defined(_DEBUG_SHADERMANAGER_)
-    debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Linking error for program '%hs': %hs",
+    debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Linking error for program '%hs': %hs",
         program.programName.c_str(), error.c_str());
-#endif
 
     // Store error message in program resource
     program.linkingErrors = error;
@@ -3367,24 +3134,18 @@ bool ShaderManager::ValidateShaderResource(const ShaderResource& shader) const {
 
     // Check basic properties
     if (shader.name.empty()) {
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - shader has empty name.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - shader has empty name.");
         return false;
     }
 
     if (shader.type == ShaderType::UNKNOWN_SHADER) {
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - shader '%hs' has unknown type.", shader.name.c_str());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - shader '%hs' has unknown type.", shader.name.c_str());
         return false;
     }
 
     // Check compilation status
     if (!shader.isCompiled) {
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - shader '%hs' is not compiled.", shader.name.c_str());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - shader '%hs' is not compiled.", shader.name.c_str());
         return false;
     }
 
@@ -3420,17 +3181,13 @@ bool ShaderManager::ValidateShaderResource(const ShaderResource& shader) const {
         }
 
         if (!hasValidShader) {
-#if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - DirectX shader '%hs' has no valid shader object.", shader.name.c_str());
-#endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - DirectX shader '%hs' has no valid shader object.", shader.name.c_str());
             return false;
         }
 
         // Check for shader blob
         if (!shader.shaderBlob) {
-#if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - DirectX shader '%hs' has no shader blob.", shader.name.c_str());
-#endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - DirectX shader '%hs' has no shader blob.", shader.name.c_str());
             return false;
         }
 #endif
@@ -3440,9 +3197,7 @@ bool ShaderManager::ValidateShaderResource(const ShaderResource& shader) const {
     case ShaderPlatform::PLATFORM_OPENGL: {
 #if defined(__USE_OPENGL__)
         if (shader.openglShaderID == 0) {
-#if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - OpenGL shader '%hs' has invalid shader ID.", shader.name.c_str());
-#endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - OpenGL shader '%hs' has invalid shader ID.", shader.name.c_str());
             return false;
         }
 #endif
@@ -3452,9 +3207,7 @@ bool ShaderManager::ValidateShaderResource(const ShaderResource& shader) const {
     case ShaderPlatform::PLATFORM_VULKAN: {
 #if defined(__USE_VULKAN__)
         if (shader.spirvBytecode.empty()) {
-#if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - Vulkan shader '%hs' has no SPIR-V bytecode.", shader.name.c_str());
-#endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - Vulkan shader '%hs' has no SPIR-V bytecode.", shader.name.c_str());
             return false;
         }
 #endif
@@ -3462,9 +3215,7 @@ bool ShaderManager::ValidateShaderResource(const ShaderResource& shader) const {
     }
 
     default:
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - unsupported platform for shader '%hs'.", shader.name.c_str());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - unsupported platform for shader '%hs'.", shader.name.c_str());
         return false;
     }
 
@@ -3485,41 +3236,31 @@ bool ShaderManager::ValidateShaderProgram(const ShaderProgram& program) const {
 
     // Check basic properties
     if (program.programName.empty()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - program has empty name.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - program has empty name.");
         return false;
     }
 
     if (program.vertexShaderName.empty() || program.pixelShaderName.empty()) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - program '%hs' missing required vertex or pixel shader.", program.programName.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - program '%hs' missing required vertex or pixel shader.", program.programName.c_str());
         return false;
     }
 
     // Check linking status
     if (!program.isLinked) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - program '%hs' is not linked.", program.programName.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - program '%hs' is not linked.", program.programName.c_str());
         return false;
     }
 
     // Verify referenced shaders exist
     if (!DoesShaderExist(program.vertexShaderName)) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - program '%hs' references non-existent vertex shader '%hs'.",
-                program.programName.c_str(), program.vertexShaderName.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - program '%hs' references non-existent vertex shader '%hs'.",
+            program.programName.c_str(), program.vertexShaderName.c_str());
         return false;
     }
 
     if (!DoesShaderExist(program.pixelShaderName)) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - program '%hs' references non-existent pixel shader '%hs'.",
-                  program.programName.c_str(), program.pixelShaderName.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - program '%hs' references non-existent pixel shader '%hs'.",
+              program.programName.c_str(), program.pixelShaderName.c_str());
         return false;
     }
 
@@ -3533,9 +3274,7 @@ bool ShaderManager::ValidateShaderProgram(const ShaderProgram& program) const {
         case ShaderPlatform::PLATFORM_OPENGL: {
             #if defined(__USE_OPENGL__)
                 if (program.openglProgramID == 0) {
-                    #if defined(_DEBUG_SHADERMANAGER_)
-                        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - OpenGL program '%hs' has invalid program ID.", program.programName.c_str());
-                    #endif
+                    debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - OpenGL program '%hs' has invalid program ID.", program.programName.c_str());
                     return false;
                     }
             #endif
@@ -3547,9 +3286,7 @@ bool ShaderManager::ValidateShaderProgram(const ShaderProgram& program) const {
             break;
 
         default:
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - unsupported platform for program '%hs'.", program.programName.c_str());
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Validation failed - unsupported platform for program '%hs'.", program.programName.c_str());
             return false;
     }
 
@@ -3584,10 +3321,8 @@ std::chrono::system_clock::time_point ShaderManager::GetFileModificationTime(con
         return systemTime;
     }
     catch (const std::filesystem::filesystem_error& e) {
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Failed to get file modification time for '%ls': %hs",
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] Failed to get file modification time for '%ls': %hs",
             filePath.c_str(), e.what());
-#endif
 
         // Return epoch time if error occurs
         return std::chrono::system_clock::time_point{};
@@ -3870,9 +3605,7 @@ bool ShaderManager::SetupModelShaderBindings(Model* model, ShaderProgram* progra
 
     // Validate input parameters
     if (!model || !program) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] SetupModelShaderBindings() failed - null model or program pointer.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] SetupModelShaderBindings() failed - null model or program pointer.");
         return false;
     }
 
@@ -3897,9 +3630,7 @@ bool ShaderManager::ConfigureLightingUniforms(ShaderProgram* program, LightsMana
 
     // Validate input parameters
     if (!program || !lightManager) {
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ConfigureLightingUniforms() failed - null program or light manager pointer.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ConfigureLightingUniforms() failed - null program or light manager pointer.");
         return false;
     }
 
@@ -3964,9 +3695,7 @@ bool ShaderManager::ConfigureLightingUniforms(ShaderProgram* program, LightsMana
     }
 
     default:
-#if defined(_DEBUG_SHADERMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ConfigureLightingUniforms() failed - unsupported platform.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ConfigureLightingUniforms() failed - unsupported platform.");
         return false;
     }
 
@@ -3988,53 +3717,48 @@ bool ShaderManager::LoadDefaultShaders() {
         debug.logLevelMessage(LogLevel::LOG_INFO, L"[ShaderManager] LoadDefaultShaders() called - loading standard engine shaders.");
     #endif
 
+    // OpenGL compiles its own GLSL (ModelVertex.glsl / ModelPixel.glsl) inside OpenGLRenderer.
+    // The default programs below are HLSL sources, which the GLSL compiler rejects with
+    // pages of Cg-style/semantic errors, so there is nothing to load on this platform.
+    if (m_currentPlatform == ShaderPlatform::PLATFORM_OPENGL) {
+        return true;
+    }
+
     bool allShadersLoaded = true;                                               // Track overall loading success
 
     // Load default vertex shader
     if (!LoadShader("DefaultVertex", L"./Assets/Shaders/DefaultVertex.hlsl", ShaderType::VERTEX_SHADER)) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to load default vertex shader.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to load default vertex shader.");
         allShadersLoaded = false;
     }
 
     // Load default pixel shader
     if (!LoadShader("DefaultPixel", L"./Assets/Shaders/DefaultPixel.hlsl", ShaderType::PIXEL_SHADER)) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to load default pixel shader.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to load default pixel shader.");
         allShadersLoaded = false;
     }
 
     // Load model vertex shader with proper file names
     if (!LoadShader("ModelVertex", L"./Assets/Shaders/ModelVertex.hlsl", ShaderType::VERTEX_SHADER)) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to load model vertex shader.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to load model vertex shader.");
         allShadersLoaded = false;
     }
 
     // Load model pixel shader with proper file names
     if (!LoadShader("ModelPixel", L"./Assets/Shaders/ModelPixel.hlsl", ShaderType::PIXEL_SHADER)) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to load model pixel shader.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to load model pixel shader.");
         allShadersLoaded = false;
     }
 
     // Create default shader programs
     if (allShadersLoaded) {
         if (!CreateShaderProgram("DefaultProgram", "DefaultVertex", "DefaultPixel")) {
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to create default shader program.");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to create default shader program.");
             allShadersLoaded = false;
         }
 
         if (!CreateShaderProgram("ModelProgram", "ModelVertex", "ModelPixel")) {
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to create model shader program.");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[ShaderManager] Failed to create model shader program.");
             allShadersLoaded = false;
         }
     }

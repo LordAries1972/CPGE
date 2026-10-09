@@ -3,10 +3,19 @@
 #include "SceneManager.h"
 #include "ThreadManager.h"
 #include "Debug.h"
+#include "Configuration.h"
 
 extern Debug debug;
 extern ThreadManager threadManager;
 extern SceneManager scene;
+extern Configuration config;
+
+// Music volume from the config (0-64 -> 0.0-1.0).  Master volume is NOT applied here:
+// it is set on the Windows output device (ApplySystemMasterVolume), which this player
+// renders through, so it already scales the MP3 like every other audio subsystem.
+float MediaPlayer::ConfigMusicVolume() {
+    return static_cast<float>(std::clamp(config.myConfig.musicVolume, 0, 64)) / 64.0f;
+}
 
 // Implementation
 MediaPlayer::MediaPlayer() {}
@@ -106,6 +115,8 @@ bool MediaPlayer::loadFile(const std::wstring& filePath) {
     }
 
     this->filePath = filePath;
+    itemReady = false;
+    pendingPlay = false;
     HRESULT hr = MFPCreateMediaPlayer(
         filePath.c_str(),  // File path
         FALSE,             // Do not auto-play
@@ -120,6 +131,24 @@ bool MediaPlayer::loadFile(const std::wstring& filePath) {
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to load file: " + filePath);
         return false;
     }
+    setVolume(ConfigMusicVolume());                     // New players start at 1.0; honour the music volume setting
+
+    // MFPCreateMediaPlayer() sets the media item asynchronously and the
+    // MFP_EVENT_TYPE_MEDIAITEM_SET event is delivered through THIS thread's message
+    // queue.  Play() before that event fails (MF_E_INVALIDREQUEST), so pump messages
+    // here (bounded) until the item is ready.  The loader thread never pumps otherwise.
+    for (int waited = 0; !itemReady && waited < 2000; waited += 10) {
+        MSG msg;
+        while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        }
+        if (itemReady) break;
+        Sleep(10);
+    }
+    if (!itemReady)
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"Media item not ready after 2s; playback will start when it is: " + filePath);
+
     debug.logLevelMessage(LogLevel::LOG_INFO, L"File loaded successfully: " + filePath);
     return true;
 }
@@ -129,12 +158,52 @@ void MediaPlayer::play() {
 
     stop();
 
-    playing = true;
-    paused = false;
     terminateFlag = false;
-    mediaPlayer->Play();
+    paused = false;
+
+    // "Play Music" off: keep the file loaded but do not start it.
+    // applyPlayMusic(true) starts it when the setting is switched back on.
+    if (!config.myConfig.playMusic) {
+        playing = false;
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"Playback not started (Play Music is off).");
+        return;
+    }
+
+    playing = true;
     bNotStarted = true;
+    if (!itemReady) {
+        pendingPlay = true;                             // OnMediaPlayerEvent(MEDIAITEM_SET) starts it
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"Playback queued until the media item is ready.");
+        return;
+    }
+
+    HRESULT hr = mediaPlayer->Play();
+    if (FAILED(hr)) {
+        playing = false;
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Play() failed. HRESULT: " + std::to_wstring(hr));
+        return;
+    }
     debug.logLevelMessage(LogLevel::LOG_INFO, L"Playback started.");
+}
+
+// Applies the "Play Music" setting to the loaded track: off pauses it, on resumes it
+// (or starts it if it was loaded while music was off).
+void MediaPlayer::applyPlayMusic(bool on) {
+    if (!mediaPlayer || terminateFlag) return;
+
+    if (!on) {
+        pause();                                        // No-op unless currently playing
+        return;
+    }
+
+    if (paused) {
+        resume();
+    }
+    else if (!playing) {
+        seek(0.0);
+        play();
+        fadeIn(2000);
+    }
 }
 
 void MediaPlayer::pause() {
@@ -175,23 +244,27 @@ void MediaPlayer::setVolume(float vol) {
     if (mediaPlayer) mediaPlayer->SetVolume(vol);
 }
 
+// Fades ramp a 0-1 fraction of the music volume setting, re-read every step so a
+// slider change during a fade is honoured.
 void MediaPlayer::fadeIn(int durationMs) {
     std::thread([this, durationMs]() {
-        float step = 1.0f / (durationMs / 50.0f);
-        for (float v = 0; v <= 1.0f; v += step) {
-            setVolume(v);
+        float step = 1.0f / (std::max(durationMs, 50) / 50.0f);
+        for (float t = 0.0f; t < 1.0f; t += step) {
+            setVolume(t * ConfigMusicVolume());
             Sleep(50);
         }
+        setVolume(ConfigMusicVolume());                 // Land exactly on the configured level
         }).detach();
 }
 
 void MediaPlayer::fadeOut(int durationMs) {
     std::thread([this, durationMs]() {
-        float step = 1.0f / (durationMs / 50.0f);
-        for (float v = 1.0f; v >= 0.0f; v -= step) {
-            setVolume(v);
+        float step = 1.0f / (std::max(durationMs, 50) / 50.0f);
+        for (float t = 1.0f; t > 0.0f; t -= step) {
+            setVolume(t * ConfigMusicVolume());
             Sleep(50);
         }
+        setVolume(0.0f);
         stop();
         }).detach();
 }
@@ -267,23 +340,46 @@ STDMETHODIMP_(void) MediaPlayer::OnMediaPlayerEvent(MFP_EVENT_HEADER* pEventHead
     }
     else if (pEventHeader->eEventType == MFP_EVENT_TYPE_MEDIAITEM_SET) {
         debug.logLevelMessage(LogLevel::LOG_INFO, L"Media item set.");
+        itemReady = true;
+        if (pendingPlay.exchange(false) && mediaPlayer && !terminateFlag && playing && !paused) {
+            HRESULT hr = mediaPlayer->Play();
+            if (FAILED(hr)) {
+                playing = false;
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"Deferred Play() failed. HRESULT: " + std::to_wstring(hr));
+            }
+            else {
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"Deferred playback started.");
+            }
+        }
     }
     else if (pEventHeader->eEventType == MFP_EVENT_TYPE_PLAYBACK_ENDED) {
         // Handle playback ended
         debug.logLevelMessage(LogLevel::LOG_INFO, L"Playback ended.");
 
-        // Pause for 1 seconds before next action
-        Sleep(1000);
-
         // If there's a playlist, play the next file
         if (!playlist.empty()) {
             PlayNext();
         }
-        else {
-            // No playlist, stop playback and restart the playback.
-            stop();
-            scene.stSceneType = SceneType::SCENE_LOAD_MP3;
-            threadManager.ResumeThread(THREAD_LOADER);
+        else if (!config.myConfig.playMusic) {
+            playing = false;                            // applyPlayMusic(true) restarts it from 0
+        }
+        else if (mediaPlayer && !terminateFlag) {
+            // No playlist: loop the current track in place on the existing player.
+            // The scene type is NOT touched, so the current scene keeps rendering.
+            // (Switching to SCENE_LOAD_MP3 here lost the scene -> black screen, and the
+            // loader re-created the player on a thread that stops pumping messages.)
+            // No Sleep() here: this callback runs on the player's message-pump thread.
+            seek(0.0);
+            HRESULT hr = mediaPlayer->Play();
+            if (SUCCEEDED(hr)) {
+                playing = true;
+                paused  = false;
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"Playback restarted (loop).");
+            }
+            else {
+                playing = false;
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to restart playback. HRESULT: " + std::to_wstring(hr));
+            }
         }
     }
 }

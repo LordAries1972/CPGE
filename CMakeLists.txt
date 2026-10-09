@@ -58,6 +58,7 @@ set(SOURCES
     DX11Renderer.cpp
     DX12Renderer.cpp
     DX12RenderFrame.cpp
+    DX12TitlePipeline.cpp
     DXCamera.cpp
     DXRenderFrame.cpp
     FXManager.cpp

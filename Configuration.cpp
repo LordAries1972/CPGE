@@ -52,6 +52,9 @@ bool Configuration::loadConfig() {
         myConfig.enableVSync = j["enableVSync"];
         myConfig.msaaEnabled = j["msaaEnabled"];
         myConfig.antiAliasingEnabled = j["antiAliasingEnabled"];
+        myConfig.msaaSamples = std::clamp(j.value("msaaSamples", 4), 2, 8);
+        if (myConfig.msaaSamples != 2 && myConfig.msaaSamples != 4 && myConfig.msaaSamples != 8)
+            myConfig.msaaSamples = 4;
         myConfig.MipMapping = j["MipMapping"];
         myConfig.BackCulling = j["BackCulling"];
         myConfig.showDebugInfo = j.value("showDebugInfo", false);
@@ -78,6 +81,28 @@ bool Configuration::loadConfig() {
         myConfig.refreshRate      = j.value("refreshRate",      60);
         myConfig.rendererType     = j.value("rendererType", 0);
         myConfig.buffering        = j.value("buffering", 1);
+        // Shadow + image settings: optional keys (older configs do not have them).
+        myConfig.shadowsEnabled   = j.value("shadowsEnabled",  true);
+        myConfig.shadowQuality    = std::clamp(j.value("shadowQuality",   1), 0, 2);
+        myConfig.maxSpotShadows   = std::clamp(j.value("maxSpotShadows",  8), 0, 8);
+        myConfig.maxPointShadows  = std::clamp(j.value("maxPointShadows", 4), 0, 4);
+        myConfig.shadowDistance   = std::clamp(j.value("shadowDistance", 200.0), 50.0, 1000.0);
+        myConfig.reflectionsEnabled = j.value("reflectionsEnabled", true);
+        myConfig.reflectionQuality  = std::clamp(j.value("reflectionQuality", 1), 0, 2);
+        myConfig.reflectionStrength = std::clamp(j.value("reflectionStrength", 1.0), 0.0, 2.0);
+        myConfig.reflectionBlur     = std::clamp(j.value("reflectionBlur", 0.0), 0.0, 3.0);
+        myConfig.reflectionUpdate   = std::clamp(j.value("reflectionUpdate", 1), 0, 2);
+        myConfig.planarEnabled    = j.value("planarEnabled", true);
+        myConfig.planarQuality    = std::clamp(j.value("planarQuality", 1), 0, 2);
+        myConfig.planarStrength   = std::clamp(j.value("planarStrength", 1.0), 0.0, 1.0);
+        myConfig.planarDistortion = std::clamp(j.value("planarDistortion", 0.3), 0.0, 1.0);
+        myConfig.planarUpdate     = std::clamp(j.value("planarUpdate", 0), 0, 2);
+        myConfig.planarMaxPlanes  = std::clamp(j.value("planarMaxPlanes", 2), 1, 4);
+        myConfig.reflectionLive   = j.value("reflectionLive", true);
+        myConfig.brightness       = std::clamp(j.value("brightness", 1.0), 0.5, 1.5);
+        myConfig.contrast         = std::clamp(j.value("contrast",   1.0), 0.5, 1.5);
+        myConfig.emissionEnabled   = j.value("emissionEnabled", true);
+        myConfig.emissionIntensity = std::clamp(j.value("emissionIntensity", 1.0), 0.0, 3.0);
         myConfig.chksum = j["chksum"];
     }
     catch (const std::exception& e) {
@@ -156,6 +181,7 @@ bool Configuration::saveConfig() {
         j["enableVSync"] = myConfig.enableVSync;
         j["msaaEnabled"] = myConfig.msaaEnabled;
         j["antiAliasingEnabled"] = myConfig.antiAliasingEnabled;
+        j["msaaSamples"] = myConfig.msaaSamples;
         j["MipMapping"] = myConfig.MipMapping;
         j["BackCulling"] = myConfig.BackCulling;
         j["showDebugInfo"] = myConfig.showDebugInfo;
@@ -178,6 +204,27 @@ bool Configuration::saveConfig() {
         j["refreshRate"]      = myConfig.refreshRate;
         j["rendererType"]     = myConfig.rendererType;
         j["buffering"]        = myConfig.buffering;
+        j["shadowsEnabled"]   = myConfig.shadowsEnabled;
+        j["shadowQuality"]    = myConfig.shadowQuality;
+        j["maxSpotShadows"]   = myConfig.maxSpotShadows;
+        j["maxPointShadows"]  = myConfig.maxPointShadows;
+        j["shadowDistance"]   = myConfig.shadowDistance;
+        j["reflectionsEnabled"] = myConfig.reflectionsEnabled;
+        j["reflectionQuality"]  = myConfig.reflectionQuality;
+        j["reflectionStrength"] = myConfig.reflectionStrength;
+        j["reflectionBlur"]     = myConfig.reflectionBlur;
+        j["reflectionUpdate"]   = myConfig.reflectionUpdate;
+        j["planarEnabled"]    = myConfig.planarEnabled;
+        j["planarQuality"]    = myConfig.planarQuality;
+        j["planarStrength"]   = myConfig.planarStrength;
+        j["planarDistortion"] = myConfig.planarDistortion;
+        j["planarUpdate"]     = myConfig.planarUpdate;
+        j["planarMaxPlanes"]  = myConfig.planarMaxPlanes;
+        j["reflectionLive"]   = myConfig.reflectionLive;
+        j["brightness"]       = myConfig.brightness;
+        j["contrast"]         = myConfig.contrast;
+        j["emissionEnabled"]   = myConfig.emissionEnabled;
+        j["emissionIntensity"] = myConfig.emissionIntensity;
         j["chksum"] = calculateChecksum(myConfig);
 
         configStream << j.dump(4);  // Pretty print the JSON with 4 spaces

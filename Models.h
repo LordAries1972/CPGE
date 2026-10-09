@@ -349,6 +349,37 @@ struct ModelInfo {
     int  iAnimationIndex = -1;
     int  fxID = -1;
 
+    // --- Shadow mapping (cross-platform) ---
+    // Set by the importers: FBX CastShadow / ReceiveShadow properties; GLTF has no
+    // shadow flags so GLTF models keep the defaults (cast + receive).
+    bool castShadows    = true;                         // Rendered into shadow maps
+    bool receiveShadows = true;                         // Lighting is attenuated by shadow maps
+
+    // Local-space bounding sphere (before the vertex-shader scale and world matrix),
+    // computed lazily by ModelComputeShadowBounds().  Keyed on the vertex array so a
+    // slot that is re-filled with different geometry recomputes automatically.
+    float        shadowBoundsMin[3]     = { 0.0f, 0.0f, 0.0f };   // Local AABB (same lazy refresh); used by the planar reflection plane
+    float        shadowBoundsMax[3]     = { 0.0f, 0.0f, 0.0f };
+    float        shadowBoundsCenter[3]  = { 0.0f, 0.0f, 0.0f };
+    float        shadowBoundsRadius     = 0.0f;
+    size_t       shadowBoundsVertCount  = 0;
+    const void*  shadowBoundsVertData   = nullptr;
+
+    // --- Planar reflection (cross-platform; see "Planar Reflections" in Lights.h) ---
+    // A reflector (floor / water / mirror) shows the mirrored scene render.  Set the flag in code,
+    // or tag the mesh name with _mirror / _water / _planar (checked once by ModelIsPlanarReflector).
+    bool  planarReflector     = false;
+    float planarStrength      = 0.75f;                  // Per-model mix of the reflection into the surface colour (0-1)
+    float planarHeightOffset  = 0.0f;                   // Moves the reflection plane along its normal (world units)
+    int   planarPlaneIndex    = -1;                     // Slice of the planar array this frame (-1 = none); set by ModelPlanarRegister
+    // Reflecting surface in local space (dominant flat facing), cached by ModelComputePlanarLocalPlane().
+    float        planarLocalN[3]       = { 0.0f, 1.0f, 0.0f };
+    float        planarLocalP[3]       = { 0.0f, 0.0f, 0.0f };
+    bool         planarLocalValid      = false;
+    size_t       planarLocalVertCount  = 0;
+    const void*  planarLocalVertData   = nullptr;
+    int   planarTagState      = -1;                     // -1 = name not checked yet, 0 = no tag, 1 = tagged
+
     // --- UV sampler settings (cross-platform) ---
     // Parsed from the importer (GLTF sampler wrapS/wrapT, FBX WrapModeU/V) and
     // applied to the diffuse sampler on every renderer:
@@ -400,7 +431,7 @@ struct ModelInfo {
         ComPtr<ID3D11ShaderResourceView> emissiveMapSRV;                            // t7: emissive texture map
         ComPtr<ID3D11ShaderResourceView> shadowMapSRV;                              // t8: shadow depth map (set externally by shadow pass)
         ComPtr<ID3D11Buffer>             environmentBuffer;
-        ComPtr<ID3D11Buffer>             shadowBuffer;                              // b6: ShadowBufferGPU constant buffer
+        ComPtr<ID3D11Buffer>             shadowBuffer;                              // b6: legacy per-model buffer (unused - b6 is bound per frame by the renderer)
         ComPtr<ID3D11SamplerState>       environmentSamplerState;
         ComPtr<ID3D11SamplerState>       shadowSamplerState;                        // s2: comparison sampler for PCF
 
@@ -572,7 +603,10 @@ public:
         // Native DX12 draw: updates all per-model constant buffers (b0/b1/b2/b4), registers
         // texture SRVs on first call, then binds VB/IB and issues DrawIndexedInstanced.
         // Called from DX12RenderFrame::RenderGamePlay() after SetPipelineState().
-        void RenderDX12(ID3D12GraphicsCommandList* cmdList, class DX12Renderer* dx12, float deltaTime);
+        // cbSlot selects which b0 slot in d3d12ConstantBuffer is written + bound:
+        // 0 = main pass, 1 + plane = that planar mirror pass, 1 + MAX_PLANAR_PLANES + face = a live-capture face (all are recorded in the same command list, and the
+        // persistently mapped upload memory is only read when the list executes, so each pass needs its own slot).
+        void RenderDX12(ID3D12GraphicsCommandList* cmdList, class DX12Renderer* dx12, float deltaTime, int cbSlot = 0);
 
         // First-frame texture registration: unwraps the model's DX11-on-12 SRVs into native
         // D3D12 resources, writes SRV descriptors into the pre-allocated heap slots, and records
@@ -638,3 +672,185 @@ private:
     void LoadFallbackTexture();
     void LoadFallbackNormalMap();
 };
+
+//==============================================================================
+// ModelComputeShadowBounds - lazily computes / refreshes ModelInfo's local-space
+// bounding sphere (AABB centre + max corner distance) used by the shadow planner.
+// Returns false when the model has no CPU-side vertices.
+//==============================================================================
+inline bool ModelComputeShadowBounds(ModelInfo& mi)
+{
+    if (mi.vertices.empty())
+        return false;
+
+    if (mi.shadowBoundsVertCount == mi.vertices.size() &&
+        mi.shadowBoundsVertData  == static_cast<const void*>(mi.vertices.data()))
+        return true;
+
+    float mn[3] = {  FLT_MAX,  FLT_MAX,  FLT_MAX };
+    float mx[3] = { -FLT_MAX, -FLT_MAX, -FLT_MAX };
+    for (const Vertex& v : mi.vertices)
+    {
+        #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+            const float p[3] = { v.position.x, v.position.y, v.position.z };
+        #else
+            const float p[3] = { v.position[0], v.position[1], v.position[2] };
+        #endif
+        for (int a = 0; a < 3; ++a)
+        {
+            if (p[a] < mn[a]) mn[a] = p[a];
+            if (p[a] > mx[a]) mx[a] = p[a];
+        }
+    }
+
+    float r2 = 0.0f;
+    for (int a = 0; a < 3; ++a)
+    {
+        mi.shadowBoundsMin[a]    = mn[a];
+        mi.shadowBoundsMax[a]    = mx[a];
+        mi.shadowBoundsCenter[a] = 0.5f * (mn[a] + mx[a]);
+        const float h = 0.5f * (mx[a] - mn[a]);
+        r2 += h * h;
+    }
+    mi.shadowBoundsRadius    = sqrtf(r2);
+    mi.shadowBoundsVertCount = mi.vertices.size();
+    mi.shadowBoundsVertData  = mi.vertices.data();
+    return true;
+}
+
+//==============================================================================
+// ModelIsPlanarReflector - true when the model shows the planar mirror render:
+// the explicit planarReflector flag, or a _mirror / _water / _planar name tag
+// (evaluated once the name is known, then cached in planarTagState).
+//==============================================================================
+inline bool ModelIsPlanarReflector(ModelInfo& mi)
+{
+    if (mi.planarReflector)
+        return true;
+    if (mi.planarTagState < 0 && !mi.name.empty())
+        mi.planarTagState = PlanarNameIsReflector(mi.name) ? 1 : 0;
+    return mi.planarTagState == 1;
+}
+
+//==============================================================================
+// ModelComputePlanarLocalPlane - finds the reflecting surface of a reflector mesh in LOCAL space:
+// the dominant flat facing.  Triangles are binned by the axis their (vertex-normal) direction is
+// closest to; the bin with the largest area wins (ties prefer +Y, then -Y, +X, -X, +Z, -Z).  The
+// plane normal is the area-weighted average vertex normal of that bin and the plane point its
+// area-weighted centroid, so a tilted quad gives its exact plane and a thick slab gives its top.
+// Cached per model; recomputed when the vertex array changes.  Returns false without geometry.
+//==============================================================================
+inline bool ModelComputePlanarLocalPlane(ModelInfo& mi)
+{
+    if (mi.vertices.empty() || mi.indices.size() < 3)
+        return false;
+    if (mi.planarLocalValid &&
+        mi.planarLocalVertCount == mi.vertices.size() &&
+        mi.planarLocalVertData  == static_cast<const void*>(mi.vertices.data()))
+        return true;
+
+    auto pos = [&mi](uint32_t i, double o[3])
+    {
+        const Vertex& v = mi.vertices[i];
+        #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+            o[0] = v.position.x; o[1] = v.position.y; o[2] = v.position.z;
+        #else
+            o[0] = v.position[0]; o[1] = v.position[1]; o[2] = v.position[2];
+        #endif
+    };
+    auto nrm = [&mi](uint32_t i, double o[3])
+    {
+        const Vertex& v = mi.vertices[i];
+        #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
+            o[0] = v.normal.x; o[1] = v.normal.y; o[2] = v.normal.z;
+        #else
+            o[0] = v.normal[0]; o[1] = v.normal[1]; o[2] = v.normal[2];
+        #endif
+    };
+
+    // Bin order doubles as the tie-break priority: +Y, -Y, +X, -X, +Z, -Z.
+    static const int    kAxis[6] = { 1, 1, 0, 0, 2, 2 };
+    static const double kSign[6] = { 1.0, -1.0, 1.0, -1.0, 1.0, -1.0 };
+    double binArea[6] = {}, binN[6][3] = {}, binP[6][3] = {};
+
+    const size_t triCount = mi.indices.size() / 3;
+    const uint32_t vc = static_cast<uint32_t>(mi.vertices.size());
+    for (size_t t = 0; t < triCount; ++t)
+    {
+        const uint32_t i0 = mi.indices[t * 3], i1 = mi.indices[t * 3 + 1], i2 = mi.indices[t * 3 + 2];
+        if (i0 >= vc || i1 >= vc || i2 >= vc) continue;
+        double p0[3], p1[3], p2[3], n0[3], n1[3], n2[3];
+        pos(i0, p0); pos(i1, p1); pos(i2, p2);
+        nrm(i0, n0); nrm(i1, n1); nrm(i2, n2);
+
+        const double e1[3] = { p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2] };
+        const double e2[3] = { p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2] };
+        const double cx = e1[1] * e2[2] - e1[2] * e2[1];
+        const double cy = e1[2] * e2[0] - e1[0] * e2[2];
+        const double cz = e1[0] * e2[1] - e1[1] * e2[0];
+        const double area = 0.5 * std::sqrt(cx * cx + cy * cy + cz * cz);
+        if (area < 1e-12) continue;
+
+        // Facing direction from the authored vertex normals (independent of the winding order).
+        double n[3] = { n0[0] + n1[0] + n2[0], n0[1] + n1[1] + n2[1], n0[2] + n1[2] + n2[2] };
+        const double nl = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        if (nl < 1e-9) continue;
+        for (int k = 0; k < 3; ++k) n[k] /= nl;
+
+        int best = 0; double bestDot = -2.0;
+        for (int b = 0; b < 6; ++b)
+        {
+            const double dt = n[kAxis[b]] * kSign[b];
+            if (dt > bestDot + 1e-9) { bestDot = dt; best = b; }
+        }
+        binArea[best] += area;
+        for (int k = 0; k < 3; ++k)
+        {
+            binN[best][k] += n[k] * area;
+            binP[best][k] += (p0[k] + p1[k] + p2[k]) / 3.0 * area;
+        }
+    }
+
+    int win = -1; double winArea = 0.0;
+    for (int b = 0; b < 6; ++b)
+        if (binArea[b] > winArea * (1.0 + 1e-6) + 1e-12) { winArea = binArea[b]; win = b; }
+    if (win < 0)
+        return false;
+
+    const double nl = std::sqrt(binN[win][0] * binN[win][0] + binN[win][1] * binN[win][1] + binN[win][2] * binN[win][2]);
+    if (nl < 1e-12)
+        return false;
+    for (int k = 0; k < 3; ++k)
+    {
+        mi.planarLocalN[k] = static_cast<float>(binN[win][k] / nl);
+        mi.planarLocalP[k] = static_cast<float>(binP[win][k] / winArea);
+    }
+    mi.planarLocalVertCount = mi.vertices.size();
+    mi.planarLocalVertData  = mi.vertices.data();
+    mi.planarLocalValid     = true;
+    return true;
+}
+
+//==============================================================================
+// ModelPlanarRegister - plans one reflector for this frame: world plane from its mesh surface,
+// skipped when the camera is behind it, otherwise registered with the shared planner.  Sets
+// mi.planarPlaneIndex (-1 = no reflection this frame) and returns it.
+// `world` is the row-vector row-major float[16] world matrix; `scale` is the per-vertex scale the
+// vertex shader applies BEFORE world (pass 1,1,1 when it is already baked into world, e.g. Vulkan).
+//==============================================================================
+inline int ModelPlanarRegister(ModelInfo& mi, const float world[16], const float scale[3], const float camPos[3])
+{
+    mi.planarPlaneIndex = -1;
+    if (!ModelComputePlanarLocalPlane(mi))
+        return -1;
+
+    float n[3], d;
+    PlanarWorldPlane(mi.planarLocalN, mi.planarLocalP, scale, world, n, &d);
+    d -= mi.planarHeightOffset;                                                 // offset along the normal
+
+    if (n[0] * camPos[0] + n[1] * camPos[1] + n[2] * camPos[2] + d <= 0.0f)     // viewed from behind
+        return -1;
+
+    mi.planarPlaneIndex = PlanarRegisterPlane(n, d);
+    return mi.planarPlaneIndex;
+}

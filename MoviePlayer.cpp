@@ -177,9 +177,7 @@ bool MoviePlayer::OpenMovie(const std::wstring& filePath)
 {
     if (!m_renderer || !m_isInitialized.load())
     {
-        #if defined(_DEBUG_MOVIEPLAYER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Movie player not initialized properly");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Movie player not initialized properly");
         return false;
     }
 
@@ -970,9 +968,7 @@ bool MoviePlayer::UpdateVideoTexture()
     // Check if we have valid DX11 video textures to update
     if (!m_videoTexture && !m_videoRenderTexture)
     {
-#if defined(_DEBUG_MOVIEPLAYER_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"UpdateVideoTexture: No video texture");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"UpdateVideoTexture: No video texture");
         return false;
     }
 
@@ -980,9 +976,7 @@ bool MoviePlayer::UpdateVideoTexture()
     auto dx11Renderer = std::dynamic_pointer_cast<DX11Renderer>(m_renderer);
     if (!dx11Renderer)
     {
-#if defined(_DEBUG_MOVIEPLAYER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"UpdateVideoTexture: Failed to cast to DX11Renderer");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"UpdateVideoTexture: Failed to cast to DX11Renderer");
         return false;
     }
 
@@ -991,9 +985,7 @@ bool MoviePlayer::UpdateVideoTexture()
     ComPtr<ID3D11DeviceContext> context = dx11Renderer->GetImmediateContext();
     if (!context)
     {
-#if defined(_DEBUG_MOVIEPLAYER_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"UpdateVideoTexture: No D3D11 context available");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"UpdateVideoTexture: No D3D11 context available");
         return false;
     }
 
@@ -1702,36 +1694,28 @@ bool MoviePlayer::Play()
     // Thread-safe checks with atomic variables
     if (!m_pSourceReader)
     {
-        #if defined(_DEBUG_MOVIEPLAYER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"MoviePlayer: No source reader available");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"MoviePlayer: No source reader available");
         return false;
     }
 
     // Check if we have valid video streams
     if (!m_hasVideo.load())
     {
-        #if defined(_DEBUG_MOVIEPLAYER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"MoviePlayer: No video stream available");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"MoviePlayer: No video stream available");
         return false;
     }
 
     // Verify video dimensions
     if (m_videoWidth == 0 || m_videoHeight == 0)
     {
-        #if defined(_DEBUG_MOVIEPLAYER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"MoviePlayer: Invalid video dimensions: %dx%d", m_videoWidth, m_videoHeight);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"MoviePlayer: Invalid video dimensions: %dx%d", m_videoWidth, m_videoHeight);
         return false;
     }
 
     // TEMPORARY: Allow zero duration for testing
     if (m_videoDuration == 0)
     {
-        #if defined(_DEBUG_MOVIEPLAYER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"MoviePlayer: Video has no duration - proceeding anyway for testing");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"MoviePlayer: Video has no duration - proceeding anyway for testing");
         // Don't return false here - continue with playback attempt
     }
 

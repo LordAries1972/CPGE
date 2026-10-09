@@ -281,6 +281,11 @@ void GUIManager::HandleAllInput(const Vector2& mousePosition, bool& isLeftClick)
         return;
     }
 
+    // Derive the button-down edge from the held flag. Only the edge may start a
+    // new control press; held frames can only continue the existing capture.
+    const bool pressEdge = isLeftClick && !m_prevLeftDown;
+    m_prevLeftDown = isLeftClick;
+
     // Create a snapshot of valid windows to avoid iterator invalidation
     std::vector<std::pair<std::string, std::shared_ptr<GUIWindow>>> validWindows;
     validWindows.reserve(windows.size());
@@ -331,21 +336,37 @@ void GUIManager::HandleAllInput(const Vector2& mousePosition, bool& isLeftClick)
         mousePosition.y >= focusedWin.position.y &&
         mousePosition.y <= focusedWin.position.y + focusedWin.size.y;
 
+    // An open ComboBox dropdown may hang outside the window rect (e.g. a combo at
+    // the bottom of a dialog). Its panel still belongs to the focused window.
+    if (!mouseInFocused) {
+        for (const auto& c : focusedWin.controls) {
+            if (c.type != GUIControlType::ComboBox || !c.isVisible || !c.isDropdownOpen) continue;
+            const int   rows  = std::min(c.dropdownMaxRows, static_cast<int>(c.items.size()));
+            const float iH    = static_cast<float>(c.listItemHeight > 0 ? c.listItemHeight : 22);
+            const float dropY = c.position.y + c.size.y;
+            if (mousePosition.x >= c.position.x && mousePosition.x <= c.position.x + c.size.x &&
+                mousePosition.y >= dropY && mousePosition.y <= dropY + static_cast<float>(rows) * iH + 4.0f) {
+                mouseInFocused = true;
+                break;
+            }
+        }
+    }
+
     // Continue feeding mouse-move to the focused window during an in-progress drag
     // or slider interaction so the gesture does not freeze when the cursor leaves.
-    bool hasActiveInteraction = focusedWin.isDragging;
-    if (!hasActiveInteraction)
-        for (const auto& ctrl : focusedWin.controls)
-            if (ctrl.isPressed) { hasActiveInteraction = true; break; }
+    bool hasActiveInteraction = focusedWin.isDragging ||
+                                focusedWin.m_captureIndex >= 0 ||
+                                focusedWin.m_customCapture;
 
     if (mouseInFocused || hasActiveInteraction) {
         try {
             bool clickConsumed = false;
-            focusedWin.HandleMouseClick(mousePosition, isLeftClick, this, clickConsumed);
+            focusedWin.HandleMouseClick(mousePosition, isLeftClick, pressEdge, this, clickConsumed);
 
-            // Custom hit-test extension (e.g. console scrollbar) — called for clicks
-            // in bounds that no registered GUIControl consumed.
-            if (isLeftClick && mouseInFocused && focusedWin.onCustomMouseInput)
+            // Custom hit-test extension (e.g. console scrollbar) — called only when the
+            // press began on no registered GUIControl, so a control drag can never leak
+            // into the custom handler (and vice versa).
+            if (isLeftClick && mouseInFocused && focusedWin.m_customCapture && focusedWin.onCustomMouseInput)
                 focusedWin.onCustomMouseInput(mousePosition.x, mousePosition.y);
 
             focusedWin.HandleMouseMove(mousePosition, windows);
@@ -359,12 +380,17 @@ void GUIManager::HandleAllInput(const Vector2& mousePosition, bool& isLeftClick)
     } else {
         // Mouse is outside the focused window with no active interaction.
         // Clear hover and release stale states; the click is absorbed — nothing fires.
-        for (auto& ctrl : focusedWin.controls)
+        for (auto& ctrl : focusedWin.controls) {
             ctrl.isHovered = false;
+            ctrl.hoverIndex = -1;
+            if (pressEdge && ctrl.type == GUIControlType::ComboBox)
+                ctrl.isDropdownOpen = false;               // click-away dismisses an open dropdown
+        }
         if (!isLeftClick) {
             focusedWin.isDragging = false;
             for (auto& ctrl : focusedWin.controls)
                 ctrl.isPressed = false;
+            focusedWin.ClearPointerCapture();
         }
     }
 
@@ -379,6 +405,7 @@ void GUIManager::HandleAllInput(const Vector2& mousePosition, bool& isLeftClick)
             bgWin.isDragging = false;
             for (auto& ctrl : bgWin.controls)
                 ctrl.isPressed = false;
+            bgWin.ClearPointerCapture();
         }
     }
 }
@@ -387,8 +414,11 @@ void GUIManager::HandleInput(const std::string& windowName, const Vector2& mouse
     std::shared_ptr<GUIWindow> window = GetWindow(windowName);
     if (!window || !window->isVisible || window->bWindowDestroy) return;
 
+    const bool pressEdge = isLeftClick && !m_prevLeftDown;
+    m_prevLeftDown = isLeftClick;
+
     bool clickConsumed = false;
-    window->HandleMouseClick(mousePosition, isLeftClick, this, clickConsumed);
+    window->HandleMouseClick(mousePosition, isLeftClick, pressEdge, this, clickConsumed);
     window->HandleMouseMove(mousePosition, windows);
 }
 
@@ -468,9 +498,29 @@ void GUIManager::ApplyWindowFadeCallback(GUIWindowFadeType winfadeType, float ov
 }
 
 void GUIManager::HandleChar(wchar_t c) {
+    // WM_CHAR also delivers control codes (Backspace 0x08, Tab 0x09, Enter 0x0D,
+    // Esc 0x1B, DEL 0x7F). Those are handled by the dedicated key routes, so they
+    // must never be inserted into text as characters.
+    if (c < 32 || c == 127) return;
+
     auto focused = GetFocusedWindow();
-    if (focused && focused->onCharInput)
+    if (!focused) return;
+    if (focused->onCharInput) {
         focused->onCharInput(c);
+        return;
+    }
+
+    // Default engine behaviour: type into the focused TextInput, so a TextInput
+    // works in any window without the window registering its own char handler.
+    for (auto& ctrl : focused->controls) {
+        if (ctrl.type != GUIControlType::TextInput || !ctrl.isFocused || !ctrl.isVisible) continue;
+        if (static_cast<int>(ctrl.inputText.size()) >= ctrl.maxInputLength) return;
+        ctrl.cursorPos = std::clamp(ctrl.cursorPos, 0, static_cast<int>(ctrl.inputText.size()));
+        ctrl.inputText.insert(ctrl.inputText.begin() + ctrl.cursorPos, c);
+        ++ctrl.cursorPos;
+        if (ctrl.onTextChanged) ctrl.onTextChanged(ctrl.inputText);
+        return;
+    }
 }
 
 void GUIManager::HandleBackspace() {
@@ -478,6 +528,7 @@ void GUIManager::HandleBackspace() {
     if (!focused) return;
     for (auto& ctrl : focused->controls) {
         if (ctrl.type != GUIControlType::TextInput || !ctrl.isFocused) continue;
+        ctrl.cursorPos = std::clamp(ctrl.cursorPos, 0, static_cast<int>(ctrl.inputText.size()));
         if (ctrl.cursorPos > 0 && !ctrl.inputText.empty()) {
             ctrl.inputText.erase(ctrl.cursorPos - 1, 1);
             --ctrl.cursorPos;
@@ -544,8 +595,19 @@ void GUIManager::HandleMouseWheel(int delta) {
         return;
     }
 
-    // Otherwise try to scroll the first visible ListBox in that window.
+    // An open ComboBox dropdown is the topmost surface, so it takes the wheel first.
     // delta is positive = scroll up (decrease offset), negative = scroll down.
+    for (auto& ctrl : focused->controls) {
+        if (ctrl.type != GUIControlType::ComboBox || !ctrl.isVisible || !ctrl.isDropdownOpen) continue;
+        const int total   = static_cast<int>(ctrl.items.size());
+        const int maxRows = std::min(ctrl.dropdownMaxRows, total);
+        ctrl.listScrollOffset = std::clamp(
+            ctrl.listScrollOffset + ((delta > 0) ? -1 : 1), 0, std::max(0, total - maxRows));
+        ctrl.hoverIndex = -1;                              // row under cursor changed; refreshed on next move
+        return;
+    }
+
+    // Otherwise try to scroll the first visible ListBox in that window.
     for (auto& ctrl : focused->controls) {
         if (ctrl.type != GUIControlType::ListBox || !ctrl.isVisible) continue;
         const int iH    = ctrl.listItemHeight > 0 ? ctrl.listItemHeight : 22;
@@ -562,8 +624,17 @@ void GUIWindow::HandleMouseMove(const Vector2& mousePosition, const std::unorder
     if (bWindowDestroy || !isVisible) return;
     if (m_fade.active) return;
 
-    for (auto& control : controls) {
+    for (size_t ci = 0; ci < controls.size(); ++ci) {
         if (bWindowDestroy) break;
+        auto& control = controls[ci];
+
+        // Exclusive capture: while the button is held, only the capturing control
+        // may hover, drag or fire callbacks. Everything else is inert.
+        if (m_mouseHeld && static_cast<int>(ci) != m_captureIndex) {
+            control.isHovered = false;
+            continue;
+        }
+
         bool isMouseOver =
             mousePosition.x >= control.position.x &&
             mousePosition.x <= control.position.x + control.size.x &&
@@ -598,8 +669,10 @@ void GUIWindow::HandleMouseMove(const Vector2& mousePosition, const std::unorder
 
             case GUIControlType::HSlider:
             {
-                if (control.isVisible && control.isPressed && !control.isReadOnly) {
-                    const float knobW  = 14.0f;
+                // Sole owner of HSlider value updates (press and drag) so each mouse
+                // event fires onSliderChanged exactly once.
+                if (control.isVisible && control.isPressed && !control.isReadOnly && !control.isDisabled) {
+                    const float knobW  = HSLIDER_KNOB_WIDTH;
                     float usableW = control.size.x - knobW;
                     if (usableW > 0.0f) {
                         float t = std::clamp(
@@ -614,6 +687,8 @@ void GUIWindow::HandleMouseMove(const Vector2& mousePosition, const std::unorder
 
             case GUIControlType::Scrollbar:
             {
+                // Sole owner of Scrollbar position updates (press and drag) so onScroll
+                // fires once per mouse event.
                 if (control.isPressed) {
                     int newPosition = static_cast<int>(mousePosition.y - control.position.y);
                     UpdateScrollbar(newPosition);
@@ -655,7 +730,24 @@ void GUIWindow::HandleMouseMove(const Vector2& mousePosition, const std::unorder
             }
 
             case GUIControlType::ComboBox:
-                break;  // dropdown hover tracking done in click handler
+            {
+                // Track which dropdown row is under the cursor for hover highlighting
+                control.hoverIndex = -1;
+                if (!control.isVisible || !control.isDropdownOpen) break;
+                const int   total   = static_cast<int>(control.items.size());
+                const int   maxRows = std::min(control.dropdownMaxRows, total);
+                const float iH      = static_cast<float>(control.listItemHeight > 0 ? control.listItemHeight : 22);
+                const float dropY   = control.position.y + control.size.y;
+                if (mousePosition.x >= control.position.x &&
+                    mousePosition.x <= control.position.x + control.size.x &&
+                    mousePosition.y >= dropY + 2.0f &&
+                    mousePosition.y <  dropY + 2.0f + static_cast<float>(maxRows) * iH) {
+                    int row = static_cast<int>((mousePosition.y - dropY - 2.0f) / iH);
+                    if (row >= 0 && row < maxRows)
+                        control.hoverIndex = control.listScrollOffset + row;
+                }
+                break;
+            }
 
             default:
                 break;
@@ -663,13 +755,80 @@ void GUIWindow::HandleMouseMove(const Vector2& mousePosition, const std::unorder
     }
 }
 
-void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick, GUIManager* guiMgr, bool& clickConsumed) {
+void GUIWindow::ClearPointerCapture() {
+    m_captureIndex  = -1;
+    m_customCapture = false;
+    m_mouseHeld     = false;
+}
+
+// Returns the index of the single control that should own a press at mousePosition:
+// the topmost (last drawn) visible, interactive control under the cursor. An open
+// ComboBox dropdown is drawn above everything, so its panel takes priority.
+// Returns -1 when the press lands on no interactive control.
+int GUIWindow::FindPressTarget(const Vector2& mousePosition) const {
+    auto inRect = [&](const Vector2& p, const Vector2& s) {
+        return mousePosition.x >= p.x && mousePosition.x <= p.x + s.x &&
+               mousePosition.y >= p.y && mousePosition.y <= p.y + s.y;
+    };
+
+    // Open dropdown panels first (rendered in a final pass on top of all controls)
+    for (int i = static_cast<int>(controls.size()) - 1; i >= 0; --i) {
+        const auto& c = controls[i];
+        if (c.type != GUIControlType::ComboBox || !c.isVisible || !c.isDropdownOpen) continue;
+        const int   total   = static_cast<int>(c.items.size());
+        const int   maxRows = std::min(c.dropdownMaxRows, total);
+        const float iH      = static_cast<float>(c.listItemHeight > 0 ? c.listItemHeight : 22);
+        const float dropH   = static_cast<float>(maxRows) * iH + 4.0f;
+        if (inRect(c.position, c.size) ||
+            inRect(Vector2(c.position.x, c.position.y + c.size.y), Vector2(c.size.x, dropH)))
+            return i;
+    }
+
+    for (int i = static_cast<int>(controls.size()) - 1; i >= 0; --i) {
+        const auto& c = controls[i];
+        if (!c.isVisible) continue;
+        switch (c.type) {
+            case GUIControlType::None:
+            case GUIControlType::Panel:
+            case GUIControlType::TextArea:
+                continue;                                   // decorative / non-interactive
+            case GUIControlType::HSlider:
+                if (c.isReadOnly || c.isDisabled) continue; // display-only gauge / locked by parent option
+                break;
+            case GUIControlType::ToggleSlider:
+                if (c.isDisabled) continue;                 // locked by parent option
+                break;
+            default:
+                break;
+        }
+        // Scissored content outside the clip rect is not visible, so it cannot be hit
+        if (c.clipContent && m_hasClip && !inRect(m_clipPos, m_clipSize)) continue;
+        if (inRect(c.position, c.size)) return i;
+    }
+    return -1;
+}
+
+void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick, bool pressEdge, GUIManager* guiMgr, bool& clickConsumed) {
     if (bWindowDestroy) return;
     if (m_fade.active) return;
 
+    m_mouseHeld = isLeftClick;
+    if (m_captureIndex >= static_cast<int>(controls.size()))
+        m_captureIndex = -1;                                // controls were rebuilt mid-gesture
+
+    // On the button-down edge, pick the ONE control that owns this gesture.
+    // Held frames never pick a new owner, so dragging across other controls
+    // can never press, toggle, focus or drag them.
+    int pressTarget = -1;
+    if (pressEdge) {
+        m_captureIndex  = -1;
+        pressTarget     = FindPressTarget(mousePosition);
+        m_customCapture = (pressTarget < 0);                // blank-area press -> onCustomMouseInput owns it
+    }
+
     // Pre-pass: close any open ComboBox whose click lands outside both its main
     // rect AND its open dropdown panel so the dropdown dismisses properly.
-    if (isLeftClick) {
+    if (pressEdge) {
         for (auto& ctrl : controls) {
             if (ctrl.type != GUIControlType::ComboBox || !ctrl.isDropdownOpen) continue;
             // Main box rect
@@ -693,7 +852,19 @@ void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick
         }
     }
 
-    for (auto& control : controls) {
+    for (size_t ci = 0; ci < controls.size(); ++ci) {
+        auto& control = controls[ci];
+        const int idx = static_cast<int>(ci);
+
+        // Exclusive capture gate: while the button is down, only the press target
+        // (on the edge) or the capturing control (on held frames) is processed.
+        // Release frames run for every control so stale press states are cleared;
+        // only the control that actually holds isPressed can fire on release.
+        if (isLeftClick && idx != (pressEdge ? pressTarget : m_captureIndex)) {
+            control.isHovered = false;
+            continue;
+        }
+
         bool isMouseOver =
             mousePosition.x >= control.position.x &&
             mousePosition.x <= control.position.x + control.size.x &&
@@ -759,17 +930,16 @@ void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick
         case GUIControlType::Scrollbar:
         {
             if (isLeftClick) {
-                if (isMouseOver && !control.isPressed && !clickConsumed && (!guiMgr || !guiMgr->IsClickCoolingDown())) {
+                if (isMouseOver && !control.isPressed && !clickConsumed) {
                     control.isPressed = true;
                     clickConsumed = true;
-                    if (guiMgr) guiMgr->AcquireClickLock();
+                    // No click cooldown: press-edge capture already stops cross-window bleed.
                     SetCapture(hwnd);
                     if (control.onMouseBtnDown) control.onMouseBtnDown();
+                    if (bWindowDestroy) return;
                 }
-                if (control.isPressed) {
-                    int newPosition = static_cast<int>(mousePosition.y - control.position.y);
-                    UpdateScrollbar(newPosition);
-                }
+                // Position updates are applied by HandleMouseMove (runs right after
+                // this call) so onScroll fires once per mouse event, not twice.
             } else {
                 if (control.isPressed) {
                     control.isPressed = false;
@@ -783,27 +953,20 @@ void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick
         case GUIControlType::HSlider:
         {
             if (!control.isVisible || control.isReadOnly) break;
-            if (isMouseOver && isLeftClick) {
-                if (!control.isPressed) {
-                    control.isPressed = true;
-                    control.isActive  = true;
-                    // Deactivate every other slider on this window
-                    for (auto& other : controls)
-                        if (&other != &control && other.type == GUIControlType::HSlider)
-                            other.isActive = false;
-                }
-                const float knobW  = 14.0f;
-                float usableW = control.size.x - knobW;
-                if (usableW > 0.0f) {
-                    float t = std::clamp(
-                        (mousePosition.x - control.position.x - knobW * 0.5f) / usableW,
-                        0.0f, 1.0f);
-                    control.sliderValue = control.sliderMin + t * (control.sliderMax - control.sliderMin);
-                    if (control.onSliderChanged) control.onSliderChanged(control.sliderValue);
-                }
+            if (control.isDisabled) { control.isPressed = false; control.isActive = false; break; }
+            if (isMouseOver && isLeftClick && !control.isPressed) {
+                control.isPressed = true;
+                control.isActive  = true;                   // gold knob while dragging
+                // Deactivate every other slider on this window
+                for (auto& other : controls)
+                    if (&other != &control && other.type == GUIControlType::HSlider)
+                        other.isActive = false;
+                // The value itself is applied by HandleMouseMove (runs right after
+                // this call) so onSliderChanged fires once per mouse event.
             }
             else if (!isLeftClick) {
                 control.isPressed = false;
+                control.isActive  = false;                  // drag finished
             }
             break;
         }
@@ -811,6 +974,7 @@ void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick
         case GUIControlType::ToggleSlider:
         {
             if (!control.isVisible) break;
+            if (control.isDisabled) { control.isPressed = false; break; }
             if (isMouseOver && isLeftClick) {
                 if (!control.isPressed) {
                     control.isPressed   = true;
@@ -832,10 +996,10 @@ void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick
         {
             if (!control.isVisible) break;
             if (isMouseOver && isLeftClick) {
-                if (!control.isPressed && !clickConsumed && (!guiMgr || !guiMgr->IsClickCoolingDown())) {
+                if (!control.isPressed && !clickConsumed) {
                     control.isPressed   = true;
                     clickConsumed       = true;
-                    if (guiMgr) guiMgr->AcquireClickLock();
+                    // No click cooldown: press-edge capture already stops cross-window bleed.
 
                     // Give keyboard focus to this TextInput; strip it from every other
                     for (auto& other : controls)
@@ -877,11 +1041,11 @@ void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick
                                 total > vis);
 
             if (isLeftClick) {
-                if (isMouseOver && !clickConsumed && (!guiMgr || !guiMgr->IsClickCoolingDown())) {
+                if (isMouseOver && !clickConsumed) {
                     if (!control.isPressed) {
                         control.isPressed = true;
                         clickConsumed     = true;
-                        if (guiMgr) guiMgr->AcquireClickLock();
+                        // No click cooldown: press-edge capture already stops cross-window bleed.
 
                         if (inScrollbar) {
                             // Start scrollbar thumb drag
@@ -930,33 +1094,51 @@ void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick
         case GUIControlType::ComboBox:
         {
             if (!control.isVisible) break;
-            if (isMouseOver && isLeftClick) {
-                if (!control.isPressed && !clickConsumed && (!guiMgr || !guiMgr->IsClickCoolingDown())) {
+
+            const int   total   = static_cast<int>(control.items.size());
+            const int   maxRows = std::min(control.dropdownMaxRows, total);
+            const float iH      = static_cast<float>(control.listItemHeight > 0 ? control.listItemHeight : 22);
+            const float dropY   = control.position.y + control.size.y;
+            const float dropH   = static_cast<float>(maxRows) * iH + 4.0f;
+
+            // The open dropdown panel lies BELOW the control's own rect, so it needs
+            // its own hit-test; isMouseOver alone can never reach the item rows.
+            const bool inDrop = control.isDropdownOpen &&
+                mousePosition.x >= control.position.x &&
+                mousePosition.x <= control.position.x + control.size.x &&
+                mousePosition.y >= dropY &&
+                mousePosition.y <= dropY + dropH;
+
+            if ((isMouseOver || inDrop) && isLeftClick) {
+                if (!control.isPressed && !clickConsumed) {
                     control.isPressed = true;
                     clickConsumed     = true;
-                    if (guiMgr) guiMgr->AcquireClickLock();
+                    // No click cooldown: press-edge capture already stops cross-window bleed.
 
                     if (!control.isDropdownOpen) {
-                        // Open the dropdown
+                        // Open the dropdown, scrolled so the current selection is visible
                         control.isDropdownOpen = true;
+                        control.hoverIndex     = -1;
+                        const int maxOff = std::max(0, total - maxRows);
+                        if (control.selectedIndex >= 0 && maxRows > 0)
+                            control.listScrollOffset = std::clamp(control.selectedIndex - maxRows + 1, 0, maxOff);
+                        else
+                            control.listScrollOffset = 0;
                     } else {
-                        // Dropdown is open — check if click is inside the dropdown panel
-                        const int   total   = static_cast<int>(control.items.size());
-                        const int   maxRows = std::min(control.dropdownMaxRows, total);
-                        const float iH      = static_cast<float>(control.listItemHeight > 0 ? control.listItemHeight : 22);
-                        float dropY         = control.position.y + control.size.y;
-
-                        if (mousePosition.y >= dropY &&
-                            mousePosition.y <  dropY + float(maxRows) * iH + 4.0f) {
-                            // Clicked inside the open dropdown list
+                        if (inDrop) {
+                            // Clicked an item row (rows start 2px below the panel top)
                             int row = static_cast<int>((mousePosition.y - dropY - 2.0f) / iH);
-                            if (row >= 0 && row < total) {
-                                control.selectedIndex = row;
+                            int item = control.listScrollOffset + row;
+                            if (row >= 0 && row < maxRows && item >= 0 && item < total) {
+                                control.selectedIndex = item;
                                 if (control.onSelectionChanged)
                                     control.onSelectionChanged(control.selectedIndex);
+                                if (bWindowDestroy) return;
                             }
                         }
+                        // Clicking the closed box again, or choosing an item, closes it
                         control.isDropdownOpen = false;
+                        control.hoverIndex     = -1;
                     }
                 }
             }
@@ -969,6 +1151,19 @@ void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick
         default:
             break;
         }
+
+        // Claim exclusive capture once the target has accepted the press.
+        // A target that refuses (e.g. click cooldown) captures nothing, and the
+        // rest of this held gesture is then ignored by every control.
+        if (bWindowDestroy) return;
+        if (pressEdge && idx == pressTarget && ci < controls.size() && controls[ci].isPressed)
+            m_captureIndex = idx;
+    }
+
+    // Button released: the gesture is over, nothing owns the pointer any more.
+    if (!isLeftClick) {
+        m_captureIndex  = -1;
+        m_customCapture = false;
     }
 }
 
@@ -1074,19 +1269,49 @@ void GUIWindow::CalculateScrollbarRange(float FontSize) {
 
 // Helper function to wrap text
 std::wstring GUIWindow::WrapText(const std::wstring& text, float maxWidth, float FontSize) {
+    if (!myRenderer || maxWidth <= 0.0f) return text;
+
+    // Word wrap: break at the last space that fits; hard-break words wider than
+    // the whole line. Existing newlines are preserved.
     std::wstring wrappedText;
     std::wstring currentLine;
-    float currentWidth = 0;
+    float currentWidth = 0.0f;
+    size_t lastSpace   = std::wstring::npos;         // index into currentLine
+
+    auto measure = [&](const std::wstring& s) {
+        float w = 0.0f;
+        for (wchar_t c : s) w += myRenderer->GetCharacterWidth(c, FontSize);
+        return w;
+    };
 
     for (wchar_t ch : text) {
-        float charWidth = myRenderer->GetCharacterWidth(ch, FontSize);
-        if (!currentLine.empty() || charWidth > maxWidth) 
-        {
+        if (ch == L'\n') {
             wrappedText += currentLine + L"\n";
             currentLine.clear();
-            currentWidth = 0;
+            currentWidth = 0.0f;
+            lastSpace    = std::wstring::npos;
+            continue;
         }
-        currentLine += ch;
+
+        float charWidth = myRenderer->GetCharacterWidth(ch, FontSize);
+        if (!currentLine.empty() && currentWidth + charWidth > maxWidth) {
+            if (lastSpace != std::wstring::npos) {
+                // Break at the last space; carry the partial word to the next line
+                wrappedText += currentLine.substr(0, lastSpace) + L"\n";
+                currentLine  = currentLine.substr(lastSpace + 1);
+                currentWidth = measure(currentLine);
+            } else {
+                // Single word longer than the line: hard break
+                wrappedText += currentLine + L"\n";
+                currentLine.clear();
+                currentWidth = 0.0f;
+            }
+            lastSpace = std::wstring::npos;
+            if (ch == L' ' && currentLine.empty()) continue;   // no leading space on a new line
+        }
+
+        if (ch == L' ') lastSpace = currentLine.size();
+        currentLine  += ch;
         currentWidth += charWidth;
     }
 
@@ -1118,7 +1343,9 @@ void GUIWindow::Render() {
     // behind the window background and all controls.
     if (onPreRender) {
         try { onPreRender(r); }
-        catch (...) {}
+        catch (...) {
+            // Per-frame path: intentionally silent to avoid flooding the log; the window still renders.
+        }
     }
 
     // Render the background texture if it exists
@@ -1395,6 +1622,11 @@ void GUIWindow::Render() {
                 r->DrawCircle(Vector2(knobCX, knobCY - knobR * 0.3f), knobR * 0.28f,
                     fc(MyColor(255, 255, 255, on ? 110 : 85)), true);
 
+                // Locked by a parent option: dim the whole toggle so it reads as unavailable
+                if (control.isDisabled) {
+                    r->DrawRectangle(Vector2(control.position.x, control.position.y),
+                        control.size, fc(MyColor(18, 18, 24, 170)), true);
+                }
                 break;
             }
 
@@ -1464,7 +1696,7 @@ void GUIWindow::Render() {
                     break;
                 }
 
-                const float knobW  = 16.0f;
+                const float knobW  = HSLIDER_KNOB_WIDTH;
                 const float trackH = 8.0f;
 
                 // Outer area dark fill (backdrop for the whole slider)
@@ -1563,6 +1795,11 @@ void GUIWindow::Render() {
                             Vector2(1.0f, gh), fc(MyColor(255, 255, 255, 38)), true);
                     }
                 }
+
+                // Locked by a parent option: dim the whole slider so it reads as unavailable
+                if (control.isDisabled) {
+                    r->DrawRectangle(control.position, control.size, fc(MyColor(18, 18, 24, 170)), true);
+                }
                 break;
             }
 
@@ -1594,6 +1831,10 @@ void GUIWindow::Render() {
                     MyColor texTint = fc(MyColor(255, 255, 255, 255));
                     if (texTint.a == 255 && fxManager.IsImageZoomActive(texId)) {
                         fxManager.RenderZoomedImage(texId,
+                            static_cast<int>(control.position.x), static_cast<int>(control.position.y),
+                            static_cast<int>(control.size.x), static_cast<int>(control.size.y));
+                    } else if (texTint.a == 255 && fxManager.IsScrollColoursActive(static_cast<BlitObj2DIndexType>(texId))) {
+                        fxManager.RenderScrollColours(static_cast<BlitObj2DIndexType>(texId),
                             static_cast<int>(control.position.x), static_cast<int>(control.position.y),
                             static_cast<int>(control.size.x), static_cast<int>(control.size.y));
                     } else {
@@ -1915,6 +2156,13 @@ void GUIWindow::Render() {
         }
     }
 
+    // Pop the content clip BEFORE the dropdown pass: an open dropdown is a floating
+    // overlay and must never be scissored by the clip of the control that owns it.
+    if (clipActive) {
+        r->PopClipRect();
+        clipActive = false;
+    }
+
     // --- Second pass: open ComboBox dropdowns (must paint over all other controls) ---
     for (auto& control : controls) {
         if (bWindowDestroy) break;
@@ -1954,14 +2202,21 @@ void GUIWindow::Render() {
         r->DrawRectangle(Vector2(cx + 1.0f, dropY + 1.0f), Vector2(cw - 2.0f, 1.0f),
             fc(MyColor(55, 62, 85, 160)), true);
 
-        // Render visible items
-        for (int i = 0; i < maxRows; ++i) {
-            float rowY = dropY + 2.0f + static_cast<float>(i) * iH;
+        // Render visible items, starting at the dropdown's scroll offset
+        const int first = std::clamp(control.listScrollOffset, 0, std::max(0, total - maxRows));
+        for (int row = 0; row < maxRows; ++row) {
+            const int i = first + row;
+            if (i >= total) break;
+            float rowY = dropY + 2.0f + static_cast<float>(row) * iH;
+            const bool selected = (i == control.selectedIndex);
+            const bool hovered  = (i == control.hoverIndex);
             MyColor rowBg;
-            if (i == control.selectedIndex) {
-                rowBg = MyColor(42, 84, 168, 210);
-            } else if (control.isHovered && i == control.selectedIndex) {
+            if (selected && hovered) {
                 rowBg = MyColor(50, 95, 180, 220);
+            } else if (selected) {
+                rowBg = MyColor(42, 84, 168, 210);
+            } else if (hovered) {
+                rowBg = MyColor(48, 56, 82, 255);
             } else {
                 rowBg = ((i % 2) == 0)
                     ? MyColor(32, 36, 52, 255)
@@ -1970,15 +2225,25 @@ void GUIWindow::Render() {
             r->DrawRectangle(Vector2(cx + 1.0f, rowY), Vector2(cw - 2.0f, iH), fc(rowBg), true);
 
             // Selected row glow line
-            if (i == control.selectedIndex) {
+            if (selected) {
                 r->DrawRectangle(Vector2(cx + 1.0f, rowY), Vector2(cw - 2.0f, 1.0f),
                     fc(MyColor(70, 120, 215, 130)), true);
             }
 
-            MyColor txtCol = (i == control.selectedIndex)
+            MyColor txtCol = (selected || hovered)
                 ? MyColor(240, 245, 255, 255) : MyColor(190, 198, 218, 255);
             const float fs = control.lblFontSize > 0.0f ? control.lblFontSize : 12.0f;
             r->DrawMyText(control.items[i], Vector2(cx + 8.0f, rowY + 3.0f), fc(txtCol), fs);
+        }
+
+        // Scroll indicator — thin thumb on the right when there are more items than rows
+        if (total > maxRows && maxRows > 0) {
+            const float trackY = dropY + 2.0f;
+            const float trackH = static_cast<float>(maxRows) * iH;
+            const float thumbH = std::max(12.0f, trackH * static_cast<float>(maxRows) / static_cast<float>(total));
+            const float t      = static_cast<float>(first) / static_cast<float>(total - maxRows);
+            r->DrawRectangle(Vector2(cx + cw - 5.0f, trackY + t * (trackH - thumbH)),
+                Vector2(3.0f, thumbH), fc(MyColor(95, 108, 150, 200)), true);
         }
     }
 
@@ -1993,6 +2258,8 @@ void GUIWindow::Render() {
     // (e.g. ConsoleWindow) that require content beyond the generic GUIControl set.
     if (onCustomRender) {
         try { onCustomRender(r); }
-        catch (...) {}
+        catch (...) {
+            // Per-frame path: intentionally silent to avoid flooding the log; generic controls already drew.
+        }
     }
 }

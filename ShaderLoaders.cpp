@@ -87,9 +87,7 @@ private:
         ShaderProfile profile = CreateProfileForShader(shaderName);
 
         if (!shaderManager.LoadShader(shaderName, path, type, profile)) {
-            #if defined(_DEBUG_SHADERMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to load scene shader: %hs", shaderName.c_str());
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"Failed to load scene shader: %hs", shaderName.c_str());
         }
         else {
             #if defined(_DEBUG_SHADERMANAGER_)
@@ -181,9 +179,7 @@ bool LoadAllShaders()
 
             if (!shaderManager.LoadShader(shaderName, path, type))
             {
-                #if defined(_DEBUG_SHADERMANAGER_)
-                    debug.logDebugMessage(LogLevel::LOG_ERROR, L"Shader: %hs has failed to load from path: %ls!", shaderName.c_str(), path.c_str());
-                #endif
+                debug.logDiagMessage(LogLevel::LOG_ERROR, L"Shader: %hs has failed to load from path: %ls!", shaderName.c_str(), path.c_str());
                 return false;
             }
             else
@@ -203,9 +199,7 @@ bool LoadAllShaders()
 
     // Now create the programs
     if (!shaderManager.CreateShaderProgram("ModelProgram", "ModelVertex", "ModelPixel")) {
-        #if defined(_DEBUG_SHADERMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[LoadAllShaders] Failed to create GameplayModelProgram shader program!");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[LoadAllShaders] Failed to create GameplayModelProgram shader program!");
         return false;
     }
 

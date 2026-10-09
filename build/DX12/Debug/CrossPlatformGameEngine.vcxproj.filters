@@ -25,6 +25,9 @@
     <ClCompile Include="F:\Projects\C++\CPGE2026\DX12RenderFrame.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="F:\Projects\C++\CPGE2026\DX12TitlePipeline.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="F:\Projects\C++\CPGE2026\DXCamera.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

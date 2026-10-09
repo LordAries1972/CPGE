@@ -122,9 +122,15 @@
 #include "ScreenRecorder.h"
 #include "ConsoleWindow.h"
 
+// You may use MP3 Players along with one additional module player (XM, S3M, MPTM, IT, MOD).  
+// The engine supports multiple module players, but only one can be active at a time.  
+// The MP3 player is always available, but you must select one base module player to use if using
+// tracker modules as well.
 #if defined(__USE_MP3PLAYER__)
     #include "WinMediaPlayer.h"
-#elif defined(__USE_XMPLAYER__)
+#endif
+
+#if defined(__USE_XMPLAYER__)
     #include "XMMODPlayer.h"
 #elif defined(__USE_S3MPLAYER__)
     #include "S3MPlayer.h"
@@ -198,7 +204,9 @@ extern ConsoleWindow consoleWindow;
 // Determine our Music Playback system we are using.
 #if defined(__USE_MP3PLAYER__)
     MediaPlayer player;
-#elif defined(__USE_XMPLAYER__)
+#endif
+
+#if defined(__USE_XMPLAYER__)
     XMMODPlayer modPlayer;
 #elif defined(__USE_S3MPLAYER__)
     S3MPlayer modPlayer;
@@ -272,7 +280,7 @@ void OpenStartMovieAndPlay();
 void OpenMovieAndPlay();
 void StopMusicPlayback();
 bool LoadAllShaders();
-bool Load_Music();
+bool Load_Music(wchar_t* wcFileName);
 void SetMyKeyUpHandler(KeyboardHandler& keyboard);
 
 // Supressed Warnings
@@ -859,6 +867,13 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                 }
             #endif
 
+            #if defined(__USE_MP3PLAYER__)
+                // Music volume only; master volume is already applied to the output device above.
+                // '::' selects the global MediaPlayer (WinMain has a local 'player' that shadows it).
+                ::player.setVolume(static_cast<float>(std::clamp(cfg.musicVolume, 0, MAX_GLOBAL_VOLUME)) / 64.0f);
+                ::player.applyPlayMusic(cfg.playMusic);
+            #endif
+
             screenRecorder.SetMicMonitorGain(static_cast<float>(cfg.microphoneVolume));
             screenRecorder.SetMicRecordGain (static_cast<float>(cfg.microphoneVolume));
             #if defined(_WIN64) || defined(_WIN32)
@@ -1282,8 +1297,12 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
                         #if defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
                             modPlayer.SetVolume(static_cast<uint8_t>(vol));
-                        #elif defined(__USE_MP3PLAYER__)
-                            player.setVolume(static_cast<float>(vol) / 64.0f);
+                        #endif
+
+                        #if defined(__USE_MP3PLAYER__)
+                            // '::' selects the global MediaPlayer - WinMain has a local
+                            // 'PlayerInfo* player' (game player info) that shadows it here.
+                            ::player.setVolume(static_cast<float>(vol) / 64.0f);
                         #endif
 
                         if (!guiManager.GetWindow(MUSIC_OSD))
@@ -1673,7 +1692,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     // Stop Music Playback.
     #if defined(__USE_MP3PLAYER__)
         player.stop();
-    #elif defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
+    #endif
+    
+    #if defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
         modPlayer.Shutdown();
     #endif
 
@@ -1695,10 +1716,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
         if (currentWriteCount != writeCount) {
             // Write task count changed - log the update
-            #if defined(_DEBUG_FILEIO_DEMO_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_WARNING, L"[FileIO] Write task progress - Previous count: %zu, Current count: %zu",
-                    writeCount, currentWriteCount);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"[FileIO] Write task progress - Previous count: %zu, Current count: %zu",
+                writeCount, currentWriteCount);
             writeCount = currentWriteCount;
         }
 
@@ -2032,7 +2051,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 }
                 #if defined(__USE_MP3PLAYER__)
                     player.pause();
-                #elif defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
+                #endif
+
+                #if defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
                     // Uncomment if needed:
                     // if (!modPlayer.IsPaused()) modPlayer.Pause();
                 #endif
@@ -2045,7 +2066,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             else if (wParam == WA_ACTIVE && !bResizeInProgress.load()) {
                 #if defined(__USE_MP3PLAYER__)
                     player.resume();
-                #elif defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
+                #endif
+
+                #if defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
                     // Uncomment if needed:
                     // modPlayer.HardResume();
                 #endif
@@ -2226,7 +2249,7 @@ void SwitchToGameIntro()
     threadManager.threadVars.bHasReset.store(false);
     // Arm fade-in before resuming so the first rendered frame fires the effect.
     threadManager.threadVars.bInitiateFader.store(true);
-    fxManager.FadeToImage(0.5f, 0.06f);
+    fxManager.FadeToImage(1.0f, 0.06f);
     // Resume the Renderer Thread
     threadManager.ResumeThread(THREAD_RENDERER);
 }
@@ -2234,11 +2257,13 @@ void SwitchToGameIntro()
 void StopMusicPlayback()
 {
     #if defined(__USE_MP3PLAYER__)
-        // Stop the MP3 player
-        if (player.isPlaying())
-            player.stop();
-    #elif defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
-        // Stop the XM player
+        // Stop the MP3 player (MediaPlayer::stop() is a no-op when nothing is playing;
+        // MediaPlayer has no isPlaying() accessor).
+        player.stop();
+    #endif
+
+    #if defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
+        // Stop the tracker player
         if (modPlayer.IsPlaying())
             modPlayer.Stop();
 
@@ -2246,10 +2271,10 @@ void StopMusicPlayback()
     #endif
 }
 
-bool Load_Music()
+bool Load_Music(wchar_t* wcFileName)
 {
     #if defined(__USE_MP3PLAYER__)
-        auto fileName = AssetsDir / SingleMP3Filename;
+        auto fileName = AssetsDir / wcFileName;
         if (player.loadFile(fileName))
         {
             player.play();
@@ -2261,8 +2286,10 @@ bool Load_Music()
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[LOADER]: Failed to load Music File.");
             return false;
         }
-    #elif defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
-        // Attempt to load in our XM Music Module for playback.
+    #endif
+
+    #if defined(__USE_XMPLAYER__) || defined(__USE_S3MPLAYER__) || defined(__USE_MPTMPLAYER__) || defined(__USE_ITPLAYER__) || defined(__USE_MODPLAYER__)
+        // Attempt to load in our Music Tracker Module for playback.
         switch (scene.stSceneType)
         {
             case SceneType::SCENE_INTRO_MOVIE:

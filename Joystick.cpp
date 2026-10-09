@@ -56,9 +56,7 @@ size_t Joystick::PollControllers() {
 
 bool Joystick::readJoystickState(int joystickID, JoystickState& state) {
     if (std::find(activeJoysticks.begin(), activeJoysticks.end(), joystickID) == activeJoysticks.end()) {
-        #if defined(_DEBUG) && defined(_DUBUG_JOYSTICK_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Invalid joystick ID: " + std::to_wstring(joystickID));
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Invalid joystick ID: " + std::to_wstring(joystickID));
         return false;
     }
 
@@ -67,9 +65,7 @@ bool Joystick::readJoystickState(int joystickID, JoystickState& state) {
     state.info.dwFlags = JOY_RETURNALL;
 
     if (joyGetPosEx(joystickID, &state.info) != JOYERR_NOERROR) {
-        #if defined(_DEBUG) && defined(_DUBUG_JOYSTICK_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to read joystick " + std::to_wstring(joystickID));
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to read joystick " + std::to_wstring(joystickID));
         return false;
     }
     return true;
@@ -78,9 +74,7 @@ bool Joystick::readJoystickState(int joystickID, JoystickState& state) {
 bool Joystick::loadMapping(const std::string& filename) {
     std::ifstream file(filename);
     if (!file.is_open()) {
-        #if defined(_DEBUG) && defined(_DUBUG_JOYSTICK_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to open mapping file: " + std::wstring(filename.begin(), filename.end()));
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to open mapping file: " + std::wstring(filename.begin(), filename.end()));
         return false;
     }
 
@@ -101,10 +95,8 @@ bool Joystick::loadMapping(const std::string& filename) {
         return true;
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG) && defined(_DUBUG_JOYSTICK_)
-            std::wstring msg = L"Error parsing mapping file: " + std::wstring(e.what(), e.what() + strlen(e.what()));
-            debug.logLevelMessage(LogLevel::LOG_ERROR, msg);
-        #endif
+        std::wstring msg = L"Error parsing mapping file: " + std::wstring(e.what(), e.what() + strlen(e.what()));
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, msg);
         return false;
     }
 }
@@ -112,9 +104,7 @@ bool Joystick::loadMapping(const std::string& filename) {
 bool Joystick::saveMapping(const std::string& filename) {
     std::ofstream file(filename);
     if (!file.is_open()) {
-    #if defined(_DEBUG) && defined(_DUBUG_JOYSTICK_)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to save mapping file: " + std::wstring(filename.begin(), filename.end()));
-    #endif
+    debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to save mapping file: " + std::wstring(filename.begin(), filename.end()));
         return false;
     }
 

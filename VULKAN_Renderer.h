@@ -69,6 +69,7 @@
 #include "Models.h"
 #include "ThreadManager.h"
 #include "ConstantBuffer.h"
+#include "Lights.h"                                     // ShadowFrameData / ShadowBufferData / GlobalLightBuffer
 
 // ---------------------------------------------------------------------------------------------------------------
 // Vulkan renderer constants
@@ -275,6 +276,7 @@ public:
     void Blit2DObjectToSizeWithAlpha(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float alpha) override;
     void Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 color) override;
     void Blit2DAtlasTile(BlitObj2DIndexType iIndex, int iTileIndex, int iTileSizeX, int iTileSizeY, int iDestX, int iDestY) override;
+    void Blit2DScrollingObjectToSize(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float scrollFraction, bool reverseDirection) override;
 #endif
 
     // ------------------------------------------
@@ -295,6 +297,10 @@ public:
     // Direct access to current frame command buffer for FXManager
     VkCommandBuffer  GetCurrentCommandBuffer()  const;
     VkRenderPass     GetRenderPass()            const { return m_renderPass; }
+    // Render pass / sample count of the MAIN (swapchain) pass.  With MSAA active this is the multisampled
+    // pass that resolves into the swapchain image; pipelines drawn inside the main pass must be built for it.
+    VkRenderPass          GetMainRenderPass()           const { return m_renderPassMS != VK_NULL_HANDLE ? m_renderPassMS : m_renderPass; }
+    VkSampleCountFlagBits GetMainSampleCount()          const { return m_msaaSamples; }
     VkDevice         GetVkDevice()              const { return m_device; }
     VkPhysicalDevice GetVkPhysicalDevice()      const { return m_physicalDevice; }
     VkExtent2D       GetSwapchainExtent()       const { return m_swapchainExtent; }
@@ -365,8 +371,27 @@ private:
     // ------------------------------------------
     // Render pass & framebuffers
     // ------------------------------------------
-    VkRenderPass               m_renderPass     = VK_NULL_HANDLE;
-    std::vector<VkFramebuffer> m_framebuffers;
+    VkRenderPass               m_renderPass     = VK_NULL_HANDLE;   // 1-sample pass; pipelines of the offscreen passes (planar / capture) stay compatible with it
+    std::vector<VkFramebuffer> m_framebuffers;                      // main-pass framebuffers (built for m_renderPassMS when MSAA is active)
+
+    // ------------------------------------------
+    // Multisampled anti-aliasing (Video settings: Anti-Aliasing + MSAA + MSAA Samples)
+    // The sample count is fixed at Initialize() (restart-required setting) from the config, clamped to what the
+    // device supports.  With MSAA active the main pass renders into m_msaaColor* + a multisampled depth image
+    // and resolves into the swapchain image; the offscreen passes (shadow / planar / capture) remain 1-sample.
+    // ------------------------------------------
+    VkSampleCountFlagBits m_msaaSamples        = VK_SAMPLE_COUNT_1_BIT;
+    bool                  m_sampleShadingOk    = false;             // device supports sampleRateShading (enabled at device creation)
+    VkRenderPass          m_renderPassMS       = VK_NULL_HANDLE;
+    VkImage               m_msaaColorImage     = VK_NULL_HANDLE;
+    VkDeviceMemory        m_msaaColorMemory    = VK_NULL_HANDLE;
+    VkImageView           m_msaaColorView      = VK_NULL_HANDLE;
+    VkPipeline            m_2dPipelineMS       = VK_NULL_HANDLE;
+    VkPipeline            m_3dPipelineMS       = VK_NULL_HANDLE;
+    VkPipeline Main2DPipeline() const { return m_msaaSamples != VK_SAMPLE_COUNT_1_BIT && m_2dPipelineMS != VK_NULL_HANDLE ? m_2dPipelineMS : m_2dPipeline; }
+    VkPipeline Main3DPipeline() const { return m_msaaSamples != VK_SAMPLE_COUNT_1_BIT && m_3dPipelineMS != VK_NULL_HANDLE ? m_3dPipelineMS : m_3dPipeline; }
+    void ChooseMsaaSamples();
+    void CreateMsaaColorResources();
 
     // ------------------------------------------
     // Depth buffer
@@ -397,6 +422,126 @@ private:
     // Full PBR 3D layouts
     VkDescriptorSetLayout m_3dUboSetLayout            = VK_NULL_HANDLE;  // set=0: binding0=transform UBO, binding1=material UBO
     VkDescriptorSetLayout m_3dTexSetLayout            = VK_NULL_HANDLE;  // set=1: bindings 0-3 (diffuse/normal/ORM/AO)
+    VkDescriptorSetLayout m_3dFrameSetLayout          = VK_NULL_HANDLE;  // set=2: GlobalLightBuffer, ShadowBuffer, dir + local shadow maps
+
+    // ------------------------------------------
+    // Per-frame lighting + shadow mapping (set = 2), one copy per frame in flight
+    // ------------------------------------------
+    VkDescriptorSet  m_3dFrameSets[VK_MAX_FRAMES_IN_FLIGHT]       = {};
+    VkDescriptorSet  m_3dFrameSetsLive[VK_MAX_FRAMES_IN_FLIGHT]   = {};  // Same as m_3dFrameSets but binding 4 = the live capture cube (bound once a capture cycle completed)
+    VkBuffer         m_shadowUBOMirror[VK_MAX_FRAMES_IN_FLIGHT]       = {};  // Copy of the ShadowBuffer with planar reflections off (mirror + capture passes)
+    VkDeviceMemory   m_shadowUBOMirrorMemory[VK_MAX_FRAMES_IN_FLIGHT] = {};
+    void*            m_shadowUBOMirrorMapped[VK_MAX_FRAMES_IN_FLIGHT] = {};
+    VkDescriptorSet  m_3dFrameSetsMirror[VK_MAX_FRAMES_IN_FLIGHT] = {};  // Same as above but binding 5 = a dummy texture (used while the planar image is an attachment)
+    VkBuffer         m_lightUBO[VK_MAX_FRAMES_IN_FLIGHT]          = {};  // GlobalLightBuffer (binding 0)
+    VkDeviceMemory   m_lightUBOMemory[VK_MAX_FRAMES_IN_FLIGHT]    = {};
+    void*            m_lightUBOMapped[VK_MAX_FRAMES_IN_FLIGHT]    = {};
+    VkBuffer         m_shadowUBO[VK_MAX_FRAMES_IN_FLIGHT]         = {};  // ShadowBufferData (binding 1)
+    VkDeviceMemory   m_shadowUBOMemory[VK_MAX_FRAMES_IN_FLIGHT]   = {};
+    void*            m_shadowUBOMapped[VK_MAX_FRAMES_IN_FLIGHT]   = {};
+
+    VkFormat         m_shadowDepthFormat      = VK_FORMAT_UNDEFINED;
+    VkImage          m_shadowDirImage         = VK_NULL_HANDLE;           // binding 2 (sampler2DShadow)
+    VkDeviceMemory   m_shadowDirMemory        = VK_NULL_HANDLE;
+    VkImageView      m_shadowDirView          = VK_NULL_HANDLE;
+    VkImage          m_shadowLocalImage       = VK_NULL_HANDLE;           // binding 3 (sampler2DArrayShadow)
+    VkDeviceMemory   m_shadowLocalMemory      = VK_NULL_HANDLE;
+    VkImageView      m_shadowLocalArrayView   = VK_NULL_HANDLE;
+    VkImageView      m_shadowLocalLayerViews[MAX_LOCAL_SHADOW_SLICES] = {};
+    VkSampler        m_shadowSampler          = VK_NULL_HANDLE;           // compare LESS_OR_EQUAL, border = lit
+    VkRenderPass     m_shadowRenderPass       = VK_NULL_HANDLE;           // depth-only, ends in SHADER_READ_ONLY_OPTIMAL
+    VkFramebuffer    m_shadowDirFramebuffer   = VK_NULL_HANDLE;
+    VkFramebuffer    m_shadowLocalFramebuffers[MAX_LOCAL_SHADOW_SLICES] = {};
+    VkPipelineLayout m_shadowPipelineLayout   = VK_NULL_HANDLE;           // 80-byte vertex push constant
+    VkPipeline       m_shadowPipeline         = VK_NULL_HANDLE;
+    int              m_shadowDirSize          = 0;
+    int              m_shadowLocalSize        = 0;
+    bool             m_shadowResourcesReady   = false;
+    ShadowFrameData           m_shadowFrame;
+    std::vector<ShadowCaster> m_shadowCasters;
+    std::vector<int>          m_shadowCasterModels;                       // scene_models[] index per caster
+
+    bool CreateShadowResourcesVK();                                        // Called from Initialize() (after pool/pipelines)
+    void ReleaseShadowResourcesVK();                                       // Called from Cleanup()
+    void RenderShadowPassVK(VkCommandBuffer cmd, float deltaTime);         // Recorded BEFORE the main render pass begins
+
+    // ------------------------------------------
+    // Scene reflections (shared probe builder in Lights.h): set=2 binding 4 = samplerCube sceneProbe.
+    // The image is created at init (the descriptor must be valid before the first draw) at the
+    // config reflectionQuality size, in SHADER_READ_ONLY_OPTIMAL.  Updates copy from a per-frame
+    // host-visible staging buffer, recorded before the main render pass.
+    // ------------------------------------------
+    ReflectionProbe  m_reflProbe;
+    VkImage          m_reflImage              = VK_NULL_HANDLE;           // 6 layers x mipCount, RGBA8_UNORM, CUBE_COMPATIBLE
+    VkDeviceMemory   m_reflMemory             = VK_NULL_HANDLE;
+    VkImageView      m_reflView               = VK_NULL_HANDLE;           // VK_IMAGE_VIEW_TYPE_CUBE
+    VkSampler        m_reflSampler            = VK_NULL_HANDLE;           // linear, mip linear, clamp to edge
+    VkBuffer         m_reflStaging[VK_MAX_FRAMES_IN_FLIGHT]       = {};
+    VkDeviceMemory   m_reflStagingMemory[VK_MAX_FRAMES_IN_FLIGHT] = {};
+    void*            m_reflStagingMapped[VK_MAX_FRAMES_IN_FLIGHT] = {};
+    int              m_reflSize               = 0;
+    int              m_reflMips               = 0;
+    uint64_t         m_reflUploadedVersion    = 0;
+
+    // ------------------------------------------
+    // Planar reflections (shared planner in Lights.h): set=2 binding 5 = sampler2D planarMap.
+    // Colour (swapchain format) + depth images and a render pass COMPATIBLE with m_renderPass, so the
+    // main 3D pipeline draws the mirror pass unchanged.  Created at init (the descriptor must be valid
+    // from the first draw) at the config planarQuality size; the colour image rests in SHADER_READ_ONLY.
+    // ------------------------------------------
+    VkImage          m_planarImage            = VK_NULL_HANDLE;
+    VkDeviceMemory   m_planarMemory           = VK_NULL_HANDLE;
+    VkImageView      m_planarView             = VK_NULL_HANDLE;           // 2D_ARRAY view over all MAX_PLANAR_PLANES layers (sampled)
+    VkImageView      m_planarLayerViews[MAX_PLANAR_PLANES]   = {};        // One 2D view per layer (framebuffer attachment)
+    VkFramebuffer    m_planarFramebuffers[MAX_PLANAR_PLANES] = {};
+    VkImage          m_planarDummyImage       = VK_NULL_HANDLE;           // 1x1 array image bound in the mirror-pass set (binding 5)
+    VkDeviceMemory   m_planarDummyMemory      = VK_NULL_HANDLE;
+    VkImageView      m_planarDummyView        = VK_NULL_HANDLE;
+    VkImage          m_planarDepthImage       = VK_NULL_HANDLE;
+    VkDeviceMemory   m_planarDepthMemory      = VK_NULL_HANDLE;
+    VkImageView      m_planarDepthView        = VK_NULL_HANDLE;
+    VkSampler        m_planarSampler          = VK_NULL_HANDLE;           // linear, clamp to edge
+    VkRenderPass     m_planarRenderPass       = VK_NULL_HANDLE;
+    int              m_planarW                = 0;
+    int              m_planarH                = 0;
+
+    // ------------------------------------------
+    // Live scene capture (see "Live scene capture" in Lights.h).  The capture cube uses the SWAPCHAIN format so
+    // the main 3D pipeline can draw into it (render-pass compatibility); the CPU sky faces are converted to that
+    // format (channel order + sRGB encode) and copied in as the face background before the models are drawn.
+    // Needs BLIT support for the format; otherwise live capture stays off and the sky cube is used.
+    // ------------------------------------------
+    VkImage          m_capImage               = VK_NULL_HANDLE;           // Cube-compatible, 6 layers x m_reflMips
+    VkDeviceMemory   m_capMemory              = VK_NULL_HANDLE;
+    VkImageView      m_capCubeView            = VK_NULL_HANDLE;           // CUBE view, all mips
+    VkImageView      m_capFaceViews[6]        = {};                       // 2D, mip 0 of each face (framebuffer attachment)
+    VkFramebuffer    m_capFramebuffers[6]     = {};
+    VkImage          m_capDepthImage          = VK_NULL_HANDLE;
+    VkDeviceMemory   m_capDepthMemory         = VK_NULL_HANDLE;
+    VkImageView      m_capDepthView           = VK_NULL_HANDLE;
+    VkRenderPass     m_capRenderPass          = VK_NULL_HANDLE;           // loadOp LOAD (starts from the sky copy), compatible with m_renderPass
+    VkBuffer         m_capStaging[VK_MAX_FRAMES_IN_FLIGHT]       = {};     // One face of converted sky pixels per frame in flight
+    VkDeviceMemory   m_capStagingMemory[VK_MAX_FRAMES_IN_FLIGHT] = {};
+    void*            m_capStagingMapped[VK_MAX_FRAMES_IN_FLIGHT] = {};
+    std::vector<uint8_t> m_capSkyConv[6];                                 // Sky mip 0 converted to the swapchain format
+    uint64_t         m_capSkyConvVersion      = 0;                        // Sky probe version m_capSkyConv was built from
+    bool             m_capBGR                 = false;
+    bool             m_capSRGB                = false;
+    bool             m_capFailed              = true;                     // true until CreateCaptureResourcesVK succeeds
+    void CreateCaptureResourcesVK();                                       // Non-throwing; sets m_capFailed
+    void ReleaseCaptureResourcesVK();
+    void RenderReflectionCaptureVK(VkCommandBuffer cmd, float deltaTime);  // One face per frame; recorded BEFORE the main render pass
+
+    void CreatePlanarResourcesVK();                                        // Throws std::runtime_error; called from CreateShadowResourcesVK
+    void ReleasePlanarResourcesVK();                                       // Called from ReleaseShadowResourcesVK
+    void PlanarPlanVK();                                                   // Registers reflector planes + decides active (BEFORE RenderShadowPassVK / ShadowBuffer)
+    void RenderPlanarPassVK(VkCommandBuffer cmd, float deltaTime);         // Mirror render of every plane; recorded BEFORE the main render pass
+    void DrawModelsVK(VkCommandBuffer cmd, const glm::mat4& view, const glm::mat4& proj,
+                      const glm::vec3& camPos, int mirrorPlane);           // Model draw loop shared by the main (-1) and mirror (plane index) passes
+
+    void CreateReflectionResourcesVK();                                    // Throws std::runtime_error; called from CreateShadowResourcesVK
+    void ReleaseReflectionResourcesVK();                                   // Called from ReleaseShadowResourcesVK
+    void UpdateReflectionProbeVK(VkCommandBuffer cmd, float deltaTime);    // Rebuild + record upload, publish g_reflectionFrame
 
     // Fallback 1x1 textures used when a model has no material texture
     VulkanTexture         m_defaultNormalTex;          // flat normal (0.5,0.5,1.0)
@@ -599,7 +744,8 @@ private:
 
     void CreateImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling,
                      VkImageUsageFlags usage, VkMemoryPropertyFlags props,
-                     VkImage& image, VkDeviceMemory& memory) const;
+                     VkImage& image, VkDeviceMemory& memory,
+                     VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT) const;
     VkImageView CreateImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags) const;
     void TransitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) const;
     void CopyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height) const;

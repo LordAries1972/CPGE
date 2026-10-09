@@ -61,13 +61,14 @@ namespace
         DX12Renderer* dx12 = GetDX12Fast();
         if (!dx12) return;
         // Native batch is only active while bracketed inside the SCENE_GAMETITLE fast path
-        // (DX12RenderFrame.cpp STEP 6.5) — every other call site keeps the existing D2D path.
+        // (DX12TitlePipeline::RecordBackdrop, DX12RenderFrame.cpp STEP 6.5) — every other call site keeps the existing D2D path.
         if (dx12->IsNative2DBatchActive())
             dx12->QueueNativeParticle(x, y, sz, c);
         else
             dx12->Blit2DColoredPixelFast(x, y, sz, c);
     }
-    // DX11On12 has per-call interop overhead — keep particle counts in check
+    // Title-screen particles are batched natively (one instanced draw) but other DX12 call sites still go
+    // through DX11On12 per-call interop — keep particle counts in check
     constexpr int kMaxFireworkRockets    = 6;
     constexpr int kFireworkParticles     = 48;
     constexpr int kRocketTrailSteps      = 3;
@@ -531,7 +532,7 @@ bool FXManager::CreateFadePipeline()
     rsCI.lineWidth   = 1.0f;
 
     VkPipelineMultisampleStateCreateInfo msCI{ VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
-    msCI.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    msCI.rasterizationSamples = vkr->GetMainSampleCount();      // fade quads are drawn inside the main pass (multisampled when MSAA is on)
 
     VkPipelineDepthStencilStateCreateInfo dsCI{ VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
     dsCI.depthTestEnable  = VK_FALSE;
@@ -569,7 +570,7 @@ bool FXManager::CreateFadePipeline()
     pipeCI.pColorBlendState    = &cbCI;
     pipeCI.pDynamicState       = &dynCI;
     pipeCI.layout              = m_fadePipelineLayout;
-    pipeCI.renderPass          = vkr->GetRenderPass();
+    pipeCI.renderPass          = vkr->GetMainRenderPass();
     pipeCI.subpass             = 0;
 
     bool ok = (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeCI, nullptr, &m_fadePipeline) == VK_SUCCESS);
@@ -781,7 +782,9 @@ void FXManager::RestartFXAfterResize()
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         savedFXState = ActiveFXState{};
     }
-    catch (...) {}
+    catch (...) {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] Unknown exception in RestartFXAfterResize()");
+    }
 }
 
 // ===============================================================================================
@@ -1051,6 +1054,7 @@ void FXManager::RemoveCompletedEffects()
                 if (fx.type == FXType::ZoomInOut)       return completed;
                 if (fx.type == FXType::Fireworks)       return completed;
                 if (fx.type == FXType::ImageFadeStrobe) return completed;
+                if (fx.type == FXType::EmissionPulsator) return completed;
 
                 // Looping text scroller: only remove when a finite duration has fully elapsed
                 if (fx.type == FXType::TextScroller && fx.subtype == FXSubType::TXT_SCROLL_CONSISTANT)
@@ -1076,6 +1080,8 @@ void FXManager::Render(bool backgroundOnly)
     try {
         FX_LOCK();
         if (effects.empty() && pendingCallbacks.empty()) {
+            // No effects at all means no EmissionPulsator either (e.g. cleared by a scene change): never leave emission dimmed
+            if (!backgroundOnly) config.myConfig.emissionPulse = 1.0f;
             bIsRendering.store(false);
             return;
         }
@@ -1100,10 +1106,22 @@ void FXManager::Render(bool backgroundOnly)
 #endif
 
         // ---- Per-effect render switch ----
+        bool emissionPulsatorFound = false;
         for (auto& fx : effects) {
             if (threadManager.threadVars.bIsShuttingDown.load()) break;
 
             switch (fx.type) {
+            case FXType::EmissionPulsator:
+                // Foreground pass only so it ticks once per frame; the value is read by the next model draw in every renderer
+                if (!backgroundOnly) {
+                    emissionPulsatorFound = true;
+                    auto fxNow = std::chrono::steady_clock::now();
+                    float fxDt = std::chrono::duration<float>(fxNow - fx.lastUpdate).count();
+                    fx.lastUpdate = fxNow;
+                    UpdateEmissionPulsator(fx, fxDt);
+                }
+                break;
+
             case FXType::ColorFader:
 #if defined(__USE_DIRECTX_12__) || defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
                 if (!backgroundOnly) ApplyColorFader(fx);
@@ -1137,6 +1155,14 @@ void FXManager::Render(bool backgroundOnly)
             }
         }
 
+        // Pulsator removed by StopAllFX / scene change / CancelEffect: put emission back to the plain setting value
+        if (!backgroundOnly && !emissionPulsatorFound) {
+            for (const auto& pe : m_pendingEffects)                             // Queued this frame, becomes live at the flush below
+                if (pe.type == FXType::EmissionPulsator) { emissionPulsatorFound = true; break; }
+            if (!emissionPulsatorFound)
+                config.myConfig.emissionPulse = 1.0f;
+        }
+
         // ---- Callback processing (foreground pass) ----
         if (!backgroundOnly && !pendingCallbacks.empty()) {
             ThreadLockHelper cbLock(threadManager, "fxmanager_callback_process_lock", 500);
@@ -1158,7 +1184,11 @@ void FXManager::Render(bool backgroundOnly)
                     if (idx < pendingCallbacks.size()) {
                         CallbackEntry& entry = pendingCallbacks[idx];
                         if (!entry.isExecuted.load() && entry.callback) {
-                            try { entry.callback(); } catch (...) {}
+                            try { entry.callback(); }
+                            catch (...) {
+                                // One-shot completion callback; it is still marked executed below so it cannot re-fire.
+                                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] Unknown exception in effect completion callback");
+                            }
                             entry.isExecuted.store(true);
                             toRemove.push_back(idx);
                         }
@@ -1188,13 +1218,13 @@ void FXManager::Render(bool backgroundOnly)
     catch (const std::exception& e) {
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Exception in Render(): " +
             std::wstring(e.what(), e.what() + strlen(e.what())));
-        try { RestoreRenderState(); } catch (...) {}
+        try { RestoreRenderState(); } catch (...) {} // intentional silent swallow (already in error recovery)
         FX_LOCK();
         m_pendingEffects.clear();
     }
     catch (...) {
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"[FXManager] Unknown exception in Render()");
-        try { RestoreRenderState(); } catch (...) {}
+        try { RestoreRenderState(); } catch (...) {} // intentional silent swallow (already in error recovery)
         FX_LOCK();
         m_pendingEffects.clear();
     }
@@ -1257,6 +1287,13 @@ void FXManager::Render2D()
             float fxDt = std::chrono::duration<float>(fxNow - fx.lastUpdate).count();
             fx.lastUpdate = fxNow;
             UpdateImageFadeStrobe(fx, fxDt);
+            break;
+        }
+        case FXType::ScrollColours: {
+            auto fxNow = std::chrono::steady_clock::now();
+            float fxDt = std::chrono::duration<float>(fxNow - fx.lastUpdate).count();
+            fx.lastUpdate = fxNow;
+            UpdateScrollColours(fx, fxDt);
             break;
         }
         case FXType::TileMapScroller:
@@ -3194,6 +3231,19 @@ void FXManager::RenderZoomedImage(int imgID, int destX, int destY, int destW, in
     }
 }
 
+float FXManager::GetImageZoomLevel(int imgID) const
+{
+    FX_LOCK();
+    for (const auto& fx : effects) {
+        if (fx.type != FXType::ZoomInOut || fx.progress >= 1.0f) continue;
+        if (fx.zoomData.link2DImg != imgID) continue;
+        if (fx.zoomData.function == ZoomFXFunction::Zoom3D) continue;
+        if (fx.zoomData.stopRequested && fx.zoomData.currentZoomLevel <= 0.0f) continue;
+        return fx.zoomData.currentZoomLevel;
+    }
+    return 0.0f;
+}
+
 // ===============================================================================================
 // Fireworks
 // ===============================================================================================
@@ -3256,6 +3306,7 @@ void FXManager::UpdateFireworks(FXItem& fx)
         r.g = static_cast<float>(rand()) / RAND_MAX;
         r.b = static_cast<float>(rand()) / RAND_MAX;
         r.expMaxRadius = 50.0f + static_cast<float>(rand()) / RAND_MAX * 70.0f;
+        r.expSpeed = 1.0f + static_cast<float>(rand()) / RAND_MAX * 1.0f;       // Random explosion speed 1-2
         r.expR = static_cast<float>(rand()) / RAND_MAX;
         r.expG = static_cast<float>(rand()) / RAND_MAX;
         r.expB = static_cast<float>(rand()) / RAND_MAX;
@@ -3301,7 +3352,7 @@ void FXManager::UpdateFireworks(FXItem& fx)
                 if (p.completed) continue;
                 allDone = false;
                 float distRatio = p.radius / p.maxRadius;
-                p.radius += 0.5f + distRatio * 2.0f;
+                p.radius += (0.5f + distRatio * 2.0f) * r.expSpeed;
                 if (p.radius >= p.maxRadius) { p.radius = p.maxRadius; p.completed = true; continue; }
                 p.x = r.explodeX + p.screenDX * p.radius;
                 p.y = r.explodeY + p.screenDY * p.radius;
@@ -3531,6 +3582,141 @@ void FXManager::UpdateImageFadeStrobe(FXItem& fx, float deltaTime)
             else { d.phase = StrobePhase::FadingOut; d.phaseTimer = 0.0f; }
         }
     }
+}
+
+void FXManager::StartScrollColours(BlitObj2DIndexType type, int scrollSpeed, bool reverseDirection)
+{
+    if (!renderer) return;
+    FX_LOCK();
+    effects.erase(std::remove_if(effects.begin(), effects.end(), [type](const FXItem& fx) {
+        return fx.type == FXType::ScrollColours && fx.scrollColoursData.imageType == type;
+    }), effects.end());
+
+    int scrollCount = 0;
+    for (const auto& fx : effects)
+        if (fx.type == FXType::ScrollColours) scrollCount++;
+    if (scrollCount >= MAX_SCROLLCOLOURS_INSTANCES) {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] ScrollColours: max instances reached");
+        return;
+    }
+
+    FXItem newFX;
+    newFX.type = FXType::ScrollColours;
+    newFX.fxID = static_cast<int>(effects.size()) + 1;
+    newFX.duration = FLT_MAX; newFX.timeout = FLT_MAX; newFX.progress = 0.0f;
+    newFX.startTime = std::chrono::steady_clock::now(); newFX.lastUpdate = newFX.startTime;
+
+    ScrollColoursData& d = newFX.scrollColoursData;
+    d.imageType        = type;
+    d.scrollSpeed       = std::max(0.01f, static_cast<float>(scrollSpeed));
+    d.phaseTimer        = 0.0f;
+    d.reverseDirection  = reverseDirection;
+    AddEffect(newFX);
+}
+
+// Stops immediately: the effect is removed on the spot (not deferred to the end of the
+// current phase), so IsScrollColoursActive/RenderScrollColours fall through to their
+// unmodified-image path on the very next call, restoring the original appearance at once.
+void FXManager::StopScrollColours(BlitObj2DIndexType type) {
+    FX_LOCK();
+    for (auto& fx : effects)
+        if (fx.type == FXType::ScrollColours && fx.scrollColoursData.imageType == type)
+            fx.progress = 1.0f;
+}
+
+bool FXManager::IsScrollColoursActive(BlitObj2DIndexType type) const {
+    FX_LOCK();
+    for (const auto& fx : effects)
+        if (fx.type == FXType::ScrollColours &&
+            fx.scrollColoursData.imageType == type && fx.progress < 1.0f)
+            return true;
+    return false;
+}
+
+void FXManager::RenderScrollColours(BlitObj2DIndexType type, int x, int y, int w, int h)
+{
+    if (!renderer) return;
+    FX_LOCK();
+    for (const auto& fx : effects) {
+        if (fx.type == FXType::ScrollColours &&
+            fx.scrollColoursData.imageType == type && fx.progress < 1.0f) {
+            const ScrollColoursData& d = fx.scrollColoursData;
+            float scrollFraction = d.phaseTimer / d.scrollSpeed;   // Blit wraps this internally, so it's fine unclamped/ever-growing
+            renderer->Blit2DScrollingObjectToSize(type, x, y, w, h, scrollFraction, d.reverseDirection);
+            return;
+        }
+    }
+    // Not (or no longer) active -- fall back to a plain static blit (full opacity).
+    renderer->Blit2DObjectToSizeWithAlpha(type, x, y, w, h, 1.0f);
+}
+
+void FXManager::UpdateScrollColours(FXItem& fx, float deltaTime)
+{
+    fx.scrollColoursData.phaseTimer += deltaTime;
+}
+
+// ===============================================================================================
+// EmissionPulsator -- looping emission fade in + fade out, one full cycle every fTimer seconds,
+//   repeating until StopEmissionPulsator() / StopAllFX().
+//   pulse = sin(PI * t / fTimer): 0 -> 1 across the first half, 1 -> 0 across the second half.
+//   The pulse (0..1) only ever multiplies the Emission Intensity setting inside
+//   Config::EmissionScale(), so emission never exceeds the user's limit.
+// ===============================================================================================
+
+int FXManager::EmissionPulsator(float fTimer)
+{
+    if (!(fTimer > 0.0f)) {                                                     // Also rejects NaN
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[FXManager] EmissionPulsator: fTimer must be > 0");
+        return -1;
+    }
+    FX_LOCK();
+
+    // Only one pulsator at a time: replace any running one (its pulse is simply taken over)
+    effects.erase(std::remove_if(effects.begin(), effects.end(), [](const FXItem& fx) {
+        return fx.type == FXType::EmissionPulsator;
+    }), effects.end());
+    m_pendingEffects.erase(std::remove_if(m_pendingEffects.begin(), m_pendingEffects.end(), [](const FXItem& fx) {
+        return fx.type == FXType::EmissionPulsator;
+    }), m_pendingEffects.end());
+
+    static int nextID = 7000;
+    FXItem newFX;
+    newFX.type     = FXType::EmissionPulsator;
+    newFX.fxID     = nextID++;
+    newFX.duration = fTimer; newFX.timeout = FLT_MAX; newFX.progress = 0.0f;
+    newFX.emissionPulsatorData.totalTime = fTimer;
+    newFX.emissionPulsatorData.elapsed   = 0.0f;
+    config.myConfig.emissionPulse = 0.0f;                                       // Starts fully faded out
+    AddEffect(newFX);
+    emissionPulsatorID = newFX.fxID;
+    return newFX.fxID;
+}
+
+void FXManager::StopEmissionPulsator(int fxID)
+{
+    FX_LOCK();
+    bool found = false;
+    for (auto& fx : effects)
+        if (fx.type == FXType::EmissionPulsator && fx.fxID == fxID) { fx.progress = 1.0f; found = true; }
+    const size_t before = m_pendingEffects.size();
+    m_pendingEffects.erase(std::remove_if(m_pendingEffects.begin(), m_pendingEffects.end(), [fxID](const FXItem& fx) {
+        return fx.type == FXType::EmissionPulsator && fx.fxID == fxID;
+    }), m_pendingEffects.end());
+    if (found || m_pendingEffects.size() != before)
+        config.myConfig.emissionPulse = 1.0f;                                   // Back to the plain setting value immediately
+}
+
+void FXManager::UpdateEmissionPulsator(FXItem& fx, float deltaTime)
+{
+    EmissionPulsatorData& d = fx.emissionPulsatorData;
+    if (fx.progress >= 1.0f) return;
+
+    // Loops forever: wrap into the next cycle.  progress is the 0..1 phase of the current cycle and
+    // therefore never reaches 1.0 -- only StopEmissionPulsator (progress = 1) or clearing the FX ends it.
+    d.elapsed = fmodf(d.elapsed + deltaTime, d.totalTime);
+    fx.progress = d.elapsed / d.totalTime;
+    const float pulse = sinf(3.14159265358979f * fx.progress);                  // 0 -> 1 -> 0, peak exactly at the half-way point
+    config.myConfig.emissionPulse = pulse < 0.0f ? 0.0f : (pulse > 1.0f ? 1.0f : pulse);
 }
 
 #pragma warning(pop)

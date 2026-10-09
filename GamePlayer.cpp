@@ -95,9 +95,7 @@ void GameStatus::PauseGame() {
         #endif
     }
     else {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Attempted to pause game that is not active");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Attempted to pause game that is not active");
     }
 }
 
@@ -123,9 +121,7 @@ void GameStatus::ResumeGame() {
         #endif
     }
     else {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Attempted to resume game that is not paused or not active");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Attempted to resume game that is not paused or not active");
     }
 }
 
@@ -216,9 +212,7 @@ void GameStatus::SetActivePlayerCount(int count) {
         #endif
     }
     else {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid player count %d - must be between 0 and 8", count);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid player count %d - must be between 0 and 8", count);
     }
 }
 
@@ -290,9 +284,7 @@ void GameStatus::SetDifficultyLevel(int level) {
         #endif
     }
     else {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid difficulty level %d - must be between 1 and 10", level);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid difficulty level %d - must be between 1 and 10", level);
     }
 }
 
@@ -330,9 +322,7 @@ void GameStatus::SetCurrentLevel(int level) {
         #endif
     }
     else {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid level %d - must be 1 or higher", level);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid level %d - must be 1 or higher", level);
     }
 }
 
@@ -398,9 +388,7 @@ bool GameAccount::LoadAccountData(const std::string& accountID) {
 
     // Validate account ID parameter
     if (accountID.empty()) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Cannot load account data - account ID is empty");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Cannot load account data - account ID is empty");
         return false;                                                   // Cannot load with empty ID
     }
 
@@ -424,9 +412,7 @@ bool GameAccount::LoadAccountData(const std::string& accountID) {
         return true;                                                    // Account loaded successfully
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception loading account data: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception loading account data: %S", e.what());
         return false;                                                   // Failed to load account
     }
 }
@@ -439,9 +425,7 @@ bool GameAccount::SaveAccountData() {
 
     // Validate that account is valid before saving
     if (!m_isAccountValid.load() || m_accountID.empty()) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Cannot save account data - account is not valid or ID is empty");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Cannot save account data - account is not valid or ID is empty");
         return false;                                                   // Cannot save invalid account
     }
 
@@ -460,9 +444,7 @@ bool GameAccount::SaveAccountData() {
         return true;                                                    // Account saved successfully
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception saving account data: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception saving account data: %S", e.what());
         return false;                                                   // Failed to save account
     }
 }
@@ -504,9 +486,7 @@ bool GameAccount::ValidateAccount() {
 
     // Check if account ID is present
     if (m_accountID.empty()) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"Cannot validate account - account ID is empty");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Cannot validate account - account ID is empty");
         return false;                                                   // Cannot validate without ID
     }
 
@@ -526,9 +506,7 @@ bool GameAccount::ValidateAccount() {
         return isValid;                                                 // Return validation result
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception during account validation: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception during account validation: %S", e.what());
         m_isAccountValid.store(false);                                  // Mark as invalid on exception
         return false;                                                   // Failed validation
     }
@@ -566,9 +544,7 @@ void GameAccount::AddDLCAccess(const std::string& dlcID) {
     #endif
     }
     else {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"DLC %S already owned", dlcID.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"DLC %S already owned", dlcID.c_str());
     }
 }
 
@@ -588,9 +564,7 @@ void GameAccount::RemoveDLCAccess(const std::string& dlcID) {
     #endif
     }
     else {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"DLC %S not found in owned list", dlcID.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"DLC %S not found in owned list", dlcID.c_str());
     }
 }
 
@@ -612,9 +586,7 @@ bool GameAccount::SyncAchievements() {
 
     // Check if connected to platform
     if (!m_isPlatformConnected.load()) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"Cannot sync achievements - not connected to platform");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Cannot sync achievements - not connected to platform");
         return false;                                                   // Cannot sync without platform connection
     }
 
@@ -629,9 +601,7 @@ bool GameAccount::SyncAchievements() {
         return true;                                                    // Sync completed successfully
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception during achievement sync: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception during achievement sync: %S", e.what());
         return false;                                                   // Failed to sync achievements
     }
 }
@@ -644,9 +614,7 @@ bool GameAccount::SyncGameProgress() {
 
     // Check if connected to platform
     if (!m_isPlatformConnected.load()) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Cannot sync game progress - not connected to platform");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Cannot sync game progress - not connected to platform");
         return false;                                                   // Cannot sync without platform connection
     }
 
@@ -661,9 +629,7 @@ bool GameAccount::SyncGameProgress() {
         return true;                                                    // Sync completed successfully
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception during game progress sync: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception during game progress sync: %S", e.what());
         return false;                                                   // Failed to sync game progress
     }
 }
@@ -676,9 +642,7 @@ bool GameAccount::UploadGameStats() {
 
     // Check if connected to platform
     if (!m_isPlatformConnected.load()) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Cannot upload game stats - not connected to platform");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Cannot upload game stats - not connected to platform");
         return false;                                                   // Cannot upload without platform connection
     }
 
@@ -694,9 +658,7 @@ bool GameAccount::UploadGameStats() {
         return true;                                                    // Upload completed successfully
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception during game stats upload: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception during game stats upload: %S", e.what());
         return false;                                                   // Failed to upload statistics
     }
 }
@@ -709,9 +671,7 @@ bool GameAccount::ConnectToPlatform(const std::string& platform) {
 
     // Validate platform parameter
     if (platform.empty()) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Cannot connect to platform - platform name is empty");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Cannot connect to platform - platform name is empty");
         return false;                                                   // Cannot connect with empty platform name
     }
 
@@ -730,9 +690,7 @@ bool GameAccount::ConnectToPlatform(const std::string& platform) {
         return true;                                                    // Connection successful
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception connecting to platform: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception connecting to platform: %S", e.what());
         m_isPlatformConnected.store(false);                             // Mark as disconnected on error
         return false;                                                   // Failed to connect
     }
@@ -756,9 +714,7 @@ void GameAccount::DisconnectFromPlatform() {
         #endif
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception disconnecting from platform: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception disconnecting from platform: %S", e.what());
     }
 }
 
@@ -818,9 +774,7 @@ bool GamePlayer::Initialize() {
 
     // Prevent double initialization
     if (m_isInitialized.load()) {
-#if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"Player management system already initialized");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Player management system already initialized");
         return true;                                                    // Already initialized
     }
 
@@ -867,9 +821,7 @@ bool GamePlayer::Initialize() {
         return true;                                                    // Initialization successful
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception during GamePlayer initialization: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception during GamePlayer initialization: %S", e.what());
         return false;                                                   // Initialization failed
     }
 }
@@ -916,9 +868,7 @@ void GamePlayer::Cleanup() {
         #endif
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception during GamePlayer cleanup: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception during GamePlayer cleanup: %S", e.what());
     }
 }
 
@@ -930,18 +880,14 @@ bool GamePlayer::InitPlayer(int playerID, const PlayerInfo& playerInfo) {
 
     // Validate player ID
     if (!ValidatePlayerID(playerID)) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid player ID %d - must be between 0 and %d",
-                playerID, MAX_PLAYERS - 1);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid player ID %d - must be between 0 and %d",
+            playerID, MAX_PLAYERS - 1);
         return false;                                                   // Invalid player ID
     }
 
     // Check if system is initialized
     if (!m_isInitialized.load()) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Cannot initialize player - system not initialized");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Cannot initialize player - system not initialized");
         return false;                                                   // System not initialized
     }
 
@@ -971,9 +917,7 @@ bool GamePlayer::InitPlayer(int playerID, const PlayerInfo& playerInfo) {
         return true;                                                    // Player initialized successfully
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception initializing player %d: %S", playerID, e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception initializing player %d: %S", playerID, e.what());
         return false;                                                   // Failed to initialize player
     }
 }
@@ -986,17 +930,13 @@ bool GamePlayer::RemovePlayer(int playerID) {
 
     // Validate player ID
     if (!ValidatePlayerID(playerID)) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid player ID %d", playerID);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid player ID %d", playerID);
         return false;                                                   // Invalid player ID
     }
 
     // Check if player slot is active
     if (!m_playerSlotActive[playerID]) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"Player %d is not active", playerID);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"Player %d is not active", playerID);
         return false;                                                   // Player not active
     }
 
@@ -1022,9 +962,7 @@ bool GamePlayer::RemovePlayer(int playerID) {
         return true;                                                    // Player removed successfully
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception removing player %d: %S", playerID, e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception removing player %d: %S", playerID, e.what());
         return false;                                                   // Failed to remove player
     }
 }
@@ -1061,9 +999,7 @@ bool GamePlayer::CheckPlayerStatus(int playerID) {
 
     // Validate player
     if (!IsPlayerValid(playerID)) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid player ID %d for status check", playerID);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid player ID %d for status check", playerID);
         return false;                                                   // Invalid player
     }
 
@@ -1087,9 +1023,7 @@ bool GamePlayer::CheckPlayerStatus(int playerID) {
         return statusOK;                                                // Return status check result
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception checking player %d status: %S", playerID, e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception checking player %d status: %S", playerID, e.what());
         return false;                                                   // Failed status check
     }
 }
@@ -1142,9 +1076,7 @@ void GamePlayer::SetPlayerState(int playerID, PlayerState state) {
         #endif
     }
     else {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Cannot set state for invalid player %d", playerID);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Cannot set state for invalid player %d", playerID);
     }
 }
 
@@ -1169,9 +1101,7 @@ void GamePlayer::StartPlayerTimer(int playerID) {
         #endif
     }
     else {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Cannot start timer for invalid player %d", playerID);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Cannot start timer for invalid player %d", playerID);
     }
 }
 
@@ -1199,9 +1129,7 @@ void GamePlayer::StopPlayerTimer(int playerID) {
         #endif
     }
     else {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Cannot stop timer for invalid player %d", playerID);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Cannot stop timer for invalid player %d", playerID);
     }
 }
 
@@ -1222,17 +1150,13 @@ bool GamePlayer::InitializeCollisionBitmap(int playerID, int width, int height) 
 
     // Validate player
     if (!IsPlayerValid(playerID)) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid player ID %d for collision bitmap", playerID);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid player ID %d for collision bitmap", playerID);
         return false;                                                   // Invalid player
     }
 
     // Validate dimensions
     if (width <= 0 || height <= 0) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid bitmap dimensions %dx%d", width, height);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid bitmap dimensions %dx%d", width, height);
         return false;                                                   // Invalid dimensions
     }
 
@@ -1256,10 +1180,8 @@ bool GamePlayer::InitializeCollisionBitmap(int playerID, int width, int height) 
         return true;                                                    // Bitmap initialized successfully
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception initializing collision bitmap for player %d: %S",
-                playerID, e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception initializing collision bitmap for player %d: %S",
+            playerID, e.what());
         return false;                                                   // Failed to initialize bitmap
     }
 }
@@ -1282,9 +1204,7 @@ void GamePlayer::ClearCollisionBitmap(int playerID) {
         #endif
     }
     else {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Cannot clear collision bitmap for invalid player %d", playerID);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Cannot clear collision bitmap for invalid player %d", playerID);
     }
 }
 
@@ -1334,18 +1254,14 @@ bool GamePlayer::LoadTiledMap(const std::string& filename) {
 
     // Check if system is initialized
     if (!m_isInitialized.load()) {
-#if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Cannot load tiled map - system not initialized");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Cannot load tiled map - system not initialized");
         return false;                                                   // System not initialized
     }
 
     try {
         // Load binary map data from file
         if (!LoadBinaryFile(filename, m_tiledMapData)) {
-#if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to load tiled map file: %S", filename.c_str());
-#endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"Failed to load tiled map file: %S", filename.c_str());
             return false;                                               // Failed to load file
         }
 
@@ -1362,9 +1278,7 @@ bool GamePlayer::LoadTiledMap(const std::string& filename) {
         return true;                                                    // Map loaded successfully
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception loading tiled map: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception loading tiled map: %S", e.what());
         return false;                                                   // Failed to load map
     }
 }
@@ -1377,18 +1291,14 @@ bool GamePlayer::LoadTiledMapOverlay(const std::string& filename) {
 
     // Check if system is initialized
     if (!m_isInitialized.load()) {
-#if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Cannot load tiled map overlay - system not initialized");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Cannot load tiled map overlay - system not initialized");
         return false;                                                   // System not initialized
     }
 
     try {
         // Load binary overlay data from file
         if (!LoadBinaryFile(filename, m_tiledMapOverlayData)) {
-#if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to load tiled map overlay file: %S", filename.c_str());
-#endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"Failed to load tiled map overlay file: %S", filename.c_str());
             return false;                                               // Failed to load file
         }
 
@@ -1403,9 +1313,7 @@ bool GamePlayer::LoadTiledMapOverlay(const std::string& filename) {
         return true;                                                    // Overlay loaded successfully
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception loading tiled map overlay: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception loading tiled map overlay: %S", e.what());
         return false;                                                   // Failed to load overlay
     }
 }
@@ -1771,9 +1679,7 @@ void GamePlayer::UpdateAllPlayers(float deltaTime) {
         #endif
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception updating all players: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception updating all players: %S", e.what());
     }
 }
 
@@ -1873,9 +1779,7 @@ void GamePlayer::ResetAllPlayerStats() {
         #endif
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception resetting player statistics: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception resetting player statistics: %S", e.what());
     }
 }
 
@@ -1916,9 +1820,7 @@ bool GamePlayer::LoadBinaryFile(const std::string& filename, std::vector<uint8_t
 
         // Check if file opened successfully
         if (!file.is_open()) {
-#if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to open file: %S", filename.c_str());
-#endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"Failed to open file: %S", filename.c_str());
             return false;                                               // Failed to open file
         }
 
@@ -1928,9 +1830,7 @@ bool GamePlayer::LoadBinaryFile(const std::string& filename, std::vector<uint8_t
 
         // Validate file size
         if (fileSize <= 0) {
-#if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid file size: %lld bytes", static_cast<long long>(fileSize));
-#endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid file size: %lld bytes", static_cast<long long>(fileSize));
             return false;                                               // Invalid file size
         }
 
@@ -1940,9 +1840,7 @@ bool GamePlayer::LoadBinaryFile(const std::string& filename, std::vector<uint8_t
 
         // Check if read was successful
         if (!file.good()) {
-#if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to read file data: %S", filename.c_str());
-#endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"Failed to read file data: %S", filename.c_str());
             data.clear();                                               // Clear data on failure
             return false;                                               // Failed to read file
         }
@@ -1955,9 +1853,7 @@ bool GamePlayer::LoadBinaryFile(const std::string& filename, std::vector<uint8_t
         return true;                                                    // File loaded successfully
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_GAMEPLAYER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"Exception loading binary file: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"Exception loading binary file: %S", e.what());
         data.clear();                                                   // Clear data on exception
         return false;                                                   // Failed to load file
     }

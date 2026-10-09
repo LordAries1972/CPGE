@@ -320,9 +320,7 @@ bool SystemUtils::Is64BitOperatingSystem()
     else {
         // IsWow64Process not available - we're on very old Windows (pre-XP SP2)
         // These systems don't support 64-bit, so return false
-#if defined(_DEBUG_WINSYSTEM_)
-        debug.logDebugMessage(LogLevel::LOG_WARNING, L"IsWow64Process not available - assuming 32-bit OS");
-#endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"IsWow64Process not available - assuming 32-bit OS");
         return false;
     }
 #endif

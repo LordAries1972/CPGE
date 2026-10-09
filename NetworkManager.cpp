@@ -70,18 +70,14 @@ bool NetworkManager::Initialize() {
 
     // Prevent double initialization
     if (m_isInitialized) {
-        #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"NetworkManager already initialized");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"NetworkManager already initialized");
         return true;
     }
 
     // Initialize Windows Sockets subsystem
     if (!InitializeWinsock()) {
         SetLastError("Failed to initialize Winsock");
-        #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to initialize Winsock subsystem");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to initialize Winsock subsystem");
         return false;
     }
 
@@ -244,9 +240,7 @@ void NetworkManager::DisconnectFromServer() {
 bool NetworkManager::IsConnected() const {
     ThreadLockHelper connectionLock(threadManager, LOCK_CONNECTION_STATE, 1000);
     if (!connectionLock.IsLocked()) {
-        #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire connection lock in IsConnected()");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire connection lock in IsConnected()");
         return false;
     }
 
@@ -259,9 +253,7 @@ bool NetworkManager::IsConnected() const {
 ConnectionState NetworkManager::GetConnectionState() const {
     ThreadLockHelper connectionLock(threadManager, LOCK_CONNECTION_STATE, 1000);
     if (!connectionLock.IsLocked()) {
-        #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire connection lock in GetConnectionState()");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire connection lock in GetConnectionState()");
         return ConnectionState::ERROR_STATE;
     }
 
@@ -354,9 +346,7 @@ bool NetworkManager::LogoutUser() {
 bool NetworkManager::IsUserAuthenticated() const {
     ThreadLockHelper connectionLock(threadManager, LOCK_CONNECTION_STATE, 1000);
     if (!connectionLock.IsLocked()) {
-        #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire connection lock in IsUserAuthenticated()");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire connection lock in IsUserAuthenticated()");
         return false;
     }
 
@@ -501,9 +491,7 @@ bool NetworkManager::ReceivePackets() {
 
         // Must have at least a complete header
         if (bytesReceived < static_cast<int>(sizeof(NetworkPacketHeader))) {
-            #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"Received incomplete packet header");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Received incomplete packet header");
             m_statistics.packetsDropped++;
             continue;
         }
@@ -515,9 +503,7 @@ bool NetworkManager::ReceivePackets() {
         // Validate packet size
         if (header.packetSize > sizeof(buffer) ||
             header.packetSize < sizeof(NetworkPacketHeader)) {
-            #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_WARNING, L"Invalid packet size: %u", header.packetSize);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"Invalid packet size: %u", header.packetSize);
             m_statistics.packetsDropped++;
             continue;
         }
@@ -535,9 +521,7 @@ bool NetworkManager::ReceivePackets() {
 
         // Validate packet integrity
         if (!ValidatePacket(packet)) {
-            #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"Packet failed validation");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Packet failed validation");
             m_statistics.packetsDropped++;
             continue;
         }
@@ -548,9 +532,7 @@ bool NetworkManager::ReceivePackets() {
             {
                 ThreadLockHelper packetLock(threadManager, LOCK_PACKET_QUEUE, 1000);
                 if (!packetLock.IsLocked()) {
-                    #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-                        debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire packet lock for incoming queue");
-                    #endif
+                    debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire packet lock for incoming queue");
                     m_statistics.packetsDropped++;
                     continue;
                 }
@@ -575,9 +557,7 @@ bool NetworkManager::ReceivePackets() {
 bool NetworkManager::HasPendingPackets() const {
     ThreadLockHelper packetLock(threadManager, LOCK_PACKET_QUEUE, 1000);
     if (!packetLock.IsLocked()) {
-        #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire packet lock in HasPendingPackets()");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire packet lock in HasPendingPackets()");
         return false;
     }
 
@@ -588,9 +568,7 @@ bool NetworkManager::HasPendingPackets() const {
 NetworkPacket NetworkManager::GetNextPacket() {
     ThreadLockHelper packetLock(threadManager, LOCK_PACKET_QUEUE, 1000);
     if (!packetLock.IsLocked()) {
-        #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire packet lock in GetNextPacket()");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire packet lock in GetNextPacket()");
         return NetworkPacket(); // Return empty packet if lock fails
     }
 
@@ -621,18 +599,14 @@ void NetworkManager::ProcessCommand(const NetworkPacket& packet) {
             handlerIt->second(packet);
         }
         catch (const std::exception& e) {
-            #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"Exception in command handler: %S", e.what());
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"Exception in command handler: %S", e.what());
             SetLastError("Exception in command handler: " + std::string(e.what()));
         }
     }
     else {
         // No handler registered for this command
-        #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"No handler for command: 0x%X",
-                static_cast<uint32_t>(packet.header.command));
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"No handler for command: 0x%X",
+            static_cast<uint32_t>(packet.header.command));
     }
 }
 
@@ -728,10 +702,8 @@ bool NetworkManager::ValidatePacket(const NetworkPacket& packet) {
     if (!packet.data.empty()) {
         uint32_t calculatedChecksum = CalculateChecksum(packet.data.data(), packet.data.size());
         if (packet.header.checksum != calculatedChecksum) {
-            #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_WARNING, L"Checksum mismatch: expected 0x%X, got 0x%X",
-                    calculatedChecksum, packet.header.checksum);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"Checksum mismatch: expected 0x%X, got 0x%X",
+                calculatedChecksum, packet.header.checksum);
             return false;
         }
     }
@@ -747,9 +719,7 @@ void NetworkManager::StartNetworkThread() {
 
     // Don't start if already running
     if (m_networkThreadRunning.load()) {
-        #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Network thread already running");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Network thread already running");
         return;
     }
 
@@ -827,9 +797,7 @@ void NetworkManager::NetworkThreadFunction() {
 
         }
         catch (const std::exception& e) {
-            #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"Exception in network thread: %S", e.what());
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"Exception in network thread: %S", e.what());
             SetLastError("Network thread exception: " + std::string(e.what()));
 
             // Brief pause before continuing
@@ -913,17 +881,13 @@ bool NetworkManager::InitializeWinsock() {
     int result = WSAStartup(MAKEWORD(2, 2), &wsaData);
 
     if (result != 0) {
-        #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"WSAStartup failed with error: %d", result);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"WSAStartup failed with error: %d", result);
         return false;
     }
 
     // Verify Winsock version
     if (LOBYTE(wsaData.wVersion) != 2 || HIBYTE(wsaData.wVersion) != 2) {
-        #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"Winsock version 2.2 not available");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Winsock version 2.2 not available");
         WSACleanup();
         return false;
     }
@@ -965,9 +929,7 @@ SOCKET NetworkManager::CreateSocket(NetworkProtocol protocol) {
 
     if (sock == INVALID_SOCKET) {
         int error = WSAGetLastError();
-        #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Failed to create socket, error: %d", error);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Failed to create socket, error: %d", error);
     }
 
     return sock;
@@ -982,9 +944,7 @@ bool NetworkManager::ConnectSocket(SOCKET sock, const std::string& address, uint
 
     // Convert address string to binary format
     if (inet_pton(AF_INET, address.c_str(), &serverAddr.sin_addr) <= 0) {
-        #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Invalid address format: %S", address.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Invalid address format: %S", address.c_str());
         return false;
     }
 
@@ -993,9 +953,7 @@ bool NetworkManager::ConnectSocket(SOCKET sock, const std::string& address, uint
 
     if (result == SOCKET_ERROR) {
         int error = WSAGetLastError();
-        #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Connect failed with error: %d", error);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Connect failed with error: %d", error);
         return false;
     }
 
@@ -1040,9 +998,7 @@ bool NetworkManager::SendRawData(const uint8_t* data, size_t size) {
 
         if (sent == SOCKET_ERROR) {
             int error = WSAGetLastError();
-            #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"Send failed with error: %d", error);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"Send failed with error: %d", error);
             SetLastError("Send failed with error: " + std::to_string(error));
             return false;
         }
@@ -1073,9 +1029,7 @@ int NetworkManager::ReceiveRawData(uint8_t* buffer, size_t bufferSize) {
     if (received == SOCKET_ERROR) {
         int error = WSAGetLastError();
         if (error != WSAEWOULDBLOCK) {  // WSAEWOULDBLOCK is expected for non-blocking sockets
-            #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"Receive failed with error: %d", error);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"Receive failed with error: %d", error);
         }
         return 0;  // No data available
     }
@@ -1119,25 +1073,19 @@ void NetworkManager::HandleLoginResponse(const NetworkPacket& packet) {
         case 1: // Invalid credentials
             m_lastAuthResult = AuthResult::INVALID_CREDENTIALS;
             UpdateConnectionState(ConnectionState::CONNECTED);
-            #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"Authentication failed: Invalid credentials");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Authentication failed: Invalid credentials");
             break;
 
         case 2: // User already logged in
             m_lastAuthResult = AuthResult::USER_ALREADY_LOGGED_IN;
             UpdateConnectionState(ConnectionState::CONNECTED);
-            #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"Authentication failed: User already logged in");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Authentication failed: User already logged in");
             break;
 
         default: // Server error
             m_lastAuthResult = AuthResult::SERVER_ERROR;
             UpdateConnectionState(ConnectionState::ERROR_STATE);
-            #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-                debug.logDebugMessage(LogLevel::LOG_ERROR, L"Authentication failed: Server error %u", resultCode);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_ERROR, L"Authentication failed: Server error %u", resultCode);
             break;
     }
 }
@@ -1169,18 +1117,14 @@ void NetworkManager::HandlePingCommand(const NetworkPacket& packet) {
 
 // Handle error notification from server
 void NetworkManager::HandleError(const NetworkPacket& packet) {
-    #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"Received error notification from server");
-    #endif
+    debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Received error notification from server");
 
     // Extract error message if present
     if (!packet.data.empty()) {
         std::string errorMessage(packet.data.begin(), packet.data.end());
         SetLastError("Server error: " + errorMessage);
 
-        #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"Server error message: %S", errorMessage.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"Server error message: %S", errorMessage.c_str());
     }
 
     UpdateConnectionState(ConnectionState::ERROR_STATE);
@@ -1190,18 +1134,14 @@ void NetworkManager::HandleError(const NetworkPacket& packet) {
 void NetworkManager::SetLastError(const std::string& errorMessage) {
     m_lastErrorMessage = errorMessage;
 
-    #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"Network error: %S", errorMessage.c_str());
-    #endif
+    debug.logDiagMessage(LogLevel::LOG_ERROR, L"Network error: %S", errorMessage.c_str());
 }
 
 // Update connection state with logging
 void NetworkManager::UpdateConnectionState(ConnectionState newState) {
     ThreadLockHelper connectionLock(threadManager, LOCK_CONNECTION_STATE, 1000);
     if (!connectionLock.IsLocked()) {
-        #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire connection lock in UpdateConnectionState()");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Failed to acquire connection lock in UpdateConnectionState()");
         return; // Exit function if lock fails
     }
 

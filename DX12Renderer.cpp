@@ -152,9 +152,7 @@ void DX12Renderer::CreateDevice() {
         }
         else
         {
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to enable debug layer.");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to enable debug layer.");
         }
 #endif
 
@@ -392,9 +390,7 @@ void DX12Renderer::CreateSwapChain(HWND hwnd)
         hr = factory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER);
         if (FAILED(hr))
         {
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to disable Alt+Enter fullscreen toggle.");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to disable Alt+Enter fullscreen toggle.");
         }
 
         // Cast to the full DirectX 12 swap chain interface
@@ -428,10 +424,10 @@ void DX12Renderer::CreateSwapChain(HWND hwnd)
                         debug.logLevelMessage(LogLevel::LOG_INFO,
                             L"DX12Renderer: Frame latency waitable acquired (MaxFrameLatency=%u) -- Present() is now non-blocking.",
                             maxFrameLatency);
-                    else
-                        debug.logLevelMessage(LogLevel::LOG_WARNING,
-                            L"DX12Renderer: GetFrameLatencyWaitableObject returned null -- Present() may still block.");
                 #endif
+                if (!m_frameLatencyWaitableObject)
+                    debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
+                        L"DX12Renderer: GetFrameLatencyWaitableObject returned null -- Present() may still block.");
             }
         }
 
@@ -462,7 +458,7 @@ void DX12Renderer::CreateDescriptorHeaps() {
     try {
         // Create Render Target View (RTV) descriptor heap for back buffers
         D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {};
-        rtvHeapDesc.NumDescriptors = FrameCount;                                // One descriptor per frame
+        rtvHeapDesc.NumDescriptors = FrameCount + 1;                            // One descriptor per frame + [FrameCount] = MSAA colour target
         rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;                      // Render target view type
         rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;                    // Not shader visible
         rtvHeapDesc.NodeMask = 0;                                               // Single GPU node
@@ -508,7 +504,7 @@ void DX12Renderer::CreateDescriptorHeaps() {
 
         // Create CBV/SRV/UAV descriptor heap for textures and constant buffers
         D3D12_DESCRIPTOR_HEAP_DESC cbvSrvUavHeapDesc = {};
-        cbvSrvUavHeapDesc.NumDescriptors = DX12_MODEL_TEXTURE_HEAP_BASE + DX12_MODEL_TEXTURE_HEAP_CAPACITY + FrameCount + 3; // +FrameCount for D2D off-screen composite SRVs, +3 (2 sprite textures + 1 particle buffer) for the native SCENE_GAMETITLE fast path
+        cbvSrvUavHeapDesc.NumDescriptors = DX12_MODEL_TEXTURE_HEAP_BASE + DX12_MODEL_TEXTURE_HEAP_CAPACITY + FrameCount + DX12_SPRITE2D_SRV_COUNT + 1 + DX12_SHADOW_SRV_ALLOC + DX12_CAPTURE_SRV_COUNT; // +FrameCount for D2D off-screen composite SRVs, +DX12_SPRITE2D_SRV_COUNT+1 (title textures + 1 particle ring) for the native SCENE_GAMETITLE pipeline, +12 shadow/probe/planar SRVs (t8-t11: main table + mirror-pass copy + live copy), +48 live-capture mip-gen SRVs
         cbvSrvUavHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;        // Combined heap type
         cbvSrvUavHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;    // Shader visible for binding
         cbvSrvUavHeapDesc.NodeMask = 0;                                         // Single GPU node
@@ -632,8 +628,8 @@ void DX12Renderer::CreateDepthStencilBuffer() {
         depthStencilDesc.DepthOrArraySize = 1;                                  // Single depth slice
         depthStencilDesc.MipLevels = 1;                                         // Single mip level
         depthStencilDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;                // 24-bit depth, 8-bit stencil
-        depthStencilDesc.SampleDesc.Count = 1;                                  // No multisampling
-        depthStencilDesc.SampleDesc.Quality = 0;                                // No multisampling quality
+        depthStencilDesc.SampleDesc.Count = m_msaaSampleCount;                  // Matches the MSAA colour target (1 = off)
+        depthStencilDesc.SampleDesc.Quality = 0;                                // Standard multisample quality
         depthStencilDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;                 // Driver-optimized layout
         depthStencilDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;       // Allow depth stencil usage
 
@@ -666,9 +662,10 @@ void DX12Renderer::CreateDepthStencilBuffer() {
         // Create depth stencil view descriptor
         D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
         dsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;                         // Match buffer format
-        dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;                  // 2D texture view
+        dsvDesc.ViewDimension = (m_msaaSampleCount > 1) ? D3D12_DSV_DIMENSION_TEXTURE2DMS : D3D12_DSV_DIMENSION_TEXTURE2D;
         dsvDesc.Flags = D3D12_DSV_FLAG_NONE;                                    // No special flags
-        dsvDesc.Texture2D.MipSlice = 0;                                         // Use mip level 0
+        if (m_msaaSampleCount <= 1)
+            dsvDesc.Texture2D.MipSlice = 0;                                     // Use mip level 0
 
         // Create the depth stencil view
         m_d3d12Device->CreateDepthStencilView(
@@ -676,6 +673,9 @@ void DX12Renderer::CreateDepthStencilBuffer() {
             &dsvDesc,                                                           // DSV description
             m_dsvHeap.cpuStart                                                  // DSV heap handle
         );
+
+        // Multisampled colour target of the main pass (no-op while MSAA is off)
+        CreateMsaaTargets(static_cast<UINT>(iOrigWidth), static_cast<UINT>(iOrigHeight));
 
 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
         debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Depth stencil buffer created successfully. Size: %dx%d", iOrigWidth, iOrigHeight);
@@ -686,6 +686,100 @@ void DX12Renderer::CreateDepthStencilBuffer() {
         debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"DX12Renderer: Exception in CreateDepthStencilBuffer: %s", errorMsg.c_str());
         throw;
     }
+}
+
+//-----------------------------------------
+// MSAA sample count selection.  Anti-Aliasing (master) + MSAA + MSAA Samples from the Video settings; the
+// requested count is lowered to the highest count the device supports for BOTH the colour and depth formats.
+// Called once from Initialize() (changing it needs a video restart); leaves m_msaaSampleCount = 1 when off.
+//-----------------------------------------
+void DX12Renderer::ChooseMsaaSampleCount() {
+    m_msaaSampleCount = 1;
+    if (!m_d3d12Device || !config.myConfig.antiAliasingEnabled || !config.myConfig.msaaEnabled)
+        return;
+
+    const UINT want = static_cast<UINT>(std::clamp(config.myConfig.msaaSamples, 2, 8));
+    auto supports = [this](DXGI_FORMAT fmt, UINT samples) -> bool {
+        D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS ql = {};
+        ql.Format      = fmt;
+        ql.SampleCount = samples;
+        ql.Flags       = D3D12_MULTISAMPLE_QUALITY_LEVELS_FLAG_NONE;
+        return SUCCEEDED(m_d3d12Device->CheckFeatureSupport(D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS, &ql, sizeof(ql))) &&
+               ql.NumQualityLevels > 0;
+    };
+
+    for (UINT s : { 8u, 4u, 2u }) {
+        if (s <= want &&
+            supports(DXGI_FORMAT_R8G8B8A8_UNORM, s) &&
+            supports(DXGI_FORMAT_D24_UNORM_S8_UINT, s)) {
+            m_msaaSampleCount = s;
+            break;
+        }
+    }
+
+    if (m_msaaSampleCount == 1)
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: MSAA requested but no supported multisample count was found; rendering 1 sample.");
+    else
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: MSAA enabled: %ux (requested %ux)", m_msaaSampleCount, want);
+}
+
+//-----------------------------------------
+// (Re)create the multisampled colour target of the main pass and its RTV (slot [FrameCount] of the RTV heap).
+// The resource rests in RENDER_TARGET; ResolveMsaaToBackBuffer() moves it out and back within the frame.
+// Called with the depth buffer from every path that rebuilds it, so both always share one sample count.
+//-----------------------------------------
+void DX12Renderer::CreateMsaaTargets(UINT width, UINT height) {
+    m_msaaColorTex.Reset();
+    if (m_msaaSampleCount <= 1 || !m_d3d12Device || width == 0 || height == 0)
+        return;
+
+    CD3DX12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Tex2D(
+        DXGI_FORMAT_R8G8B8A8_UNORM, width, height, 1, 1, m_msaaSampleCount, 0,
+        D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
+
+    D3D12_CLEAR_VALUE clearValue = {};
+    clearValue.Format   = DXGI_FORMAT_R8G8B8A8_UNORM;
+    clearValue.Color[3] = 1.0f;                                                 // opaque black
+
+    CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_DEFAULT);
+    HRESULT hr = m_d3d12Device->CreateCommittedResource(
+        &heapProps, D3D12_HEAP_FLAG_NONE, &desc,
+        D3D12_RESOURCE_STATE_RENDER_TARGET, &clearValue,
+        IID_PPV_ARGS(&m_msaaColorTex));
+    if (FAILED(hr)) {
+        debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"DX12Renderer: Failed to create the MSAA colour target (0x%08X).", hr);
+        ThrowError("CreateMsaaTargets failed");
+        return;
+    }
+    m_msaaColorTex->SetName(L"DX12Renderer_MSAAColor");
+
+    m_msaaRtv = CD3DX12_CPU_DESCRIPTOR_HANDLE(m_rtvHeap.cpuStart, static_cast<INT>(FrameCount), m_rtvHeap.handleIncrementSize);
+    m_d3d12Device->CreateRenderTargetView(m_msaaColorTex.Get(), nullptr, m_msaaRtv);
+}
+
+//-----------------------------------------
+// Resolve the multisampled colour into the current back buffer.  The back buffer is in RENDER_TARGET on entry
+// (STEP 5 of RenderFrame) and is left in RENDER_TARGET, which is what the Direct2D overlay acquires it in.
+//-----------------------------------------
+void DX12Renderer::ResolveMsaaToBackBuffer(ID3D12GraphicsCommandList* cl) {
+    if (!cl || !UsingMsaa())
+        return;
+
+    ID3D12Resource* backBuffer = m_frameContexts[m_frameIndex].renderTarget.Get();
+    if (!backBuffer)
+        return;
+
+    D3D12_RESOURCE_BARRIER toResolve[2] = {
+        CD3DX12_RESOURCE_BARRIER::Transition(m_msaaColorTex.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_RESOLVE_SOURCE),
+        CD3DX12_RESOURCE_BARRIER::Transition(backBuffer,           D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_RESOLVE_DEST)
+    };
+    cl->ResourceBarrier(2, toResolve);
+    cl->ResolveSubresource(backBuffer, 0, m_msaaColorTex.Get(), 0, DXGI_FORMAT_R8G8B8A8_UNORM);
+    D3D12_RESOURCE_BARRIER fromResolve[2] = {
+        CD3DX12_RESOURCE_BARRIER::Transition(m_msaaColorTex.Get(), D3D12_RESOURCE_STATE_RESOLVE_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET),
+        CD3DX12_RESOURCE_BARRIER::Transition(backBuffer,           D3D12_RESOURCE_STATE_RESOLVE_DEST,   D3D12_RESOURCE_STATE_RENDER_TARGET)
+    };
+    cl->ResourceBarrier(2, fromResolve);
 }
 
 //-----------------------------------------
@@ -995,9 +1089,7 @@ void DX12Renderer::CreateDebugLayer() {
 #endif
         }
         else {
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to configure debug info queue.");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to configure debug info queue.");
         }
     }
     catch (const std::exception& e) {
@@ -1057,9 +1149,7 @@ void DX12Renderer::LogAdapterInfo(IDXGIAdapter4* adapter) {
         DXGI_ADAPTER_DESC3 desc;
         HRESULT hr = adapter->GetDesc3(&desc);
         if (FAILED(hr)) {
-            #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to get adapter description.");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to get adapter description.");
             return;
         }
 
@@ -1146,7 +1236,7 @@ void DX12Renderer::CreateRootSignature() {
 
     try {
         // Define root parameters for the graphics pipeline (8 entries: b0-b5 CBVs + texture SRV table + b6 shadow CBV)
-        CD3DX12_ROOT_PARAMETER1 rootParameters[8];
+        CD3DX12_ROOT_PARAMETER1 rootParameters[9];
 
         // Root Parameter 0: b0 — ConstantBuffer (camera/view/world matrices)
         rootParameters[DX12_ROOT_PARAM_CONST_BUFFER].InitAsConstantBufferView(
@@ -1197,12 +1287,13 @@ void DX12Renderer::CreateRootSignature() {
             D3D12_SHADER_VISIBILITY_PIXEL                                       // Pixel shader only
         );
 
-        // Root Parameter 6: Descriptor table — t0-t8 SRV textures
-        // t0=diffuse, t1=normal, t2=metallic, t3=roughness, t4=AO, t5=envCube, t6=gloss, t7=emissive, t8=shadowMap
+        // Root Parameter 6: Descriptor table — t0-t7 per-model SRV textures
+        // t0=diffuse, t1=normal, t2=metallic, t3=roughness, t4=AO, t5=envCube, t6=gloss, t7=emissive
+        // (per-model heap blocks still reserve 9 slots; slot 8 is unused since shadows moved to param 8)
         CD3DX12_DESCRIPTOR_RANGE1 textureRanges[1];
         textureRanges[0].Init(
             D3D12_DESCRIPTOR_RANGE_TYPE_SRV,                                    // Shader Resource View
-            9,                                                                  // t0-t8 (9 descriptors)
+            8,                                                                  // t0-t7 (8 descriptors)
             0,                                                                  // Base register t0
             0,                                                                  // Register space 0
             D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE                           // Textures may be loaded/swapped
@@ -1210,7 +1301,24 @@ void DX12Renderer::CreateRootSignature() {
 
         rootParameters[DX12_ROOT_PARAM_TEXTURE_TABLE].InitAsDescriptorTable(
             1,                                                                  // 1 descriptor range
-            textureRanges,                                                      // Range: t0-t8
+            textureRanges,                                                      // Range: t0-t7
+            D3D12_SHADER_VISIBILITY_PIXEL                                       // Pixel shader only
+        );
+
+        // Root Parameter 8: Descriptor table — t8 directional shadow map + t9 spot/point shadow array
+        // Renderer-owned (DX12_SHADOW_SRV_BASE); bound once per frame after the shadow pass.
+        CD3DX12_DESCRIPTOR_RANGE1 shadowRanges[1];
+        shadowRanges[0].Init(
+            D3D12_DESCRIPTOR_RANGE_TYPE_SRV,                                    // Shader Resource View
+            DX12_SHADOW_SRV_COUNT,                                              // t8-t11 (4 descriptors: dir map, local array, scene probe, planar mirror)
+            8,                                                                  // Base register t8
+            0,                                                                  // Register space 0
+            D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE                           // Depth contents change every frame
+        );
+
+        rootParameters[DX12_ROOT_PARAM_SHADOW_TABLE].InitAsDescriptorTable(
+            1,                                                                  // 1 descriptor range
+            shadowRanges,                                                       // Range: t8-t9
             D3D12_SHADER_VISIBILITY_PIXEL                                       // Pixel shader only
         );
 
@@ -1450,7 +1558,7 @@ void DX12Renderer::CreatePipelineState() {
         psoDesc.RasterizerState.FrontCounterClockwise = TRUE;                   // Counter-clockwise winding
         psoDesc.RasterizerState.DepthClipEnable = TRUE;                         // Enable depth clipping
         psoDesc.RasterizerState.MultisampleEnable = FALSE;                      // No multisampling initially
-        psoDesc.RasterizerState.AntialiasedLineEnable = FALSE;                  // No line antialiasing initially
+        psoDesc.RasterizerState.AntialiasedLineEnable = config.myConfig.antiAliasingEnabled ? TRUE : FALSE; // Line AA follows the Video settings Anti-Aliasing switch
 
         // Depth stencil state
         psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
@@ -1485,6 +1593,22 @@ void DX12Renderer::CreatePipelineState() {
 
         // Set pipeline state name for debugging
         m_pipelineState->SetName(L"DX12Renderer_MainPipelineState");
+
+        // Multisampled variant for the main pass.  The 1-sample PSO above stays for the planar / capture passes,
+        // which render into 1-sample targets with the same root signature and shaders.
+        if (m_msaaSampleCount > 1) {
+            psoDesc.SampleDesc.Count   = m_msaaSampleCount;
+            psoDesc.SampleDesc.Quality = 0;
+            psoDesc.RasterizerState.MultisampleEnable = TRUE;
+            hr = m_d3d12Device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineStateMS));
+            if (FAILED(hr)) {
+                debug.logDebugMessage(LogLevel::LOG_CRITICAL,
+                    L"DX12Renderer: CreateGraphicsPipelineState (MSAA %ux) failed. HRESULT: 0x%08X", m_msaaSampleCount, hr);
+                ThrowError("CreateGraphicsPipelineState (MSAA) failed");
+                return;
+            }
+            m_pipelineStateMS->SetName(L"DX12Renderer_MainPipelineState_MSAA");
+        }
 
         #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
             debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Pipeline state object created successfully.");
@@ -1548,8 +1672,11 @@ void DX12Renderer::CreateConstantBuffers() {
     #endif
 
     try {
-        // Create camera constant buffer (matches DX11 ConstantBuffer structure)
-        UINT constantBufferSize = (sizeof(ConstantBuffer) + 255) & ~255;        // Align to 256 bytes for DirectX 12
+        // Create camera constant buffer (matches DX11 ConstantBuffer structure).
+        // One 256-byte aligned slice per frame in flight (indexed by m_frameIndex): the CPU rewrites this every
+        // frame, and a single shared slice races with the 1-2 frames the GPU may still be executing.
+        m_cameraCBStride = (sizeof(ConstantBuffer) + 255u) & ~255u;             // Align to 256 bytes for DirectX 12
+        UINT constantBufferSize = m_cameraCBStride * FrameCount;
 
         CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_UPLOAD);
         CD3DX12_RESOURCE_DESC bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(constantBufferSize);
@@ -1558,7 +1685,7 @@ void DX12Renderer::CreateConstantBuffers() {
             &heapProps,                                                         // Upload heap for CPU writes
             D3D12_HEAP_FLAG_NONE,                                               // No special heap flags
             &bufferDesc,                                                        // Buffer description
-            D3D12_RESOURCE_STATE_COMMON,                                        // Upload-heap buffers are always in COMMON
+            D3D12_RESOURCE_STATE_GENERIC_READ,                                  // Required state for upload-heap resources
             nullptr,                                                            // No optimized clear value
             IID_PPV_ARGS(&m_constantBuffer)                                     // Output constant buffer
         );
@@ -1571,9 +1698,19 @@ void DX12Renderer::CreateConstantBuffers() {
 
         // Set constant buffer name for debugging
         m_constantBuffer->SetName(L"DX12Renderer_CameraConstantBuffer");
+        {
+            CD3DX12_RANGE noRead(0, 0);
+            void* pMapped = nullptr;
+            if (SUCCEEDED(m_constantBuffer->Map(0, &noRead, &pMapped)) && pMapped)
+            {
+                memset(pMapped, 0, constantBufferSize);
+                m_constantBufferMapped = static_cast<uint8_t*>(pMapped);       // Kept mapped until Cleanup
+            }
+        }
 
-        // Create global light buffer (matches DX11 GlobalLightBuffer structure)
-        UINT lightBufferSize = (sizeof(GlobalLightBuffer) + 255) & ~255;       // Align to 256 bytes for DirectX 12
+        // Create global light buffer (matches DX11 GlobalLightBuffer structure) - same per-frame slicing.
+        m_globalLightCBStride = (sizeof(GlobalLightBuffer) + 255u) & ~255u;     // Align to 256 bytes for DirectX 12
+        UINT lightBufferSize = m_globalLightCBStride * FrameCount;
 
         CD3DX12_RESOURCE_DESC lightBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(lightBufferSize);
 
@@ -1581,7 +1718,7 @@ void DX12Renderer::CreateConstantBuffers() {
             &heapProps,                                                         // Upload heap for CPU writes
             D3D12_HEAP_FLAG_NONE,                                               // No special heap flags
             &lightBufferDesc,                                                   // Buffer description
-            D3D12_RESOURCE_STATE_COMMON,                                        // Upload-heap buffers are always in COMMON
+            D3D12_RESOURCE_STATE_GENERIC_READ,                                  // Required state for upload-heap resources
             nullptr,                                                            // No optimized clear value
             IID_PPV_ARGS(&m_globalLightBuffer)                                  // Output global light buffer
         );
@@ -1594,6 +1731,15 @@ void DX12Renderer::CreateConstantBuffers() {
 
         // Set global light buffer name for debugging
         m_globalLightBuffer->SetName(L"DX12Renderer_GlobalLightBuffer");
+        {
+            CD3DX12_RANGE noRead(0, 0);
+            void* pMapped = nullptr;
+            if (SUCCEEDED(m_globalLightBuffer->Map(0, &noRead, &pMapped)) && pMapped)
+            {
+                memset(pMapped, 0, lightBufferSize);
+                m_globalLightBufferMapped = static_cast<uint8_t*>(pMapped);    // Kept mapped until Cleanup
+            }
+        }
 
         // Create EnvBuffer (b5) — matches ModelPShader's cbuffer EnvBuffer : register(b5)
         // Layout: float envIntensity, float3 envTint, float mipLODBias, float fresnel0, float2 _padEnv  (32 bytes)
@@ -1624,25 +1770,33 @@ void DX12Renderer::CreateConstantBuffers() {
             if (SUCCEEDED(m_envBuffer->Map(0, &readRange, &pData)))
             {
                 memset(pData, 0, envBufferSize);
-                // envIntensity = 1.0, fresnel0 = 0.04 (dielectric default)
+                // envIntensity = 1.0, envTint = (1,1,1), mipLODBias = 0, fresnel0 = 0.04 (dielectric default).
+                // The native DX12 draw path never rewrites b5 per model, so envTint MUST default to white:
+                // the scene-probe reflection is multiplied by it (zero tint == reflections permanently invisible).
                 float* f = static_cast<float*>(pData);
                 f[0] = 1.0f;  // envIntensity
+                f[1] = 1.0f;  // envTint.r
+                f[2] = 1.0f;  // envTint.g
+                f[3] = 1.0f;  // envTint.b
+                f[4] = 0.0f;  // mipLODBias
                 f[5] = 0.04f; // fresnel0
                 m_envBuffer->Unmap(0, nullptr);
             }
         }
 
-        // Create ShadowBuffer (b6) — matches ModelPShader cbuffer ShadowBuffer : register(b6)
-        // Layout: float4x4 lightViewProj (64 bytes) + shadowBias + shadowStrength + useShadowMap + shadowMapSize (16 bytes) = 80 bytes
-        // useShadowMap is initialised to 0 so shadows are disabled until a shadow map is provided.
-        UINT shadowBufferSize = (80 + 255) & ~255;                              // 256-byte aligned
+        // Create ShadowBuffer (b6) — ShadowBufferData in Lights.h (2272 bytes).
+        // One 256-byte-aligned slice per frame in flight (indexed by m_frameIndex) so the CPU
+        // never overwrites data a previous in-flight frame is still reading.  Persistently mapped.
+        // Zero-initialised: useShadowMap = useLocalShadows = 0 disables shadow sampling.
+        m_shadowBufferStride = (static_cast<UINT>(sizeof(ShadowBufferData)) + 255u) & ~255u;
+        UINT shadowBufferSize = m_shadowBufferStride * FrameCount * 2;      // [0..FrameCount) main, [FrameCount..2*FrameCount) planar-off copy for the live capture pass
         CD3DX12_RESOURCE_DESC shadowBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(shadowBufferSize);
 
         hr = m_d3d12Device->CreateCommittedResource(
             &heapProps,
             D3D12_HEAP_FLAG_NONE,
             &shadowBufferDesc,
-            D3D12_RESOURCE_STATE_COMMON,
+            D3D12_RESOURCE_STATE_GENERIC_READ,                                  // Required state for upload-heap resources
             nullptr,
             IID_PPV_ARGS(&m_shadowBuffer)
         );
@@ -1655,14 +1809,13 @@ void DX12Renderer::CreateConstantBuffers() {
 
         m_shadowBuffer->SetName(L"DX12Renderer_ShadowBuffer");
 
-        // Zero-initialise — useShadowMap (offset 72) = 0.0f disables shadow sampling in shader
         {
             void* pData = nullptr;
             CD3DX12_RANGE readRange(0, 0);
             if (SUCCEEDED(m_shadowBuffer->Map(0, &readRange, &pData)))
             {
                 memset(pData, 0, shadowBufferSize);
-                m_shadowBuffer->Unmap(0, nullptr);
+                m_shadowBufferMapped = static_cast<uint8_t*>(pData);           // Kept mapped until Cleanup
             }
         }
 
@@ -1764,13 +1917,12 @@ void DX12Renderer::UpdateConstantBuffers() {
     #endif
 
     try {
-        // Update camera constant buffer
+        // Update camera constant buffer - this frame's slice only (see CreateConstantBuffers).
         if (m_constantBuffer) {
-            // Map the constant buffer for CPU write
-            void* pCBData = nullptr;
-            CD3DX12_RANGE readRange(0, 0);                                         // We do not intend to read from this resource on the CPU
-            HRESULT hr = m_constantBuffer->Map(0, &readRange, &pCBData);
-            if (SUCCEEDED(hr)) {
+            void* pCBData = m_constantBufferMapped
+                ? static_cast<void*>(m_constantBufferMapped + static_cast<size_t>(m_frameIndex) * m_cameraCBStride)
+                : nullptr;
+            if (pCBData) {
                 // Populate the constant buffer data
                 ConstantBuffer cb;
                 cb.viewMatrix = myCamera.GetViewMatrix();                           // Get current view matrix from camera
@@ -1780,9 +1932,6 @@ void DX12Renderer::UpdateConstantBuffers() {
                 // asm MemoryCopy: REP MOVSQ — uploads ConstantBuffer to mapped GPU memory
                 MemoryCopy(&cb, pCBData, sizeof(ConstantBuffer));
 
-                // Unmap the buffer
-                m_constantBuffer->Unmap(0, nullptr);
-
                 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
                     XMFLOAT3 camPos = myCamera.GetPosition();
                     debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Camera CB updated. Position: (%.2f, %.2f, %.2f)",
@@ -1790,19 +1939,21 @@ void DX12Renderer::UpdateConstantBuffers() {
                 #endif
             }
             else {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to map camera constant buffer.");
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Camera constant buffer is not mapped.");
             }
         }
 
         // Update global light buffer
         if (m_globalLightBuffer) {
-            // Get all lights from the lights manager
-            std::vector<LightStruct> globalLights = lightsManager.GetAllLights();
+            // Get all lights from the lights manager.  Stored in m_frameGlobalLights so the
+            // shadow pass (RenderShadowPassDX12) plans against the SAME order uploaded to b3.
+            m_frameGlobalLights = lightsManager.GetAllLights();
+            const std::vector<LightStruct>& globalLights = m_frameGlobalLights;
 
-            void* pLightData = nullptr;
-            CD3DX12_RANGE lightReadRange(0, 0);                                     // We do not intend to read from this resource on the CPU
-            HRESULT hr = m_globalLightBuffer->Map(0, &lightReadRange, &pLightData);
-            if (SUCCEEDED(hr)) {
+            void* pLightData = m_globalLightBufferMapped
+                ? static_cast<void*>(m_globalLightBufferMapped + static_cast<size_t>(m_frameIndex) * m_globalLightCBStride)
+                : nullptr;
+            if (pLightData) {
                 // Populate the global light buffer data
                 GlobalLightBuffer glb = {};
                 glb.numLights = static_cast<int>(globalLights.size());
@@ -1833,15 +1984,12 @@ void DX12Renderer::UpdateConstantBuffers() {
                 MemoryZero(pLightData, kGlobalLightCBMinBytes);
                 MemoryCopy(&glb, pLightData, sizeof(GlobalLightBuffer));
 
-                // Unmap the buffer
-                m_globalLightBuffer->Unmap(0, nullptr);
-
                 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
                     debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: Global light buffer updated. Light count: %d", glb.numLights);
                 #endif
             }
             else {
-                debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Failed to map global light buffer.");
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Global light buffer is not mapped.");
             }
         }
     }
@@ -2064,7 +2212,7 @@ void DX12Renderer::PopulateCommandList() {
             D3D12_RESOURCE_STATE_RENDER_TARGET);
 
         // Get render target and depth stencil handles
-        CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_frameContexts[m_frameIndex].rtvHandle);
+        CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(MainRTV(m_frameIndex));
         CD3DX12_CPU_DESCRIPTOR_HANDLE dsvHandle(m_dsvHeap.cpuStart);
 
         // Set render targets
@@ -2078,12 +2226,12 @@ void DX12Renderer::PopulateCommandList() {
         // Set constant buffer views
         if (m_constantBuffer) {
             m_commandList->SetGraphicsRootConstantBufferView(DX12_ROOT_PARAM_CONST_BUFFER,
-                m_constantBuffer->GetGPUVirtualAddress());
+                CameraCBAddress());
         }
 
         if (m_globalLightBuffer) {
             m_commandList->SetGraphicsRootConstantBufferView(DX12_ROOT_PARAM_GLOBAL_LIGHT_BUFFER,
-                m_globalLightBuffer->GetGPUVirtualAddress());
+                GlobalLightCBAddress());
         }
 
         if (m_envBuffer) {
@@ -2853,539 +3001,701 @@ void DX12Renderer::CompositeD2DToBackBuffer(
 }
 
 
-//===========================================================================================
-// Native (non-D2D) 2D sprite pipeline — SCENE_GAMETITLE fast path.
-//
-// Draws the background image, company logo, and starfield/firework particles as ordinary
-// D3D12 draw calls on the already-open command list, so the common-case title-screen frame
-// never needs a Direct2D/D3D11-on-12 interop handoff (Acquire/Release + Close/Execute/Flush).
-// See DX12RenderFrame.cpp STEP 6.5 for where these are invoked.
-//===========================================================================================
-
 //-----------------------------------------
-// CreateSprite2DPipelines
-// Compiles + creates the textured-quad (image) and procedural-quad (particle) PSOs, their
-// root signatures, and the persistently-mapped particle instance buffer. Called once from
-// Initialize(). Textures themselves are loaded separately via LoadSprite2DNativeTexture(),
-// once the loader thread reaches LoadAllKnownTextures() — this function only sets up the
-// GPU pipeline objects, which do not depend on any image being loaded yet.
+// CreateShadowResources
+// Shadow maps (see Lights.h for the shared planner / GPU layout):
+//   t8 : directional depth map    (R32_TYPELESS, DSV D32_FLOAT, SRV R32_FLOAT)
+//   t9 : spot / point depth array (MAX_LOCAL_SHADOW_SLICES slices, one DSV each)
+// Resources rest in PIXEL_SHADER_RESOURCE between frames; RenderShadowPassDX12 moves
+// them to DEPTH_WRITE for the depth passes and back again.
+// Also builds a depth-only PSO on a tiny root signature (20 VS root constants:
+// float4x4 worldLightVP + float4 scale), so the shadow pass never touches the
+// persistently-mapped per-model b0 buffers the main pass reads later in the same list.
+// Non-fatal: on failure m_shadowResourcesReady stays false and b6 keeps shadows off.
 //-----------------------------------------
-bool DX12Renderer::CreateSprite2DPipelines()
+bool DX12Renderer::CreateShadowResources()
 {
-    if (!m_d3d12Device) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: D3D12 device not ready for sprite2D pipeline creation.");
-        return false;
-    }
+    ReleaseShadowResources();
+    if (!m_d3d12Device || !m_cbvSrvUavHeap.heap) return false;
+
+    m_shadowDirSize   = ShadowDirMapSizeFromConfig();
+    m_shadowLocalSize = ShadowLocalMapSizeFromConfig();
 
     HRESULT hr;
+    CD3DX12_HEAP_PROPERTIES defaultHeap(D3D12_HEAP_TYPE_DEFAULT);
 
-    // ── Image pipeline: textured quad, root constants for dest rect (NDC) + alpha ──────────
+    D3D12_CLEAR_VALUE clearVal = {};
+    clearVal.Format               = DXGI_FORMAT_D32_FLOAT;
+    clearVal.DepthStencil.Depth   = 1.0f;
+    clearVal.DepthStencil.Stencil = 0;
+
+    // --- Directional + local depth textures ---
+    CD3DX12_RESOURCE_DESC dirDesc = CD3DX12_RESOURCE_DESC::Tex2D(
+        DXGI_FORMAT_R32_TYPELESS, static_cast<UINT64>(m_shadowDirSize), static_cast<UINT>(m_shadowDirSize),
+        1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+    hr = m_d3d12Device->CreateCommittedResource(&defaultHeap, D3D12_HEAP_FLAG_NONE, &dirDesc,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, &clearVal, IID_PPV_ARGS(&m_shadowDirTex));
+    if (FAILED(hr)) { debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Shadow directional map creation failed (0x%08X)", hr); return false; }
+    m_shadowDirTex->SetName(L"DX12Renderer_ShadowDirMap");
+
+    CD3DX12_RESOURCE_DESC localDesc = CD3DX12_RESOURCE_DESC::Tex2D(
+        DXGI_FORMAT_R32_TYPELESS, static_cast<UINT64>(m_shadowLocalSize), static_cast<UINT>(m_shadowLocalSize),
+        static_cast<UINT16>(MAX_LOCAL_SHADOW_SLICES), 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+    hr = m_d3d12Device->CreateCommittedResource(&defaultHeap, D3D12_HEAP_FLAG_NONE, &localDesc,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, &clearVal, IID_PPV_ARGS(&m_shadowLocalTex));
+    if (FAILED(hr)) { debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Shadow local array creation failed (0x%08X)", hr); return false; }
+    m_shadowLocalTex->SetName(L"DX12Renderer_ShadowLocalArray");
+
+    // --- Dedicated DSV heap: [0] = directional, [1 + s] = local slice s ---
+    D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc = {};
+    dsvHeapDesc.NumDescriptors = 1 + MAX_LOCAL_SHADOW_SLICES;
+    dsvHeapDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+    dsvHeapDesc.Flags          = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+    hr = m_d3d12Device->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_shadowDsvHeap.heap));
+    if (FAILED(hr)) { debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Shadow DSV heap creation failed (0x%08X)", hr); return false; }
+    m_shadowDsvHeap.cpuStart            = m_shadowDsvHeap.heap->GetCPUDescriptorHandleForHeapStart();
+    m_shadowDsvHeap.gpuStart            = {};
+    m_shadowDsvHeap.handleIncrementSize = m_d3d12Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
+    m_shadowDsvHeap.currentOffset       = 0;
+    m_shadowDsvHeap.heap->SetName(L"DX12Renderer_ShadowDSVHeap");
+
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
+    dsvDesc.Format        = DXGI_FORMAT_D32_FLOAT;
+    dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+    m_d3d12Device->CreateDepthStencilView(m_shadowDirTex.Get(), &dsvDesc,
+        CD3DX12_CPU_DESCRIPTOR_HANDLE(m_shadowDsvHeap.cpuStart, 0, m_shadowDsvHeap.handleIncrementSize));
+
+    for (int s = 0; s < MAX_LOCAL_SHADOW_SLICES; ++s)
     {
-        D3D12_DESCRIPTOR_RANGE srvRange = {};
-        srvRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-        srvRange.NumDescriptors                     = 1;
-        srvRange.BaseShaderRegister                 = 0;
-        srvRange.RegisterSpace                      = 0;
-        srvRange.OffsetInDescriptorsFromTableStart  = 0;
-
-        D3D12_ROOT_PARAMETER rootParams[2] = {};
-        rootParams[0].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-        rootParams[0].Constants.ShaderRegister  = 0;
-        rootParams[0].Constants.RegisterSpace   = 0;
-        rootParams[0].Constants.Num32BitValues  = 8;  // {left, topNDC, right, bottomNDC, alpha, pad, pad, pad}
-        rootParams[0].ShaderVisibility          = D3D12_SHADER_VISIBILITY_ALL;
-
-        rootParams[1].ParameterType                    = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-        rootParams[1].DescriptorTable.NumDescriptorRanges = 1;
-        rootParams[1].DescriptorTable.pDescriptorRanges   = &srvRange;
-        rootParams[1].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_PIXEL;
-
-        D3D12_STATIC_SAMPLER_DESC sampler = {};
-        sampler.Filter           = D3D12_FILTER_MIN_MAG_LINEAR_MIP_POINT;
-        sampler.AddressU         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-        sampler.AddressV         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-        sampler.AddressW         = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-        sampler.ShaderRegister   = 0;
-        sampler.RegisterSpace    = 0;
-        sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-        sampler.MaxLOD           = D3D12_FLOAT32_MAX;
-        sampler.ComparisonFunc   = D3D12_COMPARISON_FUNC_NEVER;
-
-        D3D12_ROOT_SIGNATURE_DESC rsDesc = {};
-        rsDesc.NumParameters     = 2;
-        rsDesc.pParameters       = rootParams;
-        rsDesc.NumStaticSamplers = 1;
-        rsDesc.pStaticSamplers   = &sampler;
-        rsDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
-                       D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
-                       D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS;
-
-        ComPtr<ID3DBlob> serialized, rsError;
-        hr = D3D12SerializeRootSignature(&rsDesc, D3D_ROOT_SIGNATURE_VERSION_1, &serialized, &rsError);
-        if (FAILED(hr)) {
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: D3D12SerializeRootSignature (sprite2D image) failed (0x%08X)", hr);
-            return false;
-        }
-
-        hr = m_d3d12Device->CreateRootSignature(0, serialized->GetBufferPointer(), serialized->GetBufferSize(),
-            IID_PPV_ARGS(&m_sprite2DImageRS));
-        if (FAILED(hr)) {
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: CreateRootSignature (sprite2D image) failed (0x%08X)", hr);
-            return false;
-        }
-        m_sprite2DImageRS->SetName(L"Sprite2DImageRS");
-
-        // VS: quad via SV_VertexID, corners lerped between the root-constant NDC rect.
-        static const char vsSource[] =
-            "cbuffer RectCB:register(b0){float4 rectNDC;float4 alphaPad;};"
-            "struct VSOut{float4 pos:SV_POSITION;float2 uv:TEXCOORD0;};"
-            "VSOut main(uint id:SV_VertexID){"
-            "VSOut o;"
-            "o.uv=float2((id&1u)?1.0f:0.0f,(id&2u)?0.0f:1.0f);"
-            "float x=lerp(rectNDC.x,rectNDC.z,o.uv.x);"
-            "float y=lerp(rectNDC.y,rectNDC.w,o.uv.y);"
-            "o.pos=float4(x,y,0.0f,1.0f);"
-            "return o;}";
-
-        // PS: sample premultiplied-alpha texture (matches the WIC PBGRA decode target used for
-        // both this native path and the existing D2D bitmap load), scale by alpha uniformly.
-        static const char psSource[] =
-            "cbuffer RectCB:register(b0){float4 rectNDC;float4 alphaPad;};"
-            "struct VSOut{float4 pos:SV_POSITION;float2 uv:TEXCOORD0;};"
-            "Texture2D<float4> t:register(t0);SamplerState s:register(s0);"
-            "float4 main(VSOut i):SV_TARGET{return t.Sample(s,i.uv)*alphaPad.x;}";
-
-        ComPtr<ID3DBlob> vsBlob, psBlob, compErr;
-        hr = D3DCompile(vsSource, sizeof(vsSource) - 1, "Sprite2DImageVS", nullptr, nullptr,
-            "main", "vs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &vsBlob, &compErr);
-        if (FAILED(hr)) {
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: sprite2D image VS compile failed");
-            return false;
-        }
-        hr = D3DCompile(psSource, sizeof(psSource) - 1, "Sprite2DImagePS", nullptr, nullptr,
-            "main", "ps_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &psBlob, &compErr);
-        if (FAILED(hr)) {
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: sprite2D image PS compile failed");
-            return false;
-        }
-
-        D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
-        psoDesc.pRootSignature = m_sprite2DImageRS.Get();
-        psoDesc.VS = { vsBlob->GetBufferPointer(), vsBlob->GetBufferSize() };
-        psoDesc.PS = { psBlob->GetBufferPointer(), psBlob->GetBufferSize() };
-
-        // Premultiplied alpha blend: src=ONE, dst=INV_SRC_ALPHA (matches the PBGRA source data)
-        psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-        psoDesc.BlendState.RenderTarget[0].BlendEnable    = TRUE;
-        psoDesc.BlendState.RenderTarget[0].SrcBlend       = D3D12_BLEND_ONE;
-        psoDesc.BlendState.RenderTarget[0].DestBlend      = D3D12_BLEND_INV_SRC_ALPHA;
-        psoDesc.BlendState.RenderTarget[0].BlendOp        = D3D12_BLEND_OP_ADD;
-        psoDesc.BlendState.RenderTarget[0].SrcBlendAlpha  = D3D12_BLEND_ONE;
-        psoDesc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
-        psoDesc.BlendState.RenderTarget[0].BlendOpAlpha   = D3D12_BLEND_OP_ADD;
-        psoDesc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-
-        psoDesc.SampleMask               = UINT_MAX;
-        psoDesc.RasterizerState          = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-        psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
-
-        psoDesc.DepthStencilState                = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-        psoDesc.DepthStencilState.DepthEnable     = FALSE;
-        psoDesc.DepthStencilState.DepthWriteMask  = D3D12_DEPTH_WRITE_MASK_ZERO;
-        psoDesc.DepthStencilState.StencilEnable   = FALSE;
-
-        psoDesc.InputLayout           = {};    // SV_VertexID — no VB
-        psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-        psoDesc.NumRenderTargets      = 1;
-        psoDesc.RTVFormats[0]        = DXGI_FORMAT_R8G8B8A8_UNORM;
-        psoDesc.DSVFormat            = DXGI_FORMAT_UNKNOWN;
-        psoDesc.SampleDesc.Count     = 1;
-
-        hr = m_d3d12Device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_sprite2DImagePSO));
-        if (FAILED(hr)) {
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: CreateGraphicsPipelineState (sprite2D image) failed (0x%08X)", hr);
-            return false;
-        }
-        m_sprite2DImagePSO->SetName(L"Sprite2DImagePSO");
+        D3D12_DEPTH_STENCIL_VIEW_DESC adsv = {};
+        adsv.Format                         = DXGI_FORMAT_D32_FLOAT;
+        adsv.ViewDimension                  = D3D12_DSV_DIMENSION_TEXTURE2DARRAY;
+        adsv.Texture2DArray.MipSlice        = 0;
+        adsv.Texture2DArray.FirstArraySlice = static_cast<UINT>(s);
+        adsv.Texture2DArray.ArraySize       = 1;
+        m_d3d12Device->CreateDepthStencilView(m_shadowLocalTex.Get(), &adsv,
+            CD3DX12_CPU_DESCRIPTOR_HANDLE(m_shadowDsvHeap.cpuStart, 1 + s, m_shadowDsvHeap.handleIncrementSize));
     }
 
-    // ── Particle pipeline: procedural colored quads from a StructuredBuffer, no texture ────
-    {
-        D3D12_DESCRIPTOR_RANGE srvRange = {};
-        srvRange.RangeType                         = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-        srvRange.NumDescriptors                     = 1;
-        srvRange.BaseShaderRegister                 = 0;
-        srvRange.RegisterSpace                      = 0;
-        srvRange.OffsetInDescriptorsFromTableStart  = 0;
+    // --- SRVs at DX12_SHADOW_SRV_BASE (t8, t9) in the shader-visible heap ---
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDir = {};
+    srvDir.Format                  = DXGI_FORMAT_R32_FLOAT;
+    srvDir.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDir.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDir.Texture2D.MipLevels     = 1;
+    m_d3d12Device->CreateShaderResourceView(m_shadowDirTex.Get(), &srvDir,
+        CD3DX12_CPU_DESCRIPTOR_HANDLE(m_cbvSrvUavHeap.cpuStart, DX12_SHADOW_SRV_BASE, m_cbvSrvUavHeap.handleIncrementSize));
 
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvLocal = {};
+    srvLocal.Format                         = DXGI_FORMAT_R32_FLOAT;
+    srvLocal.ViewDimension                  = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+    srvLocal.Shader4ComponentMapping        = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvLocal.Texture2DArray.MipLevels       = 1;
+    srvLocal.Texture2DArray.FirstArraySlice = 0;
+    srvLocal.Texture2DArray.ArraySize       = MAX_LOCAL_SHADOW_SLICES;
+    m_d3d12Device->CreateShaderResourceView(m_shadowLocalTex.Get(), &srvLocal,
+        CD3DX12_CPU_DESCRIPTOR_HANDLE(m_cbvSrvUavHeap.cpuStart, DX12_SHADOW_SRV_BASE + 1, m_cbvSrvUavHeap.handleIncrementSize));
+
+    // t10: scene reflection probe.  Starts as a NULL cube SRV so the table is always fully valid;
+    // UpdateReflectionProbeDX12() overwrites it once the probe texture exists.
+    {
+        D3D12_SHADER_RESOURCE_VIEW_DESC nullCube = {};
+        nullCube.Format                  = DXGI_FORMAT_R8G8B8A8_UNORM;
+        nullCube.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURECUBE;
+        nullCube.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        nullCube.TextureCube.MipLevels   = 1;
+        m_d3d12Device->CreateShaderResourceView(nullptr, &nullCube,
+            CD3DX12_CPU_DESCRIPTOR_HANDLE(m_cbvSrvUavHeap.cpuStart, DX12_SHADOW_SRV_BASE + 2, m_cbvSrvUavHeap.handleIncrementSize));
+    }
+
+    // t11: planar mirror renders (array).  Starts as a NULL array SRV; CreatePlanarResourcesDX12() overwrites it.
+    {
+        D3D12_SHADER_RESOURCE_VIEW_DESC nullTex2D = {};                         // planarMap is a Texture2DArray
+        nullTex2D.Format                         = DXGI_FORMAT_R8G8B8A8_UNORM;
+        nullTex2D.ViewDimension                  = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+        nullTex2D.Shader4ComponentMapping        = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        nullTex2D.Texture2DArray.MipLevels       = 1;
+        nullTex2D.Texture2DArray.ArraySize       = MAX_PLANAR_PLANES;
+        m_d3d12Device->CreateShaderResourceView(nullptr, &nullTex2D,
+            CD3DX12_CPU_DESCRIPTOR_HANDLE(m_cbvSrvUavHeap.cpuStart, DX12_SHADOW_SRV_BASE + 3, m_cbvSrvUavHeap.handleIncrementSize));
+
+        // Mirror-pass copy of the table: same t8 / t9 SRVs, NULL cube (t10, rewritten when the probe exists), NULL t11.
+        D3D12_SHADER_RESOURCE_VIEW_DESC nullCubeMirror = {};
+        nullCubeMirror.Format                  = DXGI_FORMAT_R8G8B8A8_UNORM;
+        nullCubeMirror.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURECUBE;
+        nullCubeMirror.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        nullCubeMirror.TextureCube.MipLevels   = 1;
+        auto mirrorCpu = [this](UINT i) { return CD3DX12_CPU_DESCRIPTOR_HANDLE(m_cbvSrvUavHeap.cpuStart, DX12_SHADOW_SRV_BASE + 4 + i, m_cbvSrvUavHeap.handleIncrementSize); };
+        m_d3d12Device->CreateShaderResourceView(m_shadowDirTex.Get(),   &srvDir,   mirrorCpu(0));
+        m_d3d12Device->CreateShaderResourceView(m_shadowLocalTex.Get(), &srvLocal, mirrorCpu(1));
+        m_d3d12Device->CreateShaderResourceView(nullptr, &nullCubeMirror, mirrorCpu(2));
+        m_d3d12Device->CreateShaderResourceView(nullptr, &nullTex2D,      mirrorCpu(3));
+        m_planarMirrorTable = CD3DX12_GPU_DESCRIPTOR_HANDLE(m_cbvSrvUavHeap.gpuStart,
+            DX12_SHADOW_SRV_BASE + 4, m_cbvSrvUavHeap.handleIncrementSize);
+
+        // Live copy of the main table ([8..11]): t10 = NULL cube until CreateCaptureResourcesDX12() writes the capture cube,
+        // t11 = NULL array until CreatePlanarResourcesDX12() writes the planar array.
+        auto liveCpu = [this](UINT i) { return CD3DX12_CPU_DESCRIPTOR_HANDLE(m_cbvSrvUavHeap.cpuStart, DX12_SHADOW_SRV_BASE + 8 + i, m_cbvSrvUavHeap.handleIncrementSize); };
+        m_d3d12Device->CreateShaderResourceView(m_shadowDirTex.Get(),   &srvDir,   liveCpu(0));
+        m_d3d12Device->CreateShaderResourceView(m_shadowLocalTex.Get(), &srvLocal, liveCpu(1));
+        m_d3d12Device->CreateShaderResourceView(nullptr, &nullCubeMirror, liveCpu(2));
+        m_d3d12Device->CreateShaderResourceView(nullptr, &nullTex2D,      liveCpu(3));
+        m_shadowSRVTableLive = CD3DX12_GPU_DESCRIPTOR_HANDLE(m_cbvSrvUavHeap.gpuStart,
+            DX12_SHADOW_SRV_BASE + 8, m_cbvSrvUavHeap.handleIncrementSize);
+    }
+
+    m_shadowSRVTable = CD3DX12_GPU_DESCRIPTOR_HANDLE(m_cbvSrvUavHeap.gpuStart,
+        DX12_SHADOW_SRV_BASE, m_cbvSrvUavHeap.handleIncrementSize);
+
+    // --- Root signature: b0 = 20 root constants (VS only) ---
+    {
         D3D12_ROOT_PARAMETER rootParam = {};
-        rootParam.ParameterType                    = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-        rootParam.DescriptorTable.NumDescriptorRanges = 1;
-        rootParam.DescriptorTable.pDescriptorRanges   = &srvRange;
-        rootParam.ShaderVisibility                    = D3D12_SHADER_VISIBILITY_VERTEX;
+        rootParam.ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        rootParam.Constants.ShaderRegister = 0;
+        rootParam.Constants.RegisterSpace  = 0;
+        rootParam.Constants.Num32BitValues = 20;                                // float4x4 worldLightVP + float4 scale
+        rootParam.ShaderVisibility         = D3D12_SHADER_VISIBILITY_VERTEX;
 
         D3D12_ROOT_SIGNATURE_DESC rsDesc = {};
         rsDesc.NumParameters = 1;
         rsDesc.pParameters   = &rootParam;
-        rsDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
+        rsDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
+                       D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
                        D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
                        D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS |
                        D3D12_ROOT_SIGNATURE_FLAG_DENY_PIXEL_SHADER_ROOT_ACCESS;
 
         ComPtr<ID3DBlob> serialized, rsError;
         hr = D3D12SerializeRootSignature(&rsDesc, D3D_ROOT_SIGNATURE_VERSION_1, &serialized, &rsError);
-        if (FAILED(hr)) {
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: D3D12SerializeRootSignature (sprite2D particle) failed (0x%08X)", hr);
-            return false;
-        }
-
+        if (FAILED(hr)) { debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Shadow root signature serialize failed (0x%08X)", hr); return false; }
         hr = m_d3d12Device->CreateRootSignature(0, serialized->GetBufferPointer(), serialized->GetBufferSize(),
-            IID_PPV_ARGS(&m_sprite2DParticleRS));
-        if (FAILED(hr)) {
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: CreateRootSignature (sprite2D particle) failed (0x%08X)", hr);
-            return false;
-        }
-        m_sprite2DParticleRS->SetName(L"Sprite2DParticleRS");
-
-        // VS: reads one instance per SV_InstanceID, expands a quad via SV_VertexID.
-        static const char vsSource[] =
-            "struct ParticleInstance{float2 centerNDC;float2 halfSize;float4 color;};"
-            "StructuredBuffer<ParticleInstance> g_particles:register(t0);"
-            "struct VSOut{float4 pos:SV_POSITION;float4 color:COLOR0;};"
-            "VSOut main(uint vid:SV_VertexID,uint iid:SV_InstanceID){"
-            "VSOut o;"
-            "ParticleInstance p=g_particles[iid];"
-            "float2 corner=float2((vid&1u)?1.0f:-1.0f,(vid&2u)?-1.0f:1.0f);"
-            "o.pos=float4(p.centerNDC+corner*p.halfSize,0.0f,1.0f);"
-            "o.color=p.color;"
-            "return o;}";
-
-        static const char psSource[] =
-            "struct VSOut{float4 pos:SV_POSITION;float4 color:COLOR0;};"
-            "float4 main(VSOut i):SV_TARGET{return i.color;}";
-
-        ComPtr<ID3DBlob> vsBlob, psBlob, compErr;
-        hr = D3DCompile(vsSource, sizeof(vsSource) - 1, "Sprite2DParticleVS", nullptr, nullptr,
-            "main", "vs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &vsBlob, &compErr);
-        if (FAILED(hr)) {
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: sprite2D particle VS compile failed");
-            return false;
-        }
-        hr = D3DCompile(psSource, sizeof(psSource) - 1, "Sprite2DParticlePS", nullptr, nullptr,
-            "main", "ps_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &psBlob, &compErr);
-        if (FAILED(hr)) {
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: sprite2D particle PS compile failed");
-            return false;
-        }
-
-        D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
-        psoDesc.pRootSignature = m_sprite2DParticleRS.Get();
-        psoDesc.VS = { vsBlob->GetBufferPointer(), vsBlob->GetBufferSize() };
-        psoDesc.PS = { psBlob->GetBufferPointer(), psBlob->GetBufferSize() };
-
-        // Straight (non-premultiplied) alpha blend — matches D2D FillRectangle's compositing
-        // model for the solid-color rects this replaces (D2D takes straight ColorF input).
-        psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-        psoDesc.BlendState.RenderTarget[0].BlendEnable    = TRUE;
-        psoDesc.BlendState.RenderTarget[0].SrcBlend       = D3D12_BLEND_SRC_ALPHA;
-        psoDesc.BlendState.RenderTarget[0].DestBlend      = D3D12_BLEND_INV_SRC_ALPHA;
-        psoDesc.BlendState.RenderTarget[0].BlendOp        = D3D12_BLEND_OP_ADD;
-        psoDesc.BlendState.RenderTarget[0].SrcBlendAlpha  = D3D12_BLEND_ONE;
-        psoDesc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
-        psoDesc.BlendState.RenderTarget[0].BlendOpAlpha   = D3D12_BLEND_OP_ADD;
-        psoDesc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-
-        psoDesc.SampleMask               = UINT_MAX;
-        psoDesc.RasterizerState          = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-        psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
-
-        psoDesc.DepthStencilState               = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-        psoDesc.DepthStencilState.DepthEnable    = FALSE;
-        psoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-        psoDesc.DepthStencilState.StencilEnable  = FALSE;
-
-        psoDesc.InputLayout           = {};    // SV_VertexID/SV_InstanceID — no VB
-        psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-        psoDesc.NumRenderTargets      = 1;
-        psoDesc.RTVFormats[0]        = DXGI_FORMAT_R8G8B8A8_UNORM;
-        psoDesc.DSVFormat            = DXGI_FORMAT_UNKNOWN;
-        psoDesc.SampleDesc.Count     = 1;
-
-        hr = m_d3d12Device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_sprite2DParticlePSO));
-        if (FAILED(hr)) {
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: CreateGraphicsPipelineState (sprite2D particle) failed (0x%08X)", hr);
-            return false;
-        }
-        m_sprite2DParticlePSO->SetName(L"Sprite2DParticlePSO");
-
-        // Persistently-mapped upload-heap StructuredBuffer for particle instances.
-        const UINT64 bufSize = sizeof(Sprite2DParticleInstance) * kMaxNative2DParticles;
-        CD3DX12_HEAP_PROPERTIES uploadHeap(D3D12_HEAP_TYPE_UPLOAD);
-        CD3DX12_RESOURCE_DESC   bufDesc = CD3DX12_RESOURCE_DESC::Buffer(bufSize);
-        hr = m_d3d12Device->CreateCommittedResource(&uploadHeap, D3D12_HEAP_FLAG_NONE, &bufDesc,
-            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&m_sprite2DParticleBuffer));
-        if (FAILED(hr)) {
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: CreateCommittedResource (sprite2D particle buffer) failed (0x%08X)", hr);
-            return false;
-        }
-        m_sprite2DParticleBuffer->SetName(L"Sprite2DParticleBuffer");
-
-        CD3DX12_RANGE noRead(0, 0);
-        hr = m_sprite2DParticleBuffer->Map(0, &noRead, reinterpret_cast<void**>(&m_sprite2DParticleMapped));
-        if (FAILED(hr)) {
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Map (sprite2D particle buffer) failed (0x%08X)", hr);
-            return false;
-        }
-
-        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-        srvDesc.Format                     = DXGI_FORMAT_UNKNOWN;
-        srvDesc.ViewDimension              = D3D12_SRV_DIMENSION_BUFFER;
-        srvDesc.Shader4ComponentMapping    = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        srvDesc.Buffer.FirstElement        = 0;
-        srvDesc.Buffer.NumElements         = kMaxNative2DParticles;
-        srvDesc.Buffer.StructureByteStride = sizeof(Sprite2DParticleInstance);
-        srvDesc.Buffer.Flags               = D3D12_BUFFER_SRV_FLAG_NONE;
-
-        CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvUavHeap.cpuStart,
-            DX12_SPRITE2D_PARTICLE_SRV_BASE, m_cbvSrvUavHeap.handleIncrementSize);
-        m_d3d12Device->CreateShaderResourceView(m_sprite2DParticleBuffer.Get(), &srvDesc, srvHandle);
-
-        m_sprite2DParticleSRV = CD3DX12_GPU_DESCRIPTOR_HANDLE(m_cbvSrvUavHeap.gpuStart,
-            DX12_SPRITE2D_PARTICLE_SRV_BASE, m_cbvSrvUavHeap.handleIncrementSize);
+            IID_PPV_ARGS(&m_shadowRootSignature));
+        if (FAILED(hr)) { debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Shadow root signature creation failed (0x%08X)", hr); return false; }
+        m_shadowRootSignature->SetName(L"DX12Renderer_ShadowRootSignature");
     }
 
-    debug.logLevelMessage(LogLevel::LOG_INFO, L"DX12Renderer: Native sprite2D pipelines created successfully.");
+    // --- Depth-only VS: clip = float4(pos * scale, 1) * (World * LightViewProj) ---
+    static const char kShadowVS[] =
+        "cbuffer ShadowPassCB : register(b0)\n"
+        "{\n"
+        "    float4x4 worldLightVP;\n"
+        "    float4   modelScale;\n"
+        "};\n"
+        "float4 main(float3 pos : POSITION) : SV_POSITION\n"
+        "{\n"
+        "    return mul(float4(pos * modelScale.xyz, 1.0f), worldLightVP);\n"
+        "}\n";
+
+    ComPtr<ID3DBlob> vsBlob, compErr;
+    hr = D3DCompile(kShadowVS, sizeof(kShadowVS) - 1, "ShadowDepthVS", nullptr, nullptr,
+        "main", "vs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &vsBlob, &compErr);
+    if (FAILED(hr))
+    {
+        if (compErr)
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Shadow VS compile error: %hs",
+                static_cast<const char*>(compErr->GetBufferPointer()));
+        return false;
+    }
+
+    // POSITION only; stride comes from the model's D3D12_VERTEX_BUFFER_VIEW (sizeof(Vertex)).
+    D3D12_INPUT_ELEMENT_DESC inputElements[] = {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+    };
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+    psoDesc.pRootSignature        = m_shadowRootSignature.Get();
+    psoDesc.VS                    = { vsBlob->GetBufferPointer(), vsBlob->GetBufferSize() };
+    psoDesc.PS                    = { nullptr, 0 };                             // depth only
+    psoDesc.BlendState            = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    psoDesc.SampleMask            = UINT_MAX;
+    psoDesc.RasterizerState       = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    psoDesc.RasterizerState.CullMode             = D3D12_CULL_MODE_NONE;        // single-sided geometry still casts
+    psoDesc.RasterizerState.DepthBias            = 1000;
+    psoDesc.RasterizerState.DepthBiasClamp       = 0.0f;
+    psoDesc.RasterizerState.SlopeScaledDepthBias = 1.5f;
+    psoDesc.RasterizerState.DepthClipEnable      = TRUE;
+    psoDesc.DepthStencilState     = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    psoDesc.DepthStencilState.DepthEnable    = TRUE;
+    psoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    psoDesc.DepthStencilState.DepthFunc      = D3D12_COMPARISON_FUNC_LESS;
+    psoDesc.DepthStencilState.StencilEnable  = FALSE;
+    psoDesc.InputLayout           = { inputElements, _countof(inputElements) };
+    psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    psoDesc.NumRenderTargets      = 0;
+    psoDesc.DSVFormat             = DXGI_FORMAT_D32_FLOAT;
+    psoDesc.SampleDesc.Count      = 1;
+
+    hr = m_d3d12Device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_shadowPSO));
+    if (FAILED(hr)) { debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Shadow PSO creation failed (0x%08X)", hr); return false; }
+    m_shadowPSO->SetName(L"DX12Renderer_ShadowDepthPSO");
+
+    m_shadowResourcesReady = true;
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Shadow resources created (dir %d, local %d x %d slices)",
+        m_shadowDirSize, m_shadowLocalSize, MAX_LOCAL_SHADOW_SLICES);
     return true;
 }
 
 //-----------------------------------------
-// LoadSprite2DNativeTexture
-// WIC-decodes an image straight to a native D3D12 texture + SRV, bypassing Direct2D
-// entirely. Deliberately self-contained (does not reuse UploadTextureData/m_d3d12Textures)
-// to avoid any risk of index collision with the model/3D-texture SRV range.
+// ReleaseShadowResources — caller guarantees the GPU is idle (Cleanup path).
 //-----------------------------------------
-bool DX12Renderer::LoadSprite2DNativeTexture(int slot, const std::wstring& filename)
+void DX12Renderer::ReleaseShadowResources()
 {
-    if (slot < 0 || slot > 1 || !m_d3d12Device)
+    m_shadowResourcesReady = false;
+    m_shadowPSO.Reset();
+    m_shadowRootSignature.Reset();
+    m_shadowDirTex.Reset();
+    m_shadowLocalTex.Reset();
+    m_shadowDsvHeap.heap.Reset();
+    m_shadowDsvHeap.cpuStart = {};
+    m_shadowSRVTable = {};
+    m_planarMirrorTable = {};
+    m_shadowSRVTableLive = {};
+}
+
+//-----------------------------------------
+// Planar reflection target (see "Planar Reflections" in Lights.h).  Created lazily when a reflector
+// model exists, at the config planarQuality size.  Colour R8G8B8A8_UNORM + depth D24_UNORM_S8_UINT so the
+// main PSO is valid for the mirror pass.  Non-fatal: reflectors render without the mirror image.
+//-----------------------------------------
+bool DX12Renderer::CreatePlanarResourcesDX12()
+{
+    ReleasePlanarResourcesDX12();
+    if (!m_d3d12Device || !m_cbvSrvUavHeap.heap) return false;
+
+    m_planarW = PlanarWidthFromConfig();
+    m_planarH = PlanarHeightFromConfig();
+
+    CD3DX12_HEAP_PROPERTIES defaultHeap(D3D12_HEAP_TYPE_DEFAULT);
+
+    D3D12_CLEAR_VALUE colorClear = {};
+    colorClear.Format   = DXGI_FORMAT_R8G8B8A8_UNORM;
+    colorClear.Color[3] = 1.0f;                                                 // opaque black; RenderPlanarPassDX12 clears with the same value
+    CD3DX12_RESOURCE_DESC colorDesc = CD3DX12_RESOURCE_DESC::Tex2D(
+        DXGI_FORMAT_R8G8B8A8_UNORM, static_cast<UINT64>(m_planarW), static_cast<UINT>(m_planarH),
+        static_cast<UINT16>(MAX_PLANAR_PLANES), 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
+    HRESULT hr = m_d3d12Device->CreateCommittedResource(&defaultHeap, D3D12_HEAP_FLAG_NONE, &colorDesc,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, &colorClear, IID_PPV_ARGS(&m_planarTex));
+
+    if (SUCCEEDED(hr))
+    {
+        D3D12_CLEAR_VALUE depthClear = {};
+        depthClear.Format             = DXGI_FORMAT_D24_UNORM_S8_UINT;
+        depthClear.DepthStencil.Depth = 1.0f;
+        CD3DX12_RESOURCE_DESC depthDesc = CD3DX12_RESOURCE_DESC::Tex2D(
+            DXGI_FORMAT_D24_UNORM_S8_UINT, static_cast<UINT64>(m_planarW), static_cast<UINT>(m_planarH),
+            1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+        hr = m_d3d12Device->CreateCommittedResource(&defaultHeap, D3D12_HEAP_FLAG_NONE, &depthDesc,
+            D3D12_RESOURCE_STATE_DEPTH_WRITE, &depthClear, IID_PPV_ARGS(&m_planarDepth));
+    }
+
+    if (SUCCEEDED(hr))
+    {
+        D3D12_DESCRIPTOR_HEAP_DESC rtvDesc = {};
+        rtvDesc.NumDescriptors = MAX_PLANAR_PLANES;
+        rtvDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+        hr = m_d3d12Device->CreateDescriptorHeap(&rtvDesc, IID_PPV_ARGS(&m_planarRtvHeap.heap));
+    }
+    if (SUCCEEDED(hr))
+    {
+        D3D12_DESCRIPTOR_HEAP_DESC dsvDesc = {};
+        dsvDesc.NumDescriptors = 1;
+        dsvDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+        hr = m_d3d12Device->CreateDescriptorHeap(&dsvDesc, IID_PPV_ARGS(&m_planarDsvHeap.heap));
+    }
+
+    if (FAILED(hr))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Planar reflection target creation failed (0x%08X)", hr);
+        ReleaseCaptureResourcesDX12();
+        ReleasePlanarResourcesDX12();
+        m_planarFailed = true;
         return false;
+    }
 
-    try {
-        ComPtr<IWICImagingFactory> wicFactory;
-        HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wicFactory));
-        if (FAILED(hr)) return false;
+    m_planarRtvHeap.cpuStart            = m_planarRtvHeap.heap->GetCPUDescriptorHandleForHeapStart();
+    m_planarRtvHeap.handleIncrementSize = m_d3d12Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+    m_planarDsvHeap.cpuStart            = m_planarDsvHeap.heap->GetCPUDescriptorHandleForHeapStart();
+    for (int p = 0; p < MAX_PLANAR_PLANES; ++p)
+    {
+        D3D12_RENDER_TARGET_VIEW_DESC rd = {};
+        rd.Format                         = DXGI_FORMAT_R8G8B8A8_UNORM;
+        rd.ViewDimension                  = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
+        rd.Texture2DArray.MipSlice        = 0;
+        rd.Texture2DArray.FirstArraySlice = static_cast<UINT>(p);
+        rd.Texture2DArray.ArraySize       = 1;
+        m_d3d12Device->CreateRenderTargetView(m_planarTex.Get(), &rd,
+            CD3DX12_CPU_DESCRIPTOR_HANDLE(m_planarRtvHeap.cpuStart, p, m_planarRtvHeap.handleIncrementSize));
+    }
+    m_d3d12Device->CreateDepthStencilView(m_planarDepth.Get(), nullptr, m_planarDsvHeap.cpuStart);
+    m_planarTex->SetName(L"DX12Renderer_PlanarColorArray");
+    m_planarDepth->SetName(L"DX12Renderer_PlanarDepth");
 
-        ComPtr<IWICBitmapDecoder> decoder;
-        hr = wicFactory->CreateDecoderFromFilename(filename.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnLoad, &decoder);
-        if (FAILED(hr)) {
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: sprite2D WIC decoder failed for file: %s", filename.c_str());
-            return false;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
+    srv.Format                         = DXGI_FORMAT_R8G8B8A8_UNORM;
+    srv.ViewDimension                  = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+    srv.Shader4ComponentMapping        = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv.Texture2DArray.MostDetailedMip = 0;
+    srv.Texture2DArray.MipLevels       = 1;
+    srv.Texture2DArray.FirstArraySlice = 0;
+    srv.Texture2DArray.ArraySize       = MAX_PLANAR_PLANES;
+    m_d3d12Device->CreateShaderResourceView(m_planarTex.Get(), &srv,
+        CD3DX12_CPU_DESCRIPTOR_HANDLE(m_cbvSrvUavHeap.cpuStart, DX12_SHADOW_SRV_BASE + 3, m_cbvSrvUavHeap.handleIncrementSize));
+    m_d3d12Device->CreateShaderResourceView(m_planarTex.Get(), &srv,                       // live table copy of t11
+        CD3DX12_CPU_DESCRIPTOR_HANDLE(m_cbvSrvUavHeap.cpuStart, DX12_SHADOW_SRV_BASE + 8 + 3, m_cbvSrvUavHeap.handleIncrementSize));
+
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Planar reflection target created (%d x %d x %d planes)",
+        m_planarW, m_planarH, MAX_PLANAR_PLANES);
+    return true;
+}
+
+//-----------------------------------------
+// Live scene capture (see "Live scene capture" in Lights.h).  Created lazily once the sky probe exists.
+// Non-fatal: on failure m_capFailed is set and the reflections keep using the sky cube.
+//-----------------------------------------
+bool DX12Renderer::CreateCaptureResourcesDX12()
+{
+    ReleaseCaptureResourcesDX12();
+    if (!m_d3d12Device || !m_cbvSrvUavHeap.heap || m_reflProbe.size <= 0 || m_shadowSRVTableLive.ptr == 0) return false;
+
+    m_capSize = m_reflProbe.size;
+    m_capMips = m_reflProbe.mipCount;
+    const UINT size = static_cast<UINT>(m_capSize);
+    const UINT mips = static_cast<UINT>(m_capMips);
+
+    CD3DX12_HEAP_PROPERTIES defaultHeap(D3D12_HEAP_TYPE_DEFAULT);
+    D3D12_CLEAR_VALUE colorClear = {};
+    colorClear.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    CD3DX12_RESOURCE_DESC colorDesc = CD3DX12_RESOURCE_DESC::Tex2D(
+        DXGI_FORMAT_R8G8B8A8_UNORM, size, size, 6, static_cast<UINT16>(mips), 1, 0, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
+    HRESULT hr = m_d3d12Device->CreateCommittedResource(&defaultHeap, D3D12_HEAP_FLAG_NONE, &colorDesc,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, &colorClear, IID_PPV_ARGS(&m_capTex));
+
+    if (SUCCEEDED(hr))
+    {
+        D3D12_CLEAR_VALUE depthClear = {};
+        depthClear.Format             = DXGI_FORMAT_D24_UNORM_S8_UINT;
+        depthClear.DepthStencil.Depth = 1.0f;
+        CD3DX12_RESOURCE_DESC depthDesc = CD3DX12_RESOURCE_DESC::Tex2D(
+            DXGI_FORMAT_D24_UNORM_S8_UINT, size, size, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+        hr = m_d3d12Device->CreateCommittedResource(&defaultHeap, D3D12_HEAP_FLAG_NONE, &depthDesc,
+            D3D12_RESOURCE_STATE_DEPTH_WRITE, &depthClear, IID_PPV_ARGS(&m_capDepth));
+    }
+    if (SUCCEEDED(hr))
+    {
+        D3D12_DESCRIPTOR_HEAP_DESC rtvDesc = {};
+        rtvDesc.NumDescriptors = 6 * mips;
+        rtvDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+        hr = m_d3d12Device->CreateDescriptorHeap(&rtvDesc, IID_PPV_ARGS(&m_capRtvHeap.heap));
+    }
+    if (SUCCEEDED(hr))
+    {
+        D3D12_DESCRIPTOR_HEAP_DESC dsvDesc = {};
+        dsvDesc.NumDescriptors = 1;
+        dsvDesc.Type           = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+        hr = m_d3d12Device->CreateDescriptorHeap(&dsvDesc, IID_PPV_ARGS(&m_capDsvHeap.heap));
+    }
+
+    // --- fullscreen-triangle downsample PSO (box filter via one bilinear tap at the destination texel centre) ---
+    if (SUCCEEDED(hr))
+    {
+        static const char kDownHLSL[] =
+            "Texture2D src : register(t0);\n"
+            "SamplerState smp : register(s0);\n"
+            "struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };\n"
+            "VSOut VSMain(uint id : SV_VertexID)\n"
+            "{\n"
+            "    VSOut o;\n"
+            "    float2 uv = float2((id << 1) & 2, id & 2);\n"
+            "    o.uv  = uv;\n"
+            "    o.pos = float4(uv * float2(2.0f, -2.0f) + float2(-1.0f, 1.0f), 0.0f, 1.0f);\n"
+            "    return o;\n"
+            "}\n"
+            "float4 PSMain(VSOut i) : SV_TARGET { return src.SampleLevel(smp, i.uv, 0); }\n";
+
+        ComPtr<ID3DBlob> vsBlob, psBlob, err;
+        hr = D3DCompile(kDownHLSL, sizeof(kDownHLSL) - 1, "CaptureDownVS", nullptr, nullptr, "VSMain", "vs_5_0", 0, 0, &vsBlob, &err);
+        if (SUCCEEDED(hr))
+            hr = D3DCompile(kDownHLSL, sizeof(kDownHLSL) - 1, "CaptureDownPS", nullptr, nullptr, "PSMain", "ps_5_0", 0, 0, &psBlob, &err);
+        if (FAILED(hr) && err)
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Capture downsample shader error: %hs", static_cast<const char*>(err->GetBufferPointer()));
+
+        if (SUCCEEDED(hr))
+        {
+            D3D12_DESCRIPTOR_RANGE range = {};
+            range.RangeType          = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+            range.NumDescriptors     = 1;
+            range.BaseShaderRegister = 0;
+            range.OffsetInDescriptorsFromTableStart = 0;
+            D3D12_ROOT_PARAMETER rootParam = {};
+            rootParam.ParameterType                       = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+            rootParam.DescriptorTable.NumDescriptorRanges = 1;
+            rootParam.DescriptorTable.pDescriptorRanges   = &range;
+            rootParam.ShaderVisibility                    = D3D12_SHADER_VISIBILITY_PIXEL;
+            D3D12_STATIC_SAMPLER_DESC samp = {};
+            samp.Filter           = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+            samp.AddressU = samp.AddressV = samp.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+            samp.MaxLOD           = D3D12_FLOAT32_MAX;
+            samp.ComparisonFunc   = D3D12_COMPARISON_FUNC_NEVER;
+            samp.ShaderRegister   = 0;
+            samp.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+            D3D12_ROOT_SIGNATURE_DESC rsDesc = {};
+            rsDesc.NumParameters     = 1;
+            rsDesc.pParameters       = &rootParam;
+            rsDesc.NumStaticSamplers = 1;
+            rsDesc.pStaticSamplers   = &samp;
+            ComPtr<ID3DBlob> rsBlob;
+            hr = D3D12SerializeRootSignature(&rsDesc, D3D_ROOT_SIGNATURE_VERSION_1, &rsBlob, &err);
+            if (SUCCEEDED(hr))
+                hr = m_d3d12Device->CreateRootSignature(0, rsBlob->GetBufferPointer(), rsBlob->GetBufferSize(), IID_PPV_ARGS(&m_capDownRootSig));
+            if (SUCCEEDED(hr))
+            {
+                D3D12_GRAPHICS_PIPELINE_STATE_DESC pso = {};
+                pso.pRootSignature        = m_capDownRootSig.Get();
+                pso.VS                    = { vsBlob->GetBufferPointer(), vsBlob->GetBufferSize() };
+                pso.PS                    = { psBlob->GetBufferPointer(), psBlob->GetBufferSize() };
+                pso.BlendState            = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+                pso.SampleMask            = UINT_MAX;
+                pso.RasterizerState       = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+                pso.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+                pso.DepthStencilState.DepthEnable   = FALSE;
+                pso.DepthStencilState.StencilEnable = FALSE;
+                pso.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+                pso.NumRenderTargets      = 1;
+                pso.RTVFormats[0]         = DXGI_FORMAT_R8G8B8A8_UNORM;
+                pso.SampleDesc.Count      = 1;
+                hr = m_d3d12Device->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&m_capDownPSO));
+            }
+        }
+    }
+
+    if (FAILED(hr))
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Live reflection capture creation failed (0x%08X)", hr);
+        ReleaseCaptureResourcesDX12();
+        m_capFailed = true;
+        return false;
+    }
+
+    m_capRtvHeap.cpuStart            = m_capRtvHeap.heap->GetCPUDescriptorHandleForHeapStart();
+    m_capRtvHeap.handleIncrementSize = m_d3d12Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+    m_capDsvHeap.cpuStart            = m_capDsvHeap.heap->GetCPUDescriptorHandleForHeapStart();
+    for (UINT f = 0; f < 6; ++f)
+        for (UINT m = 0; m < mips; ++m)
+        {
+            D3D12_RENDER_TARGET_VIEW_DESC rd = {};
+            rd.Format                         = DXGI_FORMAT_R8G8B8A8_UNORM;
+            rd.ViewDimension                  = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
+            rd.Texture2DArray.MipSlice        = m;
+            rd.Texture2DArray.FirstArraySlice = f;
+            rd.Texture2DArray.ArraySize       = 1;
+            m_d3d12Device->CreateRenderTargetView(m_capTex.Get(), &rd,
+                CD3DX12_CPU_DESCRIPTOR_HANDLE(m_capRtvHeap.cpuStart, f * mips + m, m_capRtvHeap.handleIncrementSize));
+        }
+    m_d3d12Device->CreateDepthStencilView(m_capDepth.Get(), nullptr, m_capDsvHeap.cpuStart);
+    m_capTex->SetName(L"DX12Renderer_LiveReflectionCube");
+
+    // Cube SRV into the live table's t10 (slot +8 + 2).
+    D3D12_SHADER_RESOURCE_VIEW_DESC cube = {};
+    cube.Format                    = DXGI_FORMAT_R8G8B8A8_UNORM;
+    cube.ViewDimension             = D3D12_SRV_DIMENSION_TEXTURECUBE;
+    cube.Shader4ComponentMapping   = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    cube.TextureCube.MostDetailedMip = 0;
+    cube.TextureCube.MipLevels     = mips;
+    m_d3d12Device->CreateShaderResourceView(m_capTex.Get(), &cube,
+        CD3DX12_CPU_DESCRIPTOR_HANDLE(m_cbvSrvUavHeap.cpuStart, DX12_SHADOW_SRV_BASE + 8 + 2, m_cbvSrvUavHeap.handleIncrementSize));
+
+    // One 2D SRV per (face, source mip) for the downsample chain: slot DX12_CAPTURE_SRV_BASE + face * (mips - 1) + (srcMip).
+    for (UINT f = 0; f < 6; ++f)
+        for (UINT m = 0; m + 1 < mips; ++m)
+        {
+            D3D12_SHADER_RESOURCE_VIEW_DESC sv = {};
+            sv.Format                         = DXGI_FORMAT_R8G8B8A8_UNORM;
+            sv.ViewDimension                  = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+            sv.Shader4ComponentMapping        = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            sv.Texture2DArray.MostDetailedMip = m;
+            sv.Texture2DArray.MipLevels       = 1;
+            sv.Texture2DArray.FirstArraySlice = f;
+            sv.Texture2DArray.ArraySize       = 1;
+            m_d3d12Device->CreateShaderResourceView(m_capTex.Get(), &sv,
+                CD3DX12_CPU_DESCRIPTOR_HANDLE(m_cbvSrvUavHeap.cpuStart, DX12_CAPTURE_SRV_BASE + f * (mips - 1) + m, m_cbvSrvUavHeap.handleIncrementSize));
         }
 
-        ComPtr<IWICBitmapFrameDecode> frame;
-        hr = decoder->GetFrame(0, &frame);
-        if (FAILED(hr)) return false;
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Live reflection capture created (%d px)", m_capSize);
+    return true;
+}
 
-        ComPtr<IWICFormatConverter> converter;
-        hr = wicFactory->CreateFormatConverter(&converter);
-        if (FAILED(hr)) return false;
+// Caller guarantees the GPU is idle (Cleanup path).
+void DX12Renderer::ReleaseCaptureResourcesDX12()
+{
+    g_reflectionCapture.ready = false;
+    m_capDownPSO.Reset();
+    m_capDownRootSig.Reset();
+    m_capRtvHeap.heap.Reset();
+    m_capDsvHeap.heap.Reset();
+    m_capRtvHeap.cpuStart = {};
+    m_capDsvHeap.cpuStart = {};
+    m_capDepth.Reset();
+    m_capTex.Reset();
+    m_capFailed = false;
+}
 
-        // Premultiplied BGRA — matches the D2D bitmap load path, so the same premultiplied
-        // blend state used by m_sprite2DImagePSO is correct.
-        hr = converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppPBGRA,
-            WICBitmapDitherTypeNone, nullptr, 0.0f, WICBitmapPaletteTypeCustom);
-        if (FAILED(hr)) return false;
+// Caller guarantees the GPU is idle (Cleanup path).
+void DX12Renderer::ReleasePlanarResourcesDX12()
+{
+    g_planarFrame.active   = false;
+    g_planarFrame.hasImage = false;
+    m_planarTex.Reset();
+    m_planarDepth.Reset();
+    m_planarRtvHeap.heap.Reset();
+    m_planarDsvHeap.heap.Reset();
+    m_planarRtvHeap.cpuStart = {};
+    m_planarDsvHeap.cpuStart = {};
+    m_planarFailed = false;
+}
 
-        UINT texW = 0, texH = 0;
-        converter->GetSize(&texW, &texH);
-        if (texW == 0 || texH == 0) return false;
+//-----------------------------------------
+// Scene reflection probe (see "Scene Reflections" in Lights.h).
+// Rebuilds the CPU sky cube when the lighting changed, copies it through the per-frame upload
+// buffer into the DEFAULT-heap cube texture on the open command list, and publishes
+// g_reflectionFrame.  The texture rests in PIXEL_SHADER_RESOURCE.
+// Non-fatal: on any failure the probe stays off and models keep their per-model env maps.
+//-----------------------------------------
+void DX12Renderer::UpdateReflectionProbeDX12(float deltaTime)
+{
+    ID3D12GraphicsCommandList* cl = m_commandList.Get();
+    if (!cl || !m_d3d12Device || !m_cbvSrvUavHeap.heap || m_shadowSRVTable.ptr == 0 || m_reflCreateFailed)
+    {
+        ReflectionFrameSet(m_reflProbe, false);
+        return;
+    }
 
-        const UINT srcRowPitch = texW * 4;
-        std::vector<BYTE> pixels(static_cast<size_t>(srcRowPitch) * texH);
-        hr = converter->CopyPixels(nullptr, srcRowPitch, static_cast<UINT>(pixels.size()), pixels.data());
-        if (FAILED(hr)) return false;
+    ReflectionProbeUpdate(m_frameGlobalLights, deltaTime, m_reflProbe);
 
-        D3D12_RESOURCE_DESC texDesc = {};
-        texDesc.Dimension          = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        texDesc.Width              = texW;
-        texDesc.Height             = texH;
-        texDesc.DepthOrArraySize   = 1;
-        texDesc.MipLevels          = 1;
-        texDesc.Format             = DXGI_FORMAT_B8G8R8A8_UNORM;
-        texDesc.SampleDesc.Count   = 1;
-        texDesc.Layout             = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-        texDesc.Flags              = D3D12_RESOURCE_FLAG_NONE;
+    if (m_reflProbe.size > 0 && !m_reflTex)
+    {
+        const UINT size   = static_cast<UINT>(m_reflProbe.size);
+        const UINT mips   = static_cast<UINT>(m_reflProbe.mipCount);
+        const UINT numSub = 6u * mips;
 
         CD3DX12_HEAP_PROPERTIES defaultHeap(D3D12_HEAP_TYPE_DEFAULT);
-        hr = m_d3d12Device->CreateCommittedResource(&defaultHeap, D3D12_HEAP_FLAG_NONE, &texDesc,
-            D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&m_sprite2DTex[slot]));
-        if (FAILED(hr)) {
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: sprite2D texture resource creation failed (0x%08X)", hr);
-            return false;
-        }
-        std::wstring resName = L"Sprite2DTexture_" + std::to_wstring(slot);
-        m_sprite2DTex[slot]->SetName(resName.c_str());
+        CD3DX12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Tex2D(
+            DXGI_FORMAT_R8G8B8A8_UNORM, size, size, 6, static_cast<UINT16>(mips));
+        HRESULT hr = m_d3d12Device->CreateCommittedResource(&defaultHeap, D3D12_HEAP_FLAG_NONE, &desc,
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, nullptr, IID_PPV_ARGS(&m_reflTex));
 
-        // Upload via a dedicated one-shot command list + fence, mirroring UploadTextureData's
-        // approach but targeting m_sprite2DTex[slot] instead of the shared m_d3d12Textures[] array.
-        D3D12_PLACED_SUBRESOURCE_FOOTPRINT layout = {};
-        UINT   numRows = 0;
-        UINT64 rowSizeInBytes = 0, uploadBufferSize = 0;
-        m_d3d12Device->GetCopyableFootprints(&texDesc, 0, 1, 0, &layout, &numRows, &rowSizeInBytes, &uploadBufferSize);
-
-        ComPtr<ID3D12Resource> uploadBuffer;
-        CD3DX12_HEAP_PROPERTIES uploadHeapProps(D3D12_HEAP_TYPE_UPLOAD);
-        CD3DX12_RESOURCE_DESC   uploadBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(uploadBufferSize);
-        hr = m_d3d12Device->CreateCommittedResource(&uploadHeapProps, D3D12_HEAP_FLAG_NONE, &uploadBufferDesc,
-            D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&uploadBuffer));
-        if (FAILED(hr)) return false;
-
-        void* mappedData = nullptr;
-        CD3DX12_RANGE readRange(0, 0);
-        hr = uploadBuffer->Map(0, &readRange, &mappedData);
-        if (FAILED(hr)) return false;
-
-        BYTE* dstData = static_cast<BYTE*>(mappedData) + layout.Offset;
-        const UINT dstRowPitch = static_cast<UINT>(layout.Footprint.RowPitch);
-        const UINT copyBytes   = std::min(srcRowPitch, static_cast<UINT>(rowSizeInBytes));
-        for (UINT row = 0; row < texH; ++row)
-            MemoryCopy(pixels.data() + row * srcRowPitch, dstData + row * dstRowPitch, copyBytes);
-        uploadBuffer->Unmap(0, nullptr);
-
-        ComPtr<ID3D12CommandAllocator> uploadAllocator;
-        hr = m_d3d12Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&uploadAllocator));
-        if (FAILED(hr)) return false;
-
-        ComPtr<ID3D12GraphicsCommandList> uploadCommandList;
-        hr = m_d3d12Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, uploadAllocator.Get(), nullptr, IID_PPV_ARGS(&uploadCommandList));
-        if (FAILED(hr)) return false;
-
-        CD3DX12_TEXTURE_COPY_LOCATION dstLocation(m_sprite2DTex[slot].Get(), 0);
-        CD3DX12_TEXTURE_COPY_LOCATION srcLocation(uploadBuffer.Get(), layout);
-        uploadCommandList->CopyTextureRegion(&dstLocation, 0, 0, 0, &srcLocation, nullptr);
-
-        CD3DX12_RESOURCE_BARRIER srBarrier = CD3DX12_RESOURCE_BARRIER::Transition(
-            m_sprite2DTex[slot].Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        uploadCommandList->ResourceBarrier(1, &srBarrier);
-
-        hr = uploadCommandList->Close();
-        if (FAILED(hr)) return false;
-
-        ID3D12CommandList* uploadLists[] = { uploadCommandList.Get() };
-        m_commandQueue->ExecuteCommandLists(1, uploadLists);
-
+        UINT64 totalBytes = 0;
+        if (SUCCEEDED(hr))
         {
-            ComPtr<ID3D12Fence> uploadFence;
-            hr = m_d3d12Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&uploadFence));
-            if (SUCCEEDED(hr)) {
-                HANDLE uploadEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-                if (uploadEvent) {
-                    m_commandQueue->Signal(uploadFence.Get(), 1);
-                    uploadFence->SetEventOnCompletion(1, uploadEvent);
-                    WaitForSingleObject(uploadEvent, 5000);
-                    CloseHandle(uploadEvent);
+            m_reflFootprints.assign(numSub, {});
+            m_reflNumRows.assign(numSub, 0);
+            m_reflRowBytes.assign(numSub, 0);
+            m_d3d12Device->GetCopyableFootprints(&desc, 0, numSub, 0,
+                m_reflFootprints.data(), m_reflNumRows.data(), m_reflRowBytes.data(), &totalBytes);
+
+            CD3DX12_HEAP_PROPERTIES uploadHeap(D3D12_HEAP_TYPE_UPLOAD);
+            CD3DX12_RESOURCE_DESC bufDesc = CD3DX12_RESOURCE_DESC::Buffer(totalBytes);
+            for (UINT f = 0; f < FrameCount && SUCCEEDED(hr); ++f)
+            {
+                hr = m_d3d12Device->CreateCommittedResource(&uploadHeap, D3D12_HEAP_FLAG_NONE, &bufDesc,
+                    D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&m_reflUpload[f]));
+                if (SUCCEEDED(hr))
+                {
+                    void* mapped = nullptr;
+                    CD3DX12_RANGE readRange(0, 0);
+                    hr = m_reflUpload[f]->Map(0, &readRange, &mapped);
+                    m_reflUploadMapped[f] = static_cast<uint8_t*>(mapped);
                 }
             }
         }
 
-        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-        srvDesc.Format                        = DXGI_FORMAT_B8G8R8A8_UNORM;
-        srvDesc.ViewDimension                 = D3D12_SRV_DIMENSION_TEXTURE2D;
-        srvDesc.Shader4ComponentMapping        = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        srvDesc.Texture2D.MipLevels            = 1;
-
-        CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(m_cbvSrvUavHeap.cpuStart,
-            DX12_SPRITE2D_SRV_BASE + slot, m_cbvSrvUavHeap.handleIncrementSize);
-        m_d3d12Device->CreateShaderResourceView(m_sprite2DTex[slot].Get(), &srvDesc, srvHandle);
-
-        m_sprite2DSRV[slot] = CD3DX12_GPU_DESCRIPTOR_HANDLE(m_cbvSrvUavHeap.gpuStart,
-            DX12_SPRITE2D_SRV_BASE + slot, m_cbvSrvUavHeap.handleIncrementSize);
-
-        debug.logDebugMessage(LogLevel::LOG_DEBUG, L"DX12Renderer: sprite2D native texture %d loaded. Size: %dx%d", slot, texW, texH);
-        return true;
+        if (SUCCEEDED(hr))
+        {
+            D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
+            srv.Format                  = DXGI_FORMAT_R8G8B8A8_UNORM;
+            srv.ViewDimension           = D3D12_SRV_DIMENSION_TEXTURECUBE;
+            srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            srv.TextureCube.MostDetailedMip = 0;
+            srv.TextureCube.MipLevels       = mips;
+            m_d3d12Device->CreateShaderResourceView(m_reflTex.Get(), &srv,
+                CD3DX12_CPU_DESCRIPTOR_HANDLE(m_cbvSrvUavHeap.cpuStart, DX12_SHADOW_SRV_BASE + 2, m_cbvSrvUavHeap.handleIncrementSize));
+            m_d3d12Device->CreateShaderResourceView(m_reflTex.Get(), &srv,                  // mirror-pass table copy of t10
+                CD3DX12_CPU_DESCRIPTOR_HANDLE(m_cbvSrvUavHeap.cpuStart, DX12_SHADOW_SRV_BASE + 4 + 2, m_cbvSrvUavHeap.handleIncrementSize));
+            m_reflTex->SetName(L"DX12Renderer_ReflectionProbe");
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"DX12Renderer: Reflection probe created (%d px, %d mips)",
+                m_reflProbe.size, m_reflProbe.mipCount);
+        }
+        else
+        {
+            debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: Reflection probe creation failed (0x%08X)", hr);
+            ReleaseReflectionResourcesDX12();
+            m_reflCreateFailed = true;                                          // do not retry every frame
+            ReflectionFrameSet(m_reflProbe, false);
+            return;
+        }
     }
-    catch (const std::exception& e) {
-        std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"DX12Renderer: Exception in LoadSprite2DNativeTexture: %s", errorMsg.c_str());
-        return false;
+
+    if (m_reflTex && m_reflUploadedVersion != m_reflProbe.version && m_reflUploadMapped[m_frameIndex])
+    {
+        const UINT mips = static_cast<UINT>(m_reflProbe.mipCount);
+        uint8_t* dstBase = m_reflUploadMapped[m_frameIndex];
+
+        for (UINT face = 0; face < 6; ++face)
+        {
+            for (UINT mip = 0; mip < mips; ++mip)
+            {
+                const UINT sub = mip + face * mips;                             // D3D12CalcSubresource order
+                const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& fp = m_reflFootprints[sub];
+                const std::vector<uint8_t>& src = m_reflProbe.data[face][mip];
+                const UINT64 rowBytes = m_reflRowBytes[sub];
+                if (src.size() < rowBytes * m_reflNumRows[sub]) continue;
+                for (UINT row = 0; row < m_reflNumRows[sub]; ++row)
+                    memcpy(dstBase + fp.Offset + static_cast<UINT64>(row) * fp.Footprint.RowPitch,
+                           src.data() + static_cast<size_t>(row) * rowBytes, static_cast<size_t>(rowBytes));
+            }
+        }
+
+        D3D12_RESOURCE_BARRIER toCopy = CD3DX12_RESOURCE_BARRIER::Transition(m_reflTex.Get(),
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+        cl->ResourceBarrier(1, &toCopy);
+
+        for (UINT sub = 0; sub < 6u * mips; ++sub)
+        {
+            CD3DX12_TEXTURE_COPY_LOCATION dst(m_reflTex.Get(), sub);
+            CD3DX12_TEXTURE_COPY_LOCATION src(m_reflUpload[m_frameIndex].Get(), m_reflFootprints[sub]);
+            cl->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+        }
+
+        D3D12_RESOURCE_BARRIER toRead = CD3DX12_RESOURCE_BARRIER::Transition(m_reflTex.Get(),
+            D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        cl->ResourceBarrier(1, &toRead);
+
+        m_reflUploadedVersion = m_reflProbe.version;
     }
+
+    // The probe may only be sampled once its contents were uploaded at least once.
+    ReflectionFrameSet(m_reflProbe, m_reflTex && m_reflUploadedVersion != 0);
 }
 
 //-----------------------------------------
-// DrawSprite2DImage
-// Native textured-quad draw — no Direct2D, no interop. Caller must have already bound the
-// target render target (OMSetRenderTargets) and set the viewport/scissor for this frame.
+// ReleaseReflectionResourcesDX12 — caller guarantees the GPU is idle (Cleanup path).
 //-----------------------------------------
-void DX12Renderer::DrawSprite2DImage(int slot, int iX, int iY, int iWidth, int iHeight, float alpha)
+void DX12Renderer::ReleaseReflectionResourcesDX12()
 {
-    if (!m_sprite2DImagePSO || !m_sprite2DImageRS || slot < 0 || slot > 1 || !m_sprite2DTex[slot] || iOrigWidth <= 0 || iOrigHeight <= 0)
-        return;
-
-    const float left      = (static_cast<float>(iX)          / static_cast<float>(iOrigWidth))  * 2.0f - 1.0f;
-    const float right     = (static_cast<float>(iX + iWidth)  / static_cast<float>(iOrigWidth))  * 2.0f - 1.0f;
-    const float topNDC    = 1.0f - (static_cast<float>(iY)           / static_cast<float>(iOrigHeight)) * 2.0f;
-    const float bottomNDC = 1.0f - (static_cast<float>(iY + iHeight)  / static_cast<float>(iOrigHeight)) * 2.0f;
-    const float rootConsts[8] = { left, topNDC, right, bottomNDC, alpha, 0.0f, 0.0f, 0.0f };
-
-    m_commandList->SetGraphicsRootSignature(m_sprite2DImageRS.Get());
-    ID3D12DescriptorHeap* heaps[] = { m_cbvSrvUavHeap.heap.Get(), m_samplerHeap.heap.Get() };
-    m_commandList->SetDescriptorHeaps(_countof(heaps), heaps);
-    m_commandList->SetPipelineState(m_sprite2DImagePSO.Get());
-    m_commandList->SetGraphicsRoot32BitConstants(0, 8, rootConsts, 0);
-    m_commandList->SetGraphicsRootDescriptorTable(1, m_sprite2DSRV[slot]);
-    m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-    m_commandList->IASetVertexBuffers(0, 0, nullptr);
-    m_commandList->IASetIndexBuffer(nullptr);
-    m_commandList->DrawInstanced(4, 1, 0, 0);
-}
-
-//-----------------------------------------
-// BeginNative2DBatch / EndNative2DBatch / QueueNativeParticle / FlushNative2DParticles
-// See member declarations in DX12Renderer.h for the design rationale.
-//-----------------------------------------
-void DX12Renderer::BeginNative2DBatch()
-{
-    m_native2DParticleCount = 0;
-    m_native2DBatchActive   = true;
-}
-
-void DX12Renderer::EndNative2DBatch()
-{
-    m_native2DBatchActive = false;
-}
-
-void DX12Renderer::QueueNativeParticle(int x, int y, float pixelSize, const XMFLOAT4& color)
-{
-    if (!m_sprite2DParticleMapped || iOrigWidth <= 0 || iOrigHeight <= 0)
-        return;
-    if (m_native2DParticleCount >= kMaxNative2DParticles)
-        return;
-
-    const float halfPx = pixelSize * 0.5f;
-    const float cx     = static_cast<float>(x) + halfPx;
-    const float cy     = static_cast<float>(y) + halfPx;
-
-    Sprite2DParticleInstance& inst = m_sprite2DParticleMapped[m_native2DParticleCount++];
-    inst.centerX = (cx / static_cast<float>(iOrigWidth))  * 2.0f - 1.0f;
-    inst.centerY = 1.0f - (cy / static_cast<float>(iOrigHeight)) * 2.0f;
-    inst.halfW   = halfPx / static_cast<float>(iOrigWidth)  * 2.0f;
-    inst.halfH   = halfPx / static_cast<float>(iOrigHeight) * 2.0f;
-    inst.r = color.x; inst.g = color.y; inst.b = color.z; inst.a = color.w;
-}
-
-void DX12Renderer::FlushNative2DParticles()
-{
-    if (m_native2DParticleCount == 0 || !m_sprite2DParticlePSO || !m_sprite2DParticleRS)
-        return;
-
-    m_commandList->SetGraphicsRootSignature(m_sprite2DParticleRS.Get());
-    ID3D12DescriptorHeap* heaps[] = { m_cbvSrvUavHeap.heap.Get() };
-    m_commandList->SetDescriptorHeaps(_countof(heaps), heaps);
-    m_commandList->SetPipelineState(m_sprite2DParticlePSO.Get());
-    m_commandList->SetGraphicsRootDescriptorTable(0, m_sprite2DParticleSRV);
-    m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-    m_commandList->IASetVertexBuffers(0, 0, nullptr);
-    m_commandList->IASetIndexBuffer(nullptr);
-    m_commandList->DrawInstanced(4, m_native2DParticleCount, 0, 0);
+    g_reflectionFrame.active = false;
+    for (UINT f = 0; f < FrameCount; ++f)
+    {
+        if (m_reflUpload[f] && m_reflUploadMapped[f])
+            m_reflUpload[f]->Unmap(0, nullptr);
+        m_reflUploadMapped[f] = nullptr;
+        m_reflUpload[f].Reset();
+    }
+    m_reflTex.Reset();
+    m_reflFootprints.clear();
+    m_reflNumRows.clear();
+    m_reflRowBytes.clear();
+    m_reflProbe = ReflectionProbe{};
+    m_reflUploadedVersion = 0;
+    m_reflCreateFailed = false;
 }
 
 //-----------------------------------------
@@ -3413,9 +3723,7 @@ bool DX12Renderer::IsNativeDX12Supported() const {
 //-----------------------------------------
 ComPtr<ID3D11Device> DX12Renderer::GetDX11CompatDevice() const {
     if (!IsDX11CompatibilityAvailable()) {
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: DirectX 11 compatibility device requested but not available.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: DirectX 11 compatibility device requested but not available.");
         return nullptr;
     }
 
@@ -3427,9 +3735,7 @@ ComPtr<ID3D11Device> DX12Renderer::GetDX11CompatDevice() const {
 //-----------------------------------------
 ComPtr<ID3D11DeviceContext> DX12Renderer::GetDX11CompatContext() const {
     if (!IsDX11CompatibilityAvailable()) {
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: DirectX 11 compatibility context requested but not available.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: DirectX 11 compatibility context requested but not available.");
         return nullptr;
     }
 
@@ -3460,9 +3766,10 @@ void DX12Renderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
         CreateCommandQueue();                                                   // Create command queue
         CreateSwapChain(hwnd);                                                  // Create swap chain
         CreateDescriptorHeaps();                                                // Create descriptor heaps
+        ChooseMsaaSampleCount();                                                // MSAA sample count (needs the device); fixed for the session
         CreateRenderTargetViews();                                              // Create render target views
-        CreateDepthStencilBuffer();                                             // Create depth stencil buffer
-        CreateCommandList();                                                    // Create command list and allocators
+        CreateDepthStencilBuffer();                                             // Create depth stencil buffer (+ MSAA colour target)
+        CreateCommandList();                                                  // Create command list and allocators
         CreateFence();                                                          // Create synchronization fence
         CreateRootSignature();                                                  // Create root signature
         CreatePipelineState();                                                  // Create pipeline state object
@@ -3470,10 +3777,19 @@ void DX12Renderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
         CreateSamplers();                                                       // Create samplers
         LoadShaders();                                                          // Load and validate shaders
 
-        // Native 2D sprite pipeline (background image/logo + starfield/firework particles) —
-        // used by the SCENE_GAMETITLE fast path to avoid the Direct2D/D3D11-on-12 interop tax.
-        if (!CreateSprite2DPipelines())
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to create native sprite2D pipelines. SCENE_GAMETITLE will fall back to Direct2D.");
+        // Native SCENE_GAMETITLE pipeline (background image/logos + starfield/firework particle ring) - keeps the
+        // title screen out of the Direct2D/D3D11-on-12 interop path (see DX12TitlePipeline.h).
+        if (!m_title.Initialize(this))
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to create the native title pipeline. SCENE_GAMETITLE will fall back to Direct2D.");
+
+        #if defined(_DEBUG)
+            // GPU timestamp queries for the F12 timing capture (non-fatal).
+            m_gpuProf.Initialize(m_d3d12Device.Get(), m_commandQueue.Get(), FrameCount);
+        #endif
+
+        // Shadow maps + depth-only PSO (non-fatal: shadows stay off if this fails).
+        if (!CreateShadowResources())
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Shadow resources unavailable - rendering without shadows.");
 
         // Pre-populate cbvSrvUavHeap slots 0–8 with null SRVs so that any draw
         // that does not supply per-model textures can point the descriptor table
@@ -3656,9 +3972,7 @@ void DX12Renderer::Cleanup() {
 #endif
 
     if (bHasCleanedUp) {
-        #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Cleanup already performed, skipping.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Cleanup already performed, skipping.");
         return;
     }
 
@@ -3750,17 +4064,33 @@ void DX12Renderer::Cleanup() {
         if (m_pipelineState) {
             m_pipelineState.Reset();
         }
+        m_pipelineStateMS.Reset();
+        m_msaaColorTex.Reset();
 
         if (m_rootSignature) {
             m_rootSignature.Reset();
         }
 
+        // Native title pipeline + GPU profiler (GPU is idle here: WaitForGPUToFinish above)
+        m_title.Shutdown();
+        #if defined(_DEBUG)
+            m_gpuProf.Shutdown();
+        #endif
+
         // Release buffer resources
         if (m_constantBuffer) {
+            if (m_constantBufferMapped) {
+                m_constantBuffer->Unmap(0, nullptr);
+                m_constantBufferMapped = nullptr;
+            }
             m_constantBuffer.Reset();
         }
 
         if (m_globalLightBuffer) {
+            if (m_globalLightBufferMapped) {
+                m_globalLightBuffer->Unmap(0, nullptr);
+                m_globalLightBufferMapped = nullptr;
+            }
             m_globalLightBuffer.Reset();
         }
 
@@ -3769,8 +4099,16 @@ void DX12Renderer::Cleanup() {
         }
 
         if (m_shadowBuffer) {
+            if (m_shadowBufferMapped) {
+                m_shadowBuffer->Unmap(0, nullptr);
+                m_shadowBufferMapped = nullptr;
+            }
             m_shadowBuffer.Reset();
         }
+
+        // Shadow maps, DSV heap, depth-only PSO / root signature
+        ReleaseShadowResources();
+        ReleaseReflectionResourcesDX12();
 
         if (m_depthStencilBuffer) {
             m_depthStencilBuffer.Reset();
@@ -4663,6 +5001,54 @@ void DX12Renderer::Blit2DAtlasTile(BlitObj2DIndexType iIndex, int iTileIndex, in
 }
 
 //-----------------------------------------
+// Blit 2D Object To Size With Horizontally Scrolled/Wrapped Content
+// Stretches the image to iWidth x iHeight while shifting its sampled content HORIZONTALLY by
+// scrollFraction * bitmap-width pixels, wrapping around the bitmap width, so the image's own
+// colour banding appears to travel sideways across the fixed destination rect. Drawn as two
+// DrawBitmap calls. reverseDirection=false travels left->right, true travels right->left.
+//-----------------------------------------
+void DX12Renderer::Blit2DScrollingObjectToSize(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float scrollFraction, bool reverseDirection) {
+    try {
+        if (int(iIndex) < 0 || int(iIndex) >= MAX_TEXTURE_BUFFERS) return;
+        if (!IsDX11CompatibilityAvailable() || !m_d2dContext) return;
+        if (!m_d2dTextures[int(iIndex)]) return;
+
+        ID2D1Bitmap* bitmap = m_d2dTextures[int(iIndex)].Get();
+        D2D1_SIZE_F bmpSize = bitmap->GetSize();
+        int bmpW = static_cast<int>(bmpSize.width);
+        int bmpH = static_cast<int>(bmpSize.height);
+        if (bmpW <= 0 || bmpH <= 0 || iWidth <= 0 || iHeight <= 0) return;
+
+        float wrappedFrac = scrollFraction - std::floor(scrollFraction);
+        float xOffFrac = reverseDirection ? wrappedFrac : (1.0f - wrappedFrac);
+        xOffFrac -= std::floor(xOffFrac);
+        int xOff = static_cast<int>(xOffFrac * static_cast<float>(bmpW));
+
+        int srcW1 = bmpW - xOff;
+        float scaleX = static_cast<float>(iWidth) / static_cast<float>(bmpW);
+        int destW1 = static_cast<int>(srcW1 * scaleX);
+
+        // Part 1: source columns [xOff, bmpW) drawn at the left of the destination rect
+        D2D1_RECT_F src1  = D2D1::RectF(static_cast<float>(xOff), 0.0f, static_cast<float>(bmpW), static_cast<float>(bmpH));
+        D2D1_RECT_F dest1 = D2D1::RectF(static_cast<float>(iX), static_cast<float>(iY),
+                                         static_cast<float>(iX + destW1), static_cast<float>(iY + iHeight));
+        m_d2dContext->DrawBitmap(bitmap, dest1, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, src1);
+
+        // Part 2: wrapped source columns [0, xOff) drawn to the right of part 1
+        if (destW1 < iWidth) {
+            D2D1_RECT_F src2  = D2D1::RectF(0.0f, 0.0f, static_cast<float>(xOff), static_cast<float>(bmpH));
+            D2D1_RECT_F dest2 = D2D1::RectF(static_cast<float>(iX + destW1), static_cast<float>(iY),
+                                             static_cast<float>(iX + iWidth), static_cast<float>(iY + iHeight));
+            m_d2dContext->DrawBitmap(bitmap, dest2, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, src2);
+        }
+    }
+    catch (const std::exception& e) {
+        std::wstring errorMsg = std::wstring(e.what(), e.what() + strlen(e.what()));
+        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"DX12Renderer: Exception in Blit2DScrollingObjectToSize: %s", errorMsg.c_str());
+    }
+}
+
+//-----------------------------------------
 // Blit 2D Object with Centered Zoom Crop
 //-----------------------------------------
 void DX12Renderer::Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, int iDestY, int iDestW, int iDestH, float zoomFactor) {
@@ -4802,9 +5188,7 @@ void DX12Renderer::DrawRectangle(const Vector2& position, const Vector2& size, c
             // TODO: Implement 3D rectangle rendering using DirectX 12 command lists
             // This would require creating vertex buffers, binding them, and drawing
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: 3D rectangle rendering not yet implemented.");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: 3D rectangle rendering not yet implemented.");
         }
     }
     catch (const std::exception& e) {
@@ -5203,17 +5587,23 @@ bool DX12Renderer::LoadAllKnownTextures()
             }
         }
 
-        // Native (non-D2D) sprite textures for the SCENE_GAMETITLE fast path — same source
-        // files as IMG_GAMEINTRO1/IMG_COMPANYLOGO's D2D bitmaps above, decoded a second time
-        // straight into a D3D12 SRV. Failure here is non-fatal: DrawSprite2DImage() no-ops if
-        // the texture is missing, and STEP 3.5's zoom/strobe fallback still uses the D2D copy.
+        // Native (non-D2D) title textures for DX12TitlePipeline - same source files as the D2D bitmaps above,
+        // decoded a second time straight into D3D12 SRVs. Failure is non-fatal: a missing slot is simply
+        // skipped by the pipeline (the D2D overlay draws a fallback background when slot 0 is missing).
+        if (m_title.IsReady())
         {
-            auto bgFile   = AssetsDir / texFilename[int(BlitObj2DIndexType::IMG_GAMEINTRO1)];
-            auto logoFile = AssetsDir / texFilename[int(BlitObj2DIndexType::IMG_COMPANYLOGO)];
-            if (!LoadSprite2DNativeTexture(0, bgFile))
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to load native sprite2D background texture.");
-            if (!LoadSprite2DNativeTexture(1, logoFile))
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to load native sprite2D logo texture.");
+            struct TitleSlot { UINT slot; BlitObj2DIndexType img; const wchar_t* label; };
+            const TitleSlot slots[] = {
+                { DX12TitlePipeline::kSlotBackground,  BlitObj2DIndexType::IMG_GAMEINTRO1,  L"background" },
+                { DX12TitlePipeline::kSlotCompanyLogo, BlitObj2DIndexType::IMG_COMPANYLOGO, L"company logo" },
+                { DX12TitlePipeline::kSlotTSOO,        BlitObj2DIndexType::IMG_TSOO,        L"TSOO logo" },
+            };
+            for (const TitleSlot& ts : slots)
+            {
+                auto file = AssetsDir / texFilename[int(ts.img)];
+                if (!m_title.LoadSlotTexture(ts.slot, file))
+                    debug.logDiagMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Failed to load native title texture (%s).", ts.label);
+            }
         }
 
 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
@@ -5340,9 +5730,7 @@ bool DX12Renderer::Place2DBlitObjectToQueue(BlitObj2DIndexType iIndex, BlitPhase
         }
 
         // No empty slots found
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: No empty slots in 2D blit queue.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: No empty slots in 2D blit queue.");
         return FALSE;
     }
     catch (const std::exception& e) {
@@ -5426,9 +5814,7 @@ void DX12Renderer::DrawTexture(int textureIndex, const Vector2& position, const 
             // TODO: Implement 3D texture rendering using DirectX 12 command lists
             // This would require creating vertex buffers for a textured quad and binding the texture
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: 3D texture rendering not yet fully implemented.");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: 3D texture rendering not yet fully implemented.");
         }
     }
     catch (const std::exception& e) {
@@ -6136,8 +6522,8 @@ bool DX12Renderer::Resize(uint32_t width, uint32_t height)
         depthStencilDesc.DepthOrArraySize = 1;                                  // Single depth slice
         depthStencilDesc.MipLevels = 1;                                         // Single mip level
         depthStencilDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;                // 24-bit depth, 8-bit stencil
-        depthStencilDesc.SampleDesc.Count = 1;                                  // No multisampling
-        depthStencilDesc.SampleDesc.Quality = 0;                                // No multisampling quality
+        depthStencilDesc.SampleDesc.Count = m_msaaSampleCount;                  // Matches the MSAA colour target (1 = off)
+        depthStencilDesc.SampleDesc.Quality = 0;                                // Standard multisample quality
         depthStencilDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;                 // Driver-optimized layout
         depthStencilDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;       // Allow depth stencil usage
 
@@ -6170,9 +6556,10 @@ bool DX12Renderer::Resize(uint32_t width, uint32_t height)
         // Create new depth stencil view
         D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
         dsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;                         // Match buffer format
-        dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;                  // 2D texture view
+        dsvDesc.ViewDimension = (m_msaaSampleCount > 1) ? D3D12_DSV_DIMENSION_TEXTURE2DMS : D3D12_DSV_DIMENSION_TEXTURE2D;
         dsvDesc.Flags = D3D12_DSV_FLAG_NONE;                                    // No special flags
-        dsvDesc.Texture2D.MipSlice = 0;                                         // Use mip level 0
+        if (m_msaaSampleCount <= 1)
+            dsvDesc.Texture2D.MipSlice = 0;                                     // Use mip level 0
 
         // Create the depth stencil view
         m_d3d12Device->CreateDepthStencilView(
@@ -6180,6 +6567,9 @@ bool DX12Renderer::Resize(uint32_t width, uint32_t height)
             &dsvDesc,                                                           // DSV description
             m_dsvHeap.cpuStart                                                  // DSV heap handle
         );
+
+        // Multisampled colour target for the new size (no-op while MSAA is off)
+        CreateMsaaTargets(width, height);
 
         // Update frame index
         m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
@@ -6442,11 +6832,9 @@ bool DX12Renderer::SetFullExclusive(uint32_t width, uint32_t height)
 
         LONG cdsResult = ChangeDisplaySettingsEx(nullptr, &dm, nullptr, CDS_FULLSCREEN, nullptr);
         if (cdsResult != DISP_CHANGE_SUCCESSFUL) {
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING,
+            debug.logDiagMessage(LogLevel::LOG_WARNING,
                 L"DX12Renderer: ChangeDisplaySettingsEx to %dx%d failed (code %ld) - continuing",
                 width, height, cdsResult);
-#endif
         }
     }
 
@@ -7398,10 +7786,8 @@ bool DX12Renderer::GenerateMipmaps(int textureIndex) {
         // For now, we'll implement a placeholder that logs the requirement
         // Full implementation would require a compute shader and additional descriptor heaps
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Mipmap generation for texture %d requires compute shader implementation. MipLevels: %d",
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"DX12Renderer: Mipmap generation for texture %d requires compute shader implementation. MipLevels: %d",
             textureIndex, textureDesc.MipLevels);
-#endif
 
         // TODO: Implement compute shader-based mipmap generation
         // This would involve:
@@ -8148,9 +8534,7 @@ void DX12Renderer::WaitToFinishThenPauseThread()
 
     ThreadLockHelper exclusiveLock(threadManager, "exclusive_directx_access", 10000);
     if (!exclusiveLock.IsLocked()) {
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: WaitToFinishThenPauseThread() - failed to acquire exclusive lock");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"DX12Renderer: WaitToFinishThenPauseThread() - failed to acquire exclusive lock");
         return;
     }
 
@@ -8161,21 +8545,15 @@ void DX12Renderer::WaitToFinishThenPauseThread()
         ++waitAttempts;
     }
 
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
     if (waitAttempts >= 500)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: WaitToFinishThenPauseThread() - timeout waiting for render, forcing pause");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"DX12Renderer: WaitToFinishThenPauseThread() - timeout waiting for render, forcing pause");
 
     // Flush GPU queue to ensure all commands are processed
     try {
         WaitForGPUToFinish();
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"DX12Renderer: WaitToFinishThenPauseThread() - GPU wait exception: %hs", e.what());
-#else
-        (void)e;
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"DX12Renderer: WaitToFinishThenPauseThread() - GPU wait exception: %hs", e.what());
     }
 
     // Pause the renderer thread

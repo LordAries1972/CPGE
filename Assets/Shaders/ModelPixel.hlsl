@@ -10,7 +10,10 @@ Texture2D aoMap          : register(t4);                // t4: Ambient occlusion
 TextureCube environmentMap : register(t5);              // t5: Environment cube map for reflections
 Texture2D glossMap       : register(t6);                // t6: Gloss/smoothness map (roughness = 1 - gloss.r)
 Texture2D emissiveMap    : register(t7);                // t7: Emissive texture (multiplied by EmissiveFactor)
-Texture2D shadowMap      : register(t8);                // t8: Shadow depth map for PCF
+Texture2D shadowMap      : register(t8);                // t8: Directional light shadow depth map (PCF)
+Texture2DArray localShadowMaps : register(t9);          // t9: Spot slices + point-light cube faces (PCF)
+TextureCube sceneProbe   : register(t10);               // t10: Renderer-owned scene reflection probe (used when the model has no t5 map)
+Texture2DArray planarMap : register(t11);               // t11: Planar mirror renders, one slice per reflection plane (see Lights.h)
 
 // ── Sampler Slots ────────────────────────────────────────────────────────────
 SamplerState             samplerState  : register(s0);  // s0: Standard wrap sampler
@@ -101,11 +104,11 @@ cbuffer GlobalLightBuffer : register(b3)
 cbuffer MaterialBuffer : register(b4)
 {
     float3 Ka;                                      // Ambient colour
-    float  pad1;
+    float  ReceiveShadows;                          // 1.0 = this model is darkened by shadow maps
     float3 Kd;                                      // Diffuse colour (baseColorFactor RGB, linear)
-    float  pad2;
+    float  PlanarStrength;                          // Planar reflection mix for reflector surfaces (0 = none)
     float3 Ks;                                      // Specular colour
-    float  pad3;
+    float  PlanarIndex;                             // Slice of planarMap this reflector uses (0-3)
     float  Ns;                                      // Specular exponent (shininess)
     float  Metallic;                                // Base metallic factor [0-1]
     float  Roughness;                               // Base roughness factor [0-1]
@@ -133,13 +136,44 @@ cbuffer EnvBuffer : register(b5)
 }
 
 // ── Shadow Buffer (b6) ────────────────────────────────────────────────────────
+// MUST match ShadowBufferData in Lights.h (2368 bytes).
+#define MAX_LOCAL_SHADOW_SLICES 32
+#define SHADOW_KIND_NONE        0
+#define SHADOW_KIND_DIRECTIONAL 1
+#define SHADOW_KIND_SPOT        2
+#define SHADOW_KIND_POINT       3
+
 cbuffer ShadowBuffer : register(b6)
 {
-    float4x4 lightViewProj;                         // Light view-projection matrix
-    float    shadowBias;                            // Depth bias to prevent shadow acne
+    float4x4 lightViewProj;                         // Directional light view-projection matrix
+    float    shadowBias;                            // Directional depth bias to prevent shadow acne
     float    shadowStrength;                        // Shadow darkness multiplier [0-1]
-    float    useShadowMap;                          // 1.0 = shadow map at t8 is active
-    float    shadowMapSize;                         // Shadow map resolution (e.g. 2048.0) for PCF texel offset
+    float    useShadowMap;                          // 1.0 = directional map at t8 is active
+    float    shadowMapSize;                         // Directional map resolution for PCF texel offset
+    float4x4 localViewProj[MAX_LOCAL_SHADOW_SLICES];// Spot slices + point cube faces (+X -X +Y -Y +Z -Z)
+    int4     lightShadowInfo[MAX_GLOBAL_LIGHTS];    // Per global light: x = SHADOW_KIND_*, y = first slice
+    float    localBias;                             // Spot / point depth bias
+    float    useLocalShadows;                       // 1.0 = t9 array holds valid slices
+    float    localMapSize;                          // Slice resolution for PCF texel offset
+    float    displayBrightness;                     // Video settings brightness (1 = neutral)
+    float    displayContrast;                       // Video settings contrast   (1 = neutral)
+    float    reflectionScale;                       // Scene reflection strength (0 = scene probe off)
+    float    reflectionMaxMip;                      // Highest mip index of the scene probe cube map at t5
+    float    reflectionBlur;                        // Extra mip bias for the scene probe lookup
+    float4   planarParams;                          // x = planar scale (0 = off), y = distortion, zw = 1/screen size
+    float4   planarPlanes[4];                       // Per planar slice: xyz = plane normal (faces the viewer), w = d
+}
+
+// Video settings brightness / contrast.  A zeroed b6 (not yet uploaded) reads as neutral.
+// Clamp to displayable range FIRST: emissive / over-lit pixels sit well above 1.0 and would
+// otherwise still clip to white after the adjustment, making the sliders look dead.
+float3 ApplyDisplayAdjust(float3 c)
+{
+    float b = (displayBrightness > 0.0f) ? displayBrightness : 1.0f;
+    float k = (displayContrast   > 0.0f) ? displayContrast   : 1.0f;
+    c = saturate(c);
+    c = saturate((c - 0.5f) * k + 0.5f);           // contrast around mid-grey
+    return c * b;
 }
 
 // ── Pixel Shader Input ────────────────────────────────────────────────────────
@@ -268,30 +302,28 @@ float3 ProcessLight(LightStruct light, float3 N, float3 V, float3 worldPos,
 }
 
 // ── PCF Shadow Sampling (3x3 kernel) ─────────────────────────────────────────
-// Returns a shadow factor: 1.0 = fully lit, 0.0 = fully in shadow.
+// All helpers return raw visibility: 1.0 = fully lit, 0.0 = fully in shadow.
 // Values between are produced by the PCF kernel averaging.
-float SampleShadow(float3 worldPos)
+
+// Directional light (t8).
+float SampleDirShadow(float3 worldPos)
 {
-    float shadowFactor = 1.0f;
-
     if (useShadowMap < 0.5f)
-        return shadowFactor;
+        return 1.0f;
 
-    // Transform world position to light clip space. Treat invalid clip-space W as lit
-    // so bad shadow data cannot produce undefined projection values in the PCF path.
-    float4 lightClip = mul(float4(worldPos, 1.0f), lightViewProj);
-    if (abs(lightClip.w) < 0.00001f)
-        return shadowFactor;
-
-    float3 projCoords = lightClip.xyz / lightClip.w;
+    // Transform world position to light clip space
+    float4 lightClip   = mul(float4(worldPos, 1.0f), lightViewProj);
+    if (abs(lightClip.w) < 0.00001f)                // Invalid clip-space W: treat as lit so bad shadow data cannot divide by ~0
+        return 1.0f;
+    float3 projCoords  = lightClip.xyz / lightClip.w;
 
     // Discard samples outside the shadow frustum
     if (projCoords.z > 1.0f || projCoords.z < 0.0f)
-        return shadowFactor;
+        return 1.0f;
     if (projCoords.x < -1.0f || projCoords.x > 1.0f)
-        return shadowFactor;
+        return 1.0f;
     if (projCoords.y < -1.0f || projCoords.y > 1.0f)
-        return shadowFactor;
+        return 1.0f;
 
     // Remap X,Y from NDC [-1,1] to texture [0,1]; flip Y for DX clip convention
     // float2 initialised with constructor — component-wise assignment triggers X4000 in FXC.
@@ -312,11 +344,75 @@ float SampleShadow(float3 worldPos)
                           currentDepth);
         }
     }
-    shadow /= 9.0f;
+    return shadow / 9.0f;
+}
 
-    // shadow=1 (lit) → lerp controls darkness: 0 strength=no shadow, 1 strength=full shadow
-    shadowFactor = lerp(1.0f - shadowStrength, 1.0f, shadow);
-    return shadowFactor;
+// Spot light slice or one point-light cube face (t9 array slice).
+float SampleLocalShadow(int slice, float3 worldPos)
+{
+    if (useLocalShadows < 0.5f || slice < 0 || slice >= MAX_LOCAL_SHADOW_SLICES)
+        return 1.0f;
+
+    float4 lightClip = mul(float4(worldPos, 1.0f), localViewProj[slice]);
+    if (lightClip.w <= 0.0001f)                     // Behind the light
+        return 1.0f;
+    float3 projCoords = lightClip.xyz / lightClip.w;
+
+    if (projCoords.z > 1.0f || projCoords.z < 0.0f)
+        return 1.0f;
+    if (projCoords.x < -1.0f || projCoords.x > 1.0f)
+        return 1.0f;
+    if (projCoords.y < -1.0f || projCoords.y > 1.0f)
+        return 1.0f;
+
+    float2 shadowUV     = float2(projCoords.x * 0.5f + 0.5f, projCoords.y * -0.5f + 0.5f);
+    float  currentDepth = projCoords.z - localBias;
+    float  layer        = (float)slice;
+
+    float shadow    = 0.0f;
+    float texelSize = 1.0f / max(localMapSize, 1.0f);
+    [unroll] for (int x = -1; x <= 1; ++x)
+    {
+        [unroll] for (int y = -1; y <= 1; ++y)
+        {
+            float2 uv = shadowUV + float2((float)x, (float)y) * texelSize;
+            shadow += localShadowMaps.SampleCmpLevelZero(shadowSampler, float3(uv, layer), currentDepth);
+        }
+    }
+    return shadow / 9.0f;
+}
+
+// Point-light cube face from the light-to-pixel vector.  Order MUST match
+// BuildShadowFrame() in Lights.cpp: +X -X +Y -Y +Z -Z.
+int PointShadowFace(float3 v)
+{
+    float3 a = abs(v);
+    if (a.x >= a.y && a.x >= a.z)
+        return (v.x >= 0.0f) ? 0 : 1;
+    if (a.y >= a.z)
+        return (v.y >= 0.0f) ? 2 : 3;
+    return (v.z >= 0.0f) ? 4 : 5;
+}
+
+// Final shadow multiplier for global light `li` (1.0 = unshadowed).
+float ShadowForGlobalLight(int li, float3 lightPos, float3 worldPos)
+{
+    if (ReceiveShadows < 0.5f)
+        return 1.0f;
+
+    int4  info = lightShadowInfo[li];
+    float vis  = 1.0f;
+
+    [branch]
+    if (info.x == SHADOW_KIND_DIRECTIONAL)
+        vis = SampleDirShadow(worldPos);
+    else if (info.x == SHADOW_KIND_SPOT)
+        vis = SampleLocalShadow(info.y, worldPos);
+    else if (info.x == SHADOW_KIND_POINT)
+        vis = SampleLocalShadow(info.y + PointShadowFace(worldPos - lightPos), worldPos);
+
+    // vis=1 (lit) -> lerp controls darkness: 0 strength = no shadow, 1 strength = full shadow
+    return lerp(1.0f - shadowStrength, 1.0f, vis);
 }
 
 // ── Pixel Shader Entry Point ──────────────────────────────────────────────────
@@ -389,7 +485,22 @@ float4 main(PS_INPUT input) : SV_TARGET
     float  roughnessMip     = roughnessValue * 5.0f + mipLODBias;
     float3 envReflection    = (float3) 0;
 
-    if (useEnvMap > 0.5f)
+    // Scene probe: models without their own t5 map reflect the renderer's sky cube (t10).
+    // reflectionScale == 0 means the probe is off (Video settings / resource unavailable).
+    bool useProbe = (useEnvMap <= 0.5f) && (reflectionScale > 0.0f);
+
+    if (useProbe)
+    {
+        // Roughness picks the mip.  Roughness-aware Fresnel keeps rough dielectrics from
+        // over-reflecting at grazing angles.
+        float  probeMip = clamp(roughnessValue * reflectionMaxMip + reflectionBlur, 0.0f, reflectionMaxMip);
+        float3 probe    = sceneProbe.SampleLevel(envSamplerState, reflectionVector, probeMip).rgb;
+        float  NoV      = saturate(dot(normalWS, V));
+        float  gloss    = 1.0f - roughnessValue;
+        float3 Fr       = F0 + (max(float3(gloss, gloss, gloss), F0) - F0) * pow(1.0f - NoV, 5.0f);
+        envReflection   = probe * envTint * envIntensity * Fr * reflectionScale * aoValue;
+    }
+    else if (useEnvMap > 0.5f)
     {
         envReflection  = environmentMap.SampleLevel(envSamplerState, reflectionVector, roughnessMip).rgb;
         envReflection *= envTint * envIntensity;
@@ -408,8 +519,10 @@ float4 main(PS_INPUT input) : SV_TARGET
     // === Early exit: NoLighting debug mode or no lights
     if ((numLights == 0 && globalLightCount == 0) || debugMode == 5)
     {
-        if (useEnvMap > 0.5f && debugMode != 5)
+        if ((useEnvMap > 0.5f || useProbe) && debugMode != 5)
             finalColor += envReflection;
+        if (debugMode != 5)
+            finalColor = ApplyDisplayAdjust(finalColor);
         return float4(finalColor, albedoColor.a);
     }
 
@@ -433,15 +546,20 @@ float4 main(PS_INPUT input) : SV_TARGET
         specularAccum += ls;
     }
 
-    // Global lights (b3)
+    // Global lights (b3) - each one attenuated by its own shadow map (if it has one).
+    float shadowVisMin = 1.0f;                      // For the ShadowsOnly debug view
+    [loop]
     for (int gi = 0; gi < globalLightCount; ++gi)
     {
         float3 ld, ls;
-        directLighting += ProcessLight(globalLights[gi], normalWS, V, input.worldPosition,
-                                       roughnessValue, metallicValue, albedoColor.rgb, F0,
-                                       ld, ls);
-        diffuseAccum  += ld;
-        specularAccum += ls;
+        float3 contrib = ProcessLight(globalLights[gi], normalWS, V, input.worldPosition,
+                                      roughnessValue, metallicValue, albedoColor.rgb, F0,
+                                      ld, ls);
+        float  sh      = ShadowForGlobalLight(gi, globalLights[gi].position, input.worldPosition);
+        shadowVisMin   = min(shadowVisMin, sh);
+        directLighting += contrib * sh;
+        diffuseAccum   += ld * sh;
+        specularAccum  += ls * sh;
     }
 
     // === Debug modes: separate diffuse and specular visualisation
@@ -457,19 +575,16 @@ float4 main(PS_INPUT input) : SV_TARGET
         return float4(matDebug, 1.0f);
     }
 
-    // === PCF shadow factor
-    float shadowFactor = SampleShadow(input.worldPosition);
-
-    // === ShadowsOnly debug mode
+    // === ShadowsOnly debug mode (darkest shadow factor across all global lights)
     if (debugMode == 7)
-        return float4(shadowFactor, shadowFactor, shadowFactor, 1.0f);
+        return float4(shadowVisMin, shadowVisMin, shadowVisMin, 1.0f);
 
-    // === Combine direct lighting (modulated by shadow) + per-light ambient + material ambient
+    // === Combine direct lighting (already shadow-attenuated per light) + per-light ambient + material ambient
     finalColor += lightAmbient * albedoColor.rgb * aoValue
-               + directLighting * shadowFactor;
+               + directLighting;
 
     // === Environment reflection (excluded from debug modes 3/4/7 above)
-    if (useEnvMap > 0.5f)
+    if (useEnvMap > 0.5f || useProbe)
         finalColor += envReflection;
 
     // === Emissive contribution (additive; independent of lighting and shadow)
@@ -477,6 +592,31 @@ float4 main(PS_INPUT input) : SV_TARGET
                        ? emissiveMap.Sample(samplerState, input.texCoord).rgb
                        : float3(1.0f, 1.0f, 1.0f);
     finalColor += EmissiveFactor * emissiveTex * EmissiveStrength;
+
+    // === Planar reflection (reflector surfaces only).  The mirror render uses an x-flipped projection,
+    // so u is mirrored; v matches the screen because both passes share the same projection Y.
+    // PlanarIndex picks the slice of the plane this surface reflects.
+    if (PlanarStrength > 0.0f && planarParams.x > 0.0f)
+    {
+        int    planarSlice = clamp((int)(PlanarIndex + 0.5f), 0, 3);
+        float3 planarN     = planarPlanes[planarSlice].xyz;
+        float2 planarUV    = input.position.xy * planarParams.zw;
+        planarUV.x         = 1.0f - planarUV.x;
+        // Ripple: normal-map detail (normalWS vs the geometric normal) along the plane's two tangents.
+        float3 planarT1    = normalize(cross(planarN, (abs(planarN.y) < 0.99f) ? float3(0.0f, 1.0f, 0.0f) : float3(1.0f, 0.0f, 0.0f)));
+        float3 planarT2    = cross(planarN, planarT1);
+        float3 planarDelta = normalWS - N;
+        planarUV          += float2(dot(planarDelta, planarT1), dot(planarDelta, planarT2)) * (planarParams.y * 0.25f);
+        planarUV           = saturate(planarUV);
+        float3 planarCol   = planarMap.SampleLevel(envSamplerState, float3(planarUV, (float)planarSlice), 0).rgb;
+        float  planarNoV   = saturate(dot(normalWS, V));
+        float  planarW     = saturate(PlanarStrength * planarParams.x * (1.0f - roughnessValue)
+                                      * (0.4f + 0.6f * pow(1.0f - planarNoV, 2.0f)));
+        finalColor = lerp(finalColor, planarCol, planarW);
+    }
+
+    // === Video settings brightness / contrast
+    finalColor = ApplyDisplayAdjust(finalColor);
 
     // === Final output
     return float4(finalColor, albedoColor.a);

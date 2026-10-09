@@ -385,12 +385,8 @@ bool OpenGLRenderer::StartRendererThreads()
     catch (const std::exception& e)                                             // Catch any exceptions during thread creation
     {
         result = false;
-        #if defined(_DEBUG_OPENGLRENDERER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"OpenGLRenderer: Exception in StartRendererThreads: %s",
-                std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
-        #else
-            (void)e;
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"OpenGLRenderer: Exception in StartRendererThreads: %s",
+            std::wstring(e.what(), e.what() + strlen(e.what())).c_str());
     }
 
     return result;                                                              // Return success/failure status
@@ -563,6 +559,15 @@ uniform sampler2D uEmissiveMap;
 uniform bool      uHasGlossMap;
 uniform bool      uHasEmissiveMap;
 
+// Scene reflections (see Lights.h): sky probe cube + planar mirror renders.
+uniform samplerCube    uSceneProbe;       // unit 10
+uniform sampler2DArray uPlanarMap;        // unit 11
+uniform vec3  uReflParams;                // x = probe scale (0 = off), y = max mip, z = blur
+uniform vec4  uPlanarParams;              // x = planar scale (0 = off), y = distortion, zw = 1/screen size
+uniform float uPlanarStrength;            // per-model mix, 0 = not a reflector
+uniform float uPlanarIndex;               // array layer of this reflector's plane
+uniform vec4  uPlanarPlanes[4];           // xyz = plane normal, w = d
+
 void main() {
     // Diffuse texture
     vec4 albedo = uHasDiffuse
@@ -639,6 +644,36 @@ void main() {
     else
         col += uEmissiveFactor * uEmissiveStrength;
 
+    // Sky probe reflection (same model as ModelPixel.glsl: roughness picks the mip, roughness-aware Fresnel).
+    if (uReflParams.x > 0.0) {
+        vec3  R     = reflect(-V, N);
+        float mip   = clamp(effectiveRoughness * uReflParams.y + uReflParams.z, 0.0, uReflParams.y);
+        vec3  probe = textureLod(uSceneProbe, R, mip).rgb;
+        float NoV   = clamp(dot(N, V), 0.0, 1.0);
+        float gloss = 1.0 - effectiveRoughness;
+        vec3  F0    = mix(vec3(0.04), albedo.rgb, uMetallic);
+        vec3  Fr    = F0 + (max(vec3(gloss), F0) - F0) * pow(1.0 - NoV, 5.0);
+        col += probe * Fr * uReflParams.x;
+    }
+
+    // Planar reflection (reflector surfaces only; mirrored u, see ModelPixel.glsl).
+    if (uPlanarStrength > 0.0 && uPlanarParams.x > 0.0) {
+        int  slice   = clamp(int(uPlanarIndex + 0.5), 0, 3);
+        vec3 pn      = uPlanarPlanes[slice].xyz;
+        vec2 puv     = gl_FragCoord.xy * uPlanarParams.zw;
+        puv.x        = 1.0 - puv.x;
+        vec3 pt1     = normalize(cross(pn, (abs(pn.y) < 0.99) ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+        vec3 pt2     = cross(pn, pt1);
+        vec3 pdelta  = N - normalize(vNormal);
+        puv         += vec2(dot(pdelta, pt1), dot(pdelta, pt2)) * (uPlanarParams.y * 0.25);
+        puv          = clamp(puv, 0.0, 1.0);
+        vec3  pcol   = textureLod(uPlanarMap, vec3(puv, float(slice)), 0.0).rgb;
+        float pNoV   = clamp(dot(N, V), 0.0, 1.0);
+        float pw     = clamp(uPlanarStrength * uPlanarParams.x * (1.0 - effectiveRoughness)
+                             * (0.4 + 0.6 * pow(1.0 - pNoV, 2.0)), 0.0, 1.0);
+        col = mix(col, pcol, pw);
+    }
+
     fragColor = vec4(col, albedo.a * uAlpha);
 }
 )";
@@ -711,6 +746,80 @@ Vector4 OpenGLRenderer::ConvertColor(uint8_t r, uint8_t g, uint8_t b, uint8_t a)
     return Vector4(r / 255.0f, g / 255.0f, b / 255.0f, a / 255.0f);
 }
 
+#if defined(_WIN32) || defined(_WIN64)
+// Finds a double-buffered 32-bit colour / 24-bit depth / 8-bit stencil pixel format with the largest
+// sample count <= config.msaaSamples (2/4/8).  Returns 0 when WGL_ARB_pixel_format / multisample are
+// unavailable or nothing matches; the caller then falls back to the plain ChoosePixelFormat path.
+// Uses a hidden window + legacy context only to load the WGL extension entry points.
+int OpenGLRenderer::FindMultisamplePixelFormat(HDC realDC, const PIXELFORMATDESCRIPTOR& basePfd)
+{
+    (void)realDC;
+    int result = 0;
+
+    HWND dummyWnd = CreateWindowExW(0, L"STATIC", L"", WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    if (!dummyWnd) return 0;
+    HDC dummyDC = GetDC(dummyWnd);
+    HGLRC dummyRC = nullptr;
+
+    // Save whatever context is current (none at this point in startup, but stay safe)
+    HDC   prevDC = wglGetCurrentDC();
+    HGLRC prevRC = wglGetCurrentContext();
+
+    if (dummyDC)
+    {
+        PIXELFORMATDESCRIPTOR pfd = basePfd;
+        const int fmt = ChoosePixelFormat(dummyDC, &pfd);
+        if (fmt && SetPixelFormat(dummyDC, fmt, &pfd))
+            dummyRC = wglCreateContext(dummyDC);
+    }
+
+    if (dummyRC && wglMakeCurrent(dummyDC, dummyRC))
+    {
+        if (glewInit() == GLEW_OK && WGLEW_ARB_pixel_format && WGLEW_ARB_multisample)
+        {
+            const int wantSamples = std::clamp(config.myConfig.msaaSamples, 2, 8);
+            for (int samples = wantSamples; samples >= 2 && !result; samples >>= 1)
+            {
+                const int attribs[] = {
+                    WGL_DRAW_TO_WINDOW_ARB, GL_TRUE,
+                    WGL_SUPPORT_OPENGL_ARB, GL_TRUE,
+                    WGL_DOUBLE_BUFFER_ARB,  GL_TRUE,
+                    WGL_PIXEL_TYPE_ARB,     WGL_TYPE_RGBA_ARB,
+                    WGL_ACCELERATION_ARB,   WGL_FULL_ACCELERATION_ARB,
+                    WGL_COLOR_BITS_ARB,     32,
+                    WGL_DEPTH_BITS_ARB,     24,
+                    WGL_STENCIL_BITS_ARB,   8,
+                    WGL_SAMPLE_BUFFERS_ARB, GL_TRUE,
+                    WGL_SAMPLES_ARB,        samples,
+                    0
+                };
+                int  fmt = 0;
+                UINT count = 0;
+                if (wglChoosePixelFormatARB(dummyDC, attribs, nullptr, 1, &fmt, &count) && count > 0 && fmt > 0)
+                {
+                    result = fmt;
+                    m_msaaSampleCount = samples;
+                    debug.logDebugMessage(LogLevel::LOG_INFO, L"[OpenGLRenderer] Multisample pixel format found: %dx (requested %dx)", samples, wantSamples);
+                }
+            }
+            if (!result)
+                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[OpenGLRenderer] MSAA requested but no multisample pixel format is available; rendering 1 sample.");
+        }
+        else
+        {
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[OpenGLRenderer] MSAA requested but WGL_ARB_multisample / pixel_format are unsupported; rendering 1 sample.");
+        }
+        wglMakeCurrent(nullptr, nullptr);
+    }
+
+    if (prevDC && prevRC) wglMakeCurrent(prevDC, prevRC);
+    if (dummyRC) wglDeleteContext(dummyRC);
+    if (dummyDC) ReleaseDC(dummyWnd, dummyDC);
+    DestroyWindow(dummyWnd);
+    return result;
+}
+#endif
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Platform-specific OpenGL context creation (Windows WGL)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -735,10 +844,28 @@ bool OpenGLRenderer::CreateOpenGLContext(HWND hWnd)
         pfd.iLayerType   = PFD_MAIN_PLANE;
         m_glContext.pixelFormatDescriptor = pfd;
 
-        int pixelFormat = ChoosePixelFormat(m_glContext.deviceContext, &pfd);
-        if (!pixelFormat || !SetPixelFormat(m_glContext.deviceContext, pixelFormat, &pfd)) {
-            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[OpenGLRenderer] SetPixelFormat failed");
-            return false;
+        // MSAA: a window's pixel format can only be set once and wglChoosePixelFormatARB needs a live GL context,
+        // so a hidden throw-away window is used to find a multisampled format first (0 = none / MSAA off).
+        int pixelFormat = 0;
+        if (config.myConfig.antiAliasingEnabled && config.myConfig.msaaEnabled)
+            pixelFormat = FindMultisamplePixelFormat(m_glContext.deviceContext, pfd);
+
+        if (pixelFormat)
+        {
+            DescribePixelFormat(m_glContext.deviceContext, pixelFormat, sizeof(pfd), &pfd);
+            m_glContext.pixelFormatDescriptor = pfd;
+            if (!SetPixelFormat(m_glContext.deviceContext, pixelFormat, &pfd)) {
+                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[OpenGLRenderer] SetPixelFormat (multisample) failed");
+                return false;
+            }
+        }
+        else
+        {
+            pixelFormat = ChoosePixelFormat(m_glContext.deviceContext, &pfd);
+            if (!pixelFormat || !SetPixelFormat(m_glContext.deviceContext, pixelFormat, &pfd)) {
+                debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[OpenGLRenderer] SetPixelFormat failed");
+                return false;
+            }
         }
 
         // Create a legacy context first to bootstrap WGL extensions
@@ -889,7 +1016,19 @@ void OpenGLRenderer::SetupRenderStates()
     glFrontFace(GL_CCW);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glEnable(GL_MULTISAMPLE);
+    // Anti-aliasing group from the Video settings: line smoothing follows the master switch,
+    // multisample rasterization additionally needs MSAA (only effective on a multisampled pixel format)
+    if (config.myConfig.antiAliasingEnabled) glEnable(GL_LINE_SMOOTH); else glDisable(GL_LINE_SMOOTH);
+    if (config.myConfig.antiAliasingEnabled && config.myConfig.msaaEnabled) glEnable(GL_MULTISAMPLE); else glDisable(GL_MULTISAMPLE);
+
+    // Report what the default framebuffer really got (the pixel format is fixed at window creation)
+    {
+        GLint sampleBuffers = 0, samples = 0;
+        glGetIntegerv(GL_SAMPLE_BUFFERS, &sampleBuffers);
+        glGetIntegerv(GL_SAMPLES, &samples);
+        m_msaaSampleCount = (sampleBuffers > 0 && samples > 1) ? samples : 1;
+        debug.logDebugMessage(LogLevel::LOG_INFO, L"[OpenGLRenderer] Default framebuffer: %d sample(s)", m_msaaSampleCount);
+    }
     CheckOpenGLError("SetupRenderStates");
 }
 
@@ -982,12 +1121,17 @@ void OpenGLRenderer::LoadShaders()
             setUnit("environmentMap", TEXTURE_UNIT_ENVIRONMENT);    // t5
             setUnit("glossMap",       TEXTURE_UNIT_GLOSS);          // t6
             setUnit("emissiveMap",    TEXTURE_UNIT_EMISSIVE);       // t7
-            setUnit("shadowMap",      TEXTURE_UNIT_SHADOW);         // t8
+            setUnit("shadowMap",      TEXTURE_UNIT_SHADOW);         // t8  directional (sampler2DShadow)
+            setUnit("localShadowMaps",TEXTURE_UNIT_LOCAL_SHADOW);   // t9  spot/point  (sampler2DArrayShadow)
+            setUnit("sceneProbe",     TEXTURE_UNIT_SCENE_PROBE);    // t10 scene reflection probe (samplerCube)
+            setUnit("planarMap",      TEXTURE_UNIT_PLANAR);         // t11 planar mirror render (sampler2D)
             // Embedded-fallback sampler names (k_3dFragGLSL)
             setUnit("uDiffuse",    TEXTURE_UNIT_DIFFUSE);           // same unit 0
             setUnit("uNormalMap",  TEXTURE_UNIT_NORMAL);            // same unit 1
             setUnit("uGlossMap",   TEXTURE_UNIT_GLOSS);             // unit 6
             setUnit("uEmissiveMap",TEXTURE_UNIT_EMISSIVE);          // unit 7
+            setUnit("uSceneProbe", TEXTURE_UNIT_SCENE_PROBE);       // unit 10
+            setUnit("uPlanarMap",  TEXTURE_UNIT_PLANAR);            // unit 11
         }
         glUseProgram(0);
 
@@ -1019,6 +1163,11 @@ void OpenGLRenderer::LoadShaders()
         m_uniforms3D.uNs             = glGetUniformLocation(prog3D, "uNs");
         m_uniforms3D.uEmissiveFactor = glGetUniformLocation(prog3D, "uEmissiveFactor");
         m_uniforms3D.uEmissiveStr    = glGetUniformLocation(prog3D, "uEmissiveStrength");
+        m_uniforms3D.uReflParams     = glGetUniformLocation(prog3D, "uReflParams");
+        m_uniforms3D.uPlanarParams   = glGetUniformLocation(prog3D, "uPlanarParams");
+        m_uniforms3D.uPlanarStrength = glGetUniformLocation(prog3D, "uPlanarStrength");
+        m_uniforms3D.uPlanarIndex    = glGetUniformLocation(prog3D, "uPlanarIndex");
+        m_uniforms3D.uPlanarPlanes   = glGetUniformLocation(prog3D, "uPlanarPlanes[0]");
         m_uniforms3D.uLightDir       = glGetUniformLocation(prog3D, "uLightDir");
         m_uniforms3D.uLightColor     = glGetUniformLocation(prog3D, "uLightColor");
         m_uniforms3D.uAmbient        = glGetUniformLocation(prog3D, "uAmbient");
@@ -1041,6 +1190,10 @@ void OpenGLRenderer::LoadShaders()
         // Mark uniforms as populated — both UBO path and embedded-fallback path are ready.
         m_uniforms3D.populated = true;
     }
+
+    // Shadow maps + depth-only program (non-fatal: shadows stay off if this fails).
+    if (!CreateShadowResourcesGL())
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[OpenGLRenderer] Shadow resources unavailable - rendering without shadows.");
 
     // 2D quad VAO/VBO (6 vertices of float2+float2 = 4 floats each)
     glGenVertexArrays(1, &m_2dVAO);
@@ -1225,6 +1378,10 @@ void OpenGLRenderer::Cleanup()
         m_3dShaderProgram.programID = 0; m_3dShaderProgram.isLinked = false;
     }
 
+    ReleaseShadowResourcesGL();
+    ReleaseReflectionResourcesGL();
+    ReleasePlanarResourcesGL();
+
     #if defined(_WIN32) || defined(_WIN64)
         if (m_gdiplusToken) {
             Gdiplus::GdiplusShutdown(m_gdiplusToken);
@@ -1235,6 +1392,306 @@ void OpenGLRenderer::Cleanup()
     CleanupPlatformSpecificContext();
     bHasCleanedUp = true;
     debug.logLevelMessage(LogLevel::LOG_INFO, L"[OpenGLRenderer] Cleanup complete");
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Shadow mapping resources (see Lights.h for the shared planner / GPU layout)
+//   unit 8 : directional depth map    GL_TEXTURE_2D       GL_DEPTH_COMPONENT32F, compare LEQUAL (sampler2DShadow)
+//   unit 9 : spot / point depth array GL_TEXTURE_2D_ARRAY GL_DEPTH_COMPONENT32F, compare LEQUAL (sampler2DArrayShadow)
+// Border = 1.0 so lookups outside a map read as lit.  Must run on the render (GL context) thread.
+// ---------------------------------------------------------------------------------------------------------------
+bool OpenGLRenderer::CreateShadowResourcesGL()
+{
+    ReleaseShadowResourcesGL();
+
+    m_shadowDirSize   = ShadowDirMapSizeFromConfig();
+    m_shadowLocalSize = ShadowLocalMapSizeFromConfig();
+
+    const float border[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+    // --- Directional depth map ---
+    glGenTextures(1, &m_shadowDirTex);
+    glBindTexture(GL_TEXTURE_2D, m_shadowDirTex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, m_shadowDirSize, m_shadowDirSize, 0,
+                 GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, border);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    // --- Spot / point depth array ---
+    glGenTextures(1, &m_shadowLocalTex);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, m_shadowLocalTex);
+    glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_DEPTH_COMPONENT32F, m_shadowLocalSize, m_shadowLocalSize,
+                 MAX_LOCAL_SHADOW_SLICES, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    glTexParameterfv(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_BORDER_COLOR, border);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+    // --- Depth-only FBO (attachment switched per view) ---
+    glGenFramebuffers(1, &m_shadowFBO);
+
+    // --- Depth-only program: gl_Position = uWorldLightVP * vec4(pos * uScale, 1) ---
+    // uWorldLightVP is uploaded raw (row-major, row-vector); GL reads it column-major,
+    // which is the transpose - i.e. the column-vector form used below.
+    static const char* kShadowVS =
+        "#version 330 core\n"
+        "layout(location = 0) in vec3 aPosition;\n"
+        "uniform mat4 uWorldLightVP;\n"
+        "uniform vec3 uScale;\n"
+        "void main() { gl_Position = uWorldLightVP * vec4(aPosition * uScale, 1.0); }\n";
+    static const char* kShadowFS =
+        "#version 330 core\n"
+        "void main() { }\n";
+
+    m_shadowProgram = CreateShaderProgram(kShadowVS, kShadowFS);
+    if (!m_shadowProgram)
+    {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[OpenGLRenderer] Shadow depth program failed to link.");
+        ReleaseShadowResourcesGL();
+        return false;
+    }
+    m_shadowLocWorldLVP = glGetUniformLocation(m_shadowProgram, "uWorldLightVP");
+    m_shadowLocScale    = glGetUniformLocation(m_shadowProgram, "uScale");
+
+    // Completeness check against the directional map.
+    GLint prevFBO = 0;
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevFBO);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_shadowFBO);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, m_shadowDirTex, 0);
+    glDrawBuffer(GL_NONE);
+    glReadBuffer(GL_NONE);
+    const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevFBO));
+    if (status != GL_FRAMEBUFFER_COMPLETE)
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[OpenGLRenderer] Shadow FBO incomplete (0x%04X).", static_cast<unsigned>(status));
+        ReleaseShadowResourcesGL();
+        return false;
+    }
+
+    m_shadowResourcesReady = true;
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"[OpenGLRenderer] Shadow resources created (dir %d, local %d x %d slices)",
+        m_shadowDirSize, m_shadowLocalSize, MAX_LOCAL_SHADOW_SLICES);
+    return true;
+}
+
+void OpenGLRenderer::ReleaseShadowResourcesGL()
+{
+    m_shadowResourcesReady = false;
+    if (m_shadowProgram)  { glDeleteProgram(m_shadowProgram);          m_shadowProgram  = 0; }
+    if (m_shadowFBO)      { glDeleteFramebuffers(1, &m_shadowFBO);     m_shadowFBO      = 0; }
+    if (m_shadowDirTex)   { glDeleteTextures(1, &m_shadowDirTex);      m_shadowDirTex   = 0; }
+    if (m_shadowLocalTex) { glDeleteTextures(1, &m_shadowLocalTex);    m_shadowLocalTex = 0; }
+    m_shadowLocWorldLVP = -1;
+    m_shadowLocScale    = -1;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Scene reflection probe (see "Scene Reflections" in Lights.h).
+// Rebuilds the CPU sky cube when the lighting changed, uploads every face/mip and keeps the cube
+// map bound to unit 10 for the frame.  Must run on the render (GL context) thread.
+// Failure is non-fatal: the probe stays off and models keep their per-model environment maps.
+// ---------------------------------------------------------------------------------------------------------------
+void OpenGLRenderer::UpdateReflectionProbeGL(const std::vector<LightStruct>& lights, float deltaTime)
+{
+    const bool changed = ReflectionProbeUpdate(lights, deltaTime, m_reflProbe);
+
+    if (m_reflProbe.size > 0 && (m_reflTex == 0 || (changed && m_reflUploadedVersion != m_reflProbe.version)))
+    {
+        const bool create = (m_reflTex == 0);
+        if (create)
+        {
+            glGenTextures(1, &m_reflTex);
+            glBindTexture(GL_TEXTURE_CUBE_MAP, m_reflTex);
+            glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_BASE_LEVEL, 0);
+            glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAX_LEVEL, m_reflProbe.mipCount - 1);
+        }
+        else
+        {
+            glBindTexture(GL_TEXTURE_CUBE_MAP, m_reflTex);
+        }
+
+        GLint prevAlign = 4;
+        glGetIntegerv(GL_UNPACK_ALIGNMENT, &prevAlign);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);                                  // RGBA8 rows are always 4-byte multiples
+        for (int f = 0; f < 6; ++f)
+        {
+            for (int mip = 0; mip < m_reflProbe.mipCount; ++mip)
+            {
+                const std::vector<uint8_t>& px = m_reflProbe.data[f][mip];
+                if (px.empty()) continue;
+                const int ms = ReflectionMipSize(m_reflProbe.size, mip);
+                if (create)
+                    glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + f, mip, GL_RGBA8, ms, ms, 0,
+                                 GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+                else
+                    glTexSubImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + f, mip, 0, 0, ms, ms,
+                                    GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+            }
+        }
+        glPixelStorei(GL_UNPACK_ALIGNMENT, prevAlign);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+
+        if (create)
+            debug.logDebugMessage(LogLevel::LOG_INFO, L"[OpenGLRenderer] Reflection probe created (%d px, %d mips)",
+                m_reflProbe.size, m_reflProbe.mipCount);
+        m_reflUploadedVersion = m_reflProbe.version;
+    }
+
+    ReflectionFrameSet(m_reflProbe, m_reflTex != 0 && m_reflUploadedVersion != 0);
+
+    // Unit 10 stays bound for every model drawn this frame (the per-model unbind loop only clears 0-7).
+    const bool liveReady = g_reflectionCapture.ready && config.myConfig.reflectionLive && m_capTex != 0;
+    glActiveTexture(GL_TEXTURE0 + TEXTURE_UNIT_SCENE_PROBE);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, g_reflectionFrame.active ? (liveReady ? m_capTex : m_reflTex) : 0);
+    glActiveTexture(GL_TEXTURE0);
+}
+
+bool OpenGLRenderer::CreateCaptureResourcesGL()
+{
+    ReleaseCaptureResourcesGL();
+    if (m_reflProbe.size <= 0) return false;
+
+    const int size = m_reflProbe.size;
+    glGenTextures(1, &m_capTex);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, m_capTex);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_BASE_LEVEL, 0);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAX_LEVEL, m_reflProbe.mipCount - 1);
+    for (int f = 0; f < 6; ++f)
+        for (int mip = 0; mip < m_reflProbe.mipCount; ++mip)
+        {
+            const int ms = ReflectionMipSize(size, mip);
+            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + f, mip, GL_RGBA8, ms, ms, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        }
+    glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+
+    glGenRenderbuffers(1, &m_capDepthRB);
+    glBindRenderbuffer(GL_RENDERBUFFER, m_capDepthRB);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, size, size);
+    glBindRenderbuffer(GL_RENDERBUFFER, 0);
+
+    GLint prevFBO = 0;
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevFBO);
+    glGenFramebuffers(1, &m_capFBO);
+    glGenFramebuffers(1, &m_capReadFBO);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_capFBO);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_CUBE_MAP_POSITIVE_X, m_capTex, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_capDepthRB);
+    const GLenum drawBuf = GL_COLOR_ATTACHMENT0;
+    glDrawBuffers(1, &drawBuf);
+    const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevFBO));
+
+    if (status != GL_FRAMEBUFFER_COMPLETE)
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[OpenGLRenderer] Live reflection capture FBO incomplete (0x%04X).", static_cast<unsigned>(status));
+        ReleaseCaptureResourcesGL();
+        m_capFailed = true;
+        return false;
+    }
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"[OpenGLRenderer] Live reflection capture created (%d px)", size);
+    return true;
+}
+
+void OpenGLRenderer::ReleaseCaptureResourcesGL()
+{
+    g_reflectionCapture.ready = false;
+    if (m_capFBO)     { glDeleteFramebuffers(1, &m_capFBO);      m_capFBO     = 0; }
+    if (m_capReadFBO) { glDeleteFramebuffers(1, &m_capReadFBO);  m_capReadFBO = 0; }
+    if (m_capDepthRB) { glDeleteRenderbuffers(1, &m_capDepthRB); m_capDepthRB = 0; }
+    if (m_capTex)     { glDeleteTextures(1, &m_capTex);          m_capTex     = 0; }
+    m_capFailed = false;
+}
+
+void OpenGLRenderer::ReleaseReflectionResourcesGL()
+{
+    ReleaseCaptureResourcesGL();
+    ReflectionCaptureReset();
+    g_reflectionFrame.active = false;
+    if (m_reflTex) { glDeleteTextures(1, &m_reflTex); m_reflTex = 0; }
+    m_reflProbe = ReflectionProbe{};
+    m_reflUploadedVersion = 0;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Planar reflection target (see "Planar Reflections" in Lights.h): RGBA8 colour texture + 24-bit depth
+// renderbuffer in one FBO.  Created lazily on the render thread.  Failure is non-fatal: reflectors render
+// without the mirror image.
+// ---------------------------------------------------------------------------------------------------------------
+bool OpenGLRenderer::CreatePlanarResourcesGL()
+{
+    ReleasePlanarResourcesGL();
+
+    m_planarW = PlanarWidthFromConfig();
+    m_planarH = PlanarHeightFromConfig();
+
+    GLint prevFBO = 0;
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevFBO);
+
+    // One array layer per reflection plane.
+    glGenTextures(1, &m_planarTex);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, m_planarTex);
+    glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA8, m_planarW, m_planarH, MAX_PLANAR_PLANES, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+    glGenRenderbuffers(1, &m_planarDepthRB);
+    glBindRenderbuffer(GL_RENDERBUFFER, m_planarDepthRB);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, m_planarW, m_planarH);
+    glBindRenderbuffer(GL_RENDERBUFFER, 0);
+
+    glGenFramebuffers(1, &m_planarFBO);
+    glBindFramebuffer(GL_FRAMEBUFFER, m_planarFBO);
+    glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, m_planarTex, 0, 0);     // layer re-attached per plane
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_planarDepthRB);
+    const GLenum drawBuf = GL_COLOR_ATTACHMENT0;
+    glDrawBuffers(1, &drawBuf);
+    const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevFBO));
+
+    if (status != GL_FRAMEBUFFER_COMPLETE)
+    {
+        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[OpenGLRenderer] Planar reflection FBO incomplete (0x%04X).", static_cast<unsigned>(status));
+        ReleasePlanarResourcesGL();
+        m_planarFailed = true;
+        return false;
+    }
+    debug.logDebugMessage(LogLevel::LOG_INFO, L"[OpenGLRenderer] Planar reflection target created (%d x %d x %d planes)",
+        m_planarW, m_planarH, MAX_PLANAR_PLANES);
+    return true;
+}
+
+void OpenGLRenderer::ReleasePlanarResourcesGL()
+{
+    g_planarFrame.active   = false;
+    g_planarFrame.hasImage = false;
+    if (m_planarFBO)     { glDeleteFramebuffers(1, &m_planarFBO);     m_planarFBO     = 0; }
+    if (m_planarDepthRB) { glDeleteRenderbuffers(1, &m_planarDepthRB); m_planarDepthRB = 0; }
+    if (m_planarTex)     { glDeleteTextures(1, &m_planarTex);          m_planarTex     = 0; }
+    m_planarFailed = false;
 }
 
 void OpenGLRenderer::CleanupTextures()
@@ -1500,6 +1957,29 @@ void OpenGLRenderer::Blit2DAtlasTile(BlitObj2DIndexType iIndex, int iTileIndex, 
 
     Render2DQuad(tex.textureID, iDestX, iDestY, iTileSizeX, iTileSizeY,
                  srcX, srcY, iTileSizeX, iTileSizeY, MyColor(255,255,255,255), false);
+}
+
+// Stretches the image to iWidth x iHeight while shifting its sampled content HORIZONTALLY by
+// scrollFraction * texture-width pixels, wrapping around the texture width (GL_REPEAT), so the
+// image's own colour banding appears to travel sideways across the fixed destination rect.
+// reverseDirection=false travels left->right, true travels right->left.
+void OpenGLRenderer::Blit2DScrollingObjectToSize(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float scrollFraction, bool reverseDirection)
+{
+    int idx = static_cast<int>(iIndex);
+    if (idx < 0 || idx >= MAX_TEXTURE_BUFFERS) return;
+    const auto& tex = m_2dTextures[idx];
+    if (!tex.isLoaded || tex.width <= 0) return;
+
+    float wrappedFrac = scrollFraction - std::floor(scrollFraction);
+    // xOffFrac is the fraction of the source width sampled at the destination's LEFT edge.
+    // Increasing it makes content appear to shift left (right->left travel); using its
+    // complement makes content appear to shift right (left->right travel, the default).
+    float xOffFrac = reverseDirection ? wrappedFrac : (1.0f - wrappedFrac);
+    xOffFrac -= std::floor(xOffFrac);
+    int wrappedOffset = static_cast<int>(xOffFrac * static_cast<float>(tex.width));
+
+    Render2DQuad(tex.textureID, iX, iY, iWidth, iHeight,
+                 wrappedOffset, 0, tex.width, tex.height, MyColor(255, 255, 255, 255), true);
 }
 
 void OpenGLRenderer::Blit2DObjectToSizeWithAlpha(BlitObj2DIndexType iIndex, int iX, int iY, int iW, int iH, float alpha)

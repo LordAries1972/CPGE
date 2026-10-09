@@ -1840,9 +1840,7 @@ void MPTMPlayer::TriggerEvent(size_t channel, const MPTMEvent& event, bool fromD
     }
 
     if (IsUnsupportedMPTMCommand(effect, data)) {
-#if defined(_DEBUG_MPTMPlayer_)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"MPTMPlayer: OpenMPT plugin/MIDI/sample-cue effect ignored.");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"MPTMPlayer: OpenMPT plugin/MIDI/sample-cue effect ignored.");
     }
 
     switch (effect) {

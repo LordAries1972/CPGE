@@ -29,6 +29,10 @@
 #include <nlohmann/json.hpp>
 #include <unordered_set>
 
+#if defined(_MSC_VER)
+    #include <intrin.h>                                                             // __stosb (REP STOSB) for FastAsmZero
+#endif
+
 using json = nlohmann::json;
 
 extern Model models[MAX_MODELS];                                                    // Global Base Model Pool
@@ -317,10 +321,8 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
 
             if (!miniParseOK)
             {
-                #if defined(_DEBUG_SCENEMANAGER_)
-                    debug.logDebugMessage(LogLevel::LOG_WARNING,
-                        L"[SceneManager] ParseGLBScene() mini-parse failed - falling through to full parse");
-                #endif
+                debug.logDiagMessage(LogLevel::LOG_WARNING,
+                    L"[SceneManager] ParseGLBScene() mini-parse failed - falling through to full parse");
             }
             else
             {
@@ -655,20 +657,16 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
                     return true;
                 }
 
-                #if defined(_DEBUG_SCENEMANAGER_)
-                    debug.logDebugMessage(LogLevel::LOG_WARNING,
-                        L"[SceneManager] ParseGLBScene() cache had %d entries but rebuild yielded 0 - falling through to full parse",
-                        cacheCount);
-                #endif
+                debug.logDiagMessage(LogLevel::LOG_WARNING,
+                    L"[SceneManager] ParseGLBScene() cache had %d entries but rebuild yielded 0 - falling through to full parse",
+                    cacheCount);
             }
         }
     }
 
     // Check if the GLB file exists on the filesystem
     if (!std::filesystem::exists(glbFile)) {
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[SceneManager] GLB file not found: %ls", glbFile.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[SceneManager] GLB file not found: %ls", glbFile.c_str());
         return false;
     }
 
@@ -678,9 +676,7 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
     // Open the GLB file in binary mode for reading
     std::ifstream file(glbFile, std::ios::binary);
     if (!file.is_open()) {
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[SceneManager] Failed to open GLB file: %ls", glbFile.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[SceneManager] Failed to open GLB file: %ls", glbFile.c_str());
         return false;
     }
 
@@ -695,27 +691,21 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
     GLBHeader header;
     file.read(reinterpret_cast<char*>(&header), sizeof(GLBHeader));
     if (file.gcount() != sizeof(GLBHeader)) {
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] Failed to read GLB header - file too small.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] Failed to read GLB header - file too small.");
         file.close();
         return false;
     }
 
     // Validate GLB magic number (0x46546C67 = 'glTF' in little-endian)
     if (header.magic != 0x46546C67) {
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[SceneManager] Invalid GLB magic number: 0x%08X", header.magic);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[SceneManager] Invalid GLB magic number: 0x%08X", header.magic);
         file.close();
         return false;
     }
 
     // Validate GLB version (must be 2 for GLB 2.0 format)
     if (header.version != 2) {
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[SceneManager] Unsupported GLB version: %d", header.version);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[SceneManager] Unsupported GLB version: %d", header.version);
         file.close();
         return false;
     }
@@ -732,10 +722,8 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
 
     // Handle Blender GLB export bug where header.length is incorrect
     if (header.length != static_cast<uint32_t>(actualFileSize)) {
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] GLB header length mismatch (header=%d actual=%d) - Blender export bug, using actual size.",
-                header.length, static_cast<uint32_t>(actualFileSize));
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"[SceneManager] GLB header length mismatch (header=%d actual=%d) - Blender export bug, using actual size.",
+            header.length, static_cast<uint32_t>(actualFileSize));
     }
 
     // GLB Chunk Structure: chunkLength(4) + chunkType(4) + chunkData(chunkLength)
@@ -748,18 +736,14 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
     GLBChunk jsonChunk;
     file.read(reinterpret_cast<char*>(&jsonChunk), sizeof(GLBChunk));
     if (file.gcount() != sizeof(GLBChunk)) {
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] Failed to read JSON chunk header.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] Failed to read JSON chunk header.");
         file.close();
         return false;
     }
 
     // Validate JSON chunk type (0x4E4F534A = 'JSON' in little-endian)
     if (jsonChunk.type != 0x4E4F534A) {
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[SceneManager] Expected JSON chunk, got type: 0x%08X", jsonChunk.type);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[SceneManager] Expected JSON chunk, got type: 0x%08X", jsonChunk.type);
         file.close();
         return false;
     }
@@ -768,9 +752,7 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
     std::string jsonData(jsonChunk.length, '\0');
     file.read(&jsonData[0], jsonChunk.length);
     if (file.gcount() != static_cast<std::streamsize>(jsonChunk.length)) {
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[SceneManager] Failed to read JSON chunk data (%d bytes).", jsonChunk.length);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[SceneManager] Failed to read JSON chunk data (%d bytes).", jsonChunk.length);
         file.close();
         return false;
     }
@@ -817,19 +799,13 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
                         debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] BIN chunk loaded successfully (%d bytes).", binChunk.length);
                     #endif
                 } else {
-                    #if defined(_DEBUG_SCENEMANAGER_)
-                        debug.logDebugMessage(LogLevel::LOG_ERROR, L"[SceneManager] Failed to read complete BIN chunk data.");
-                    #endif
+                    debug.logDiagMessage(LogLevel::LOG_ERROR, L"[SceneManager] Failed to read complete BIN chunk data.");
                 }
             } else {
-                #if defined(_DEBUG_SCENEMANAGER_)
-                    debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] Invalid BIN chunk type: 0x%08X", binChunk.type);
-                #endif
+                debug.logDiagMessage(LogLevel::LOG_WARNING, L"[SceneManager] Invalid BIN chunk type: 0x%08X", binChunk.type);
             }
         } else {
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[SceneManager] Failed to read potential BIN chunk header");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[SceneManager] Failed to read potential BIN chunk header");
         }
     } else {
         #if defined(_DEBUG_SCENEMANAGER_)
@@ -916,9 +892,7 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
     catch (const std::exception& ex) {
         // Convert narrow string exception message to wide string for debug output
         std::wstring werror(ex.what(), ex.what() + strlen(ex.what()));
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[SceneManager] JSON parse error in GLB: %ls", werror.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[SceneManager] JSON parse error in GLB: %ls", werror.c_str());
         return false;
     }
 
@@ -985,17 +959,13 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
         const auto& nodes = doc["nodes"];
         for (int i = 0; i < static_cast<int>(nodes.size()); ++i)
             rootNodeIndices.push_back(i);
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[SceneManager] No valid scene.nodes found. Defaulting to root-level nodes[].");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[SceneManager] No valid scene.nodes found. Defaulting to root-level nodes[].");
     }
 
     // Validate that we have at least one root node to process
     if (rootNodeIndices.empty()) 
     {
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] No root nodes available. GLB scene is empty or malformed.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] No root nodes available. GLB scene is empty or malformed.");
         return false;
     }
 
@@ -1220,9 +1190,7 @@ void SceneManager::ParseGLBNodeRecursive(const json& node, int nodeIndex, const 
 
             if (modelSlot < 0)
             {
-                #if defined(_DEBUG_SCENEMANAGER_)
-                    debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] No free model cache slot for primitive %d of '%ls' - skipping", primIdx, modelName.c_str());
-                #endif
+                debug.logDiagMessage(LogLevel::LOG_WARNING, L"[SceneManager] No free model cache slot for primitive %d of '%ls' - skipping", primIdx, modelName.c_str());
                 continue;
             }
 
@@ -1532,10 +1500,8 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
 
             if (!miniParseOK)
             {
-                #if defined(_DEBUG_SCENEMANAGER_)
-                    debug.logDebugMessage(LogLevel::LOG_WARNING,
-                        L"[SceneManager] ParseGLTFScene() mini-parse failed - falling through to full parse");
-                #endif
+                debug.logDiagMessage(LogLevel::LOG_WARNING,
+                    L"[SceneManager] ParseGLTFScene() mini-parse failed - falling through to full parse");
             }
             else
             {
@@ -1877,20 +1843,16 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
                     return true;
                 }
 
-                #if defined(_DEBUG_SCENEMANAGER_)
-                    debug.logDebugMessage(LogLevel::LOG_WARNING,
-                        L"[SceneManager] ParseGLTFScene() cache had %d entries but rebuild yielded 0 - falling through to full parse",
-                        cacheCount);
-                #endif
+                debug.logDiagMessage(LogLevel::LOG_WARNING,
+                    L"[SceneManager] ParseGLTFScene() cache had %d entries but rebuild yielded 0 - falling through to full parse",
+                    cacheCount);
             }
         }
     }
 
     // Check if the GLTF file exists on the filesystem
     if (!std::filesystem::exists(gltfFile)) {
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[SceneManager] File not found: %ls", gltfFile.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[SceneManager] File not found: %ls", gltfFile.c_str());
         return false;
     }
 
@@ -1900,9 +1862,7 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
     // Open the GLTF file for reading
     std::ifstream file(gltfFile);
     if (!file.is_open()) {
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"[SceneManager] Failed to open GLTF: %ls", gltfFile.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[SceneManager] Failed to open GLTF: %ls", gltfFile.c_str());
         return false;
     }
 
@@ -1959,9 +1919,7 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
                 #endif
             }
             else {
-                #if defined(_DEBUG_SCENEMANAGER_)
-                    debug.logDebugMessage(LogLevel::LOG_ERROR, L"[SceneManager] Failed to open .bin file: %ls", binPath.c_str());
-                #endif
+                debug.logDiagMessage(LogLevel::LOG_ERROR, L"[SceneManager] Failed to open .bin file: %ls", binPath.c_str());
                 return false;
             }
         } else {
@@ -2012,17 +1970,13 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
         const auto& nodes = doc["nodes"];
         for (int i = 0; i < static_cast<int>(nodes.size()); ++i)
             rootNodeIndices.push_back(i);
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[SceneManager] No valid scene.nodes found. Defaulting to root-level nodes[].");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[SceneManager] No valid scene.nodes found. Defaulting to root-level nodes[].");
     }
 
     // Validate that we have at least one root node to process
     if (rootNodeIndices.empty())
     {
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] No root nodes available. Scene is empty or malformed.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] No root nodes available. Scene is empty or malformed.");
         return false;
     }
 
@@ -2097,37 +2051,32 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
     // Validate GLTF animation channel node mapping against created scene model instances.
     // This helps catch the common case where animations target non-mesh nodes (no scene_models entry),
     // or where node indices were not preserved during parsing.
-    #if defined(_DEBUG_SCENEMANAGER_)
-        if (bAnimationsLoaded)
+    if (bAnimationsLoaded)
+    {
+        for (int animIndex = 0; animIndex < modelAnimator.gltfAnimator.GetAnimationCount(); ++animIndex)
         {
-            for (int animIndex = 0; animIndex < modelAnimator.gltfAnimator.GetAnimationCount(); ++animIndex)
+            const GLTFAnimation* anim = modelAnimator.gltfAnimator.GetAnimation(animIndex);
+            if (!anim)
+                continue;
+            for (size_t c = 0; c < anim->channels.size(); ++c)
             {
-                const GLTFAnimation* anim = modelAnimator.gltfAnimator.GetAnimation(animIndex);
-                if (!anim)
-                    continue;
-
-                for (size_t c = 0; c < anim->channels.size(); ++c)
+                const AnimationChannel& ch = anim->channels[c];
+                bool foundTarget = false;
+                for (int mi = 0; mi < instanceIndex; ++mi)
                 {
-                    const AnimationChannel& ch = anim->channels[c];
-                    bool foundTarget = false;
-
-                    for (int mi = 0; mi < instanceIndex; ++mi)
+                    if (scene_models[mi].m_isLoaded && scene_models[mi].m_modelInfo.gltfNodeIndex == ch.targetNodeIndex)
                     {
-                        if (scene_models[mi].m_isLoaded && scene_models[mi].m_modelInfo.gltfNodeIndex == ch.targetNodeIndex)
-                        {
-                            foundTarget = true;
-                            break;
-                        }
+                        foundTarget = true;
+                        break;
                     }
-
-                    if (!foundTarget)
-                    {
-                        debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] Animation %d channel %d targets GLTF node %d, but no scene model instance was created for that node.", animIndex, (int)c, ch.targetNodeIndex);
-                    }
+                }
+                if (!foundTarget)
+                {
+                    debug.logDiagMessage(LogLevel::LOG_WARNING, L"[SceneManager] Animation %d channel %d targets GLTF node %d, but no scene model instance was created for that node.", animIndex, (int)c, ch.targetNodeIndex);
                 }
             }
         }
-    #endif
+    }
 
     // Return success if at least one model instance was created
     return (instanceIndex > 0);
@@ -2264,9 +2213,7 @@ void SceneManager::ParseGLTFNodeRecursive(const json& node, int nodeIndex, const
 
             if (modelSlot < 0)
             {
-                #if defined(_DEBUG_SCENEMANAGER_)
-                    debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] No free model cache slot for primitive %d of '%ls' - skipping", primIdx, modelName.c_str());
-                #endif
+                debug.logDiagMessage(LogLevel::LOG_WARNING, L"[SceneManager] No free model cache slot for primitive %d of '%ls' - skipping", primIdx, modelName.c_str());
                 continue;
             }
 
@@ -2522,9 +2469,7 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
     // Validate required GLTF sections. (Prevents invalid JSON access.)
     if (!doc.contains("meshes") || !doc.contains("accessors") || !doc.contains("bufferViews"))
     {
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] Missing required GLB sections: meshes, accessors, or bufferViews");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] Missing required GLB sections: meshes, accessors, or bufferViews");
         return;
     }
 
@@ -2535,13 +2480,11 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
     // Validate mesh index range. (Prevents out of range mesh selection.)
     if (meshIndex < 0 || meshIndex >= static_cast<int>(meshes.size()))
     {
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(
-                LogLevel::LOG_ERROR,
-                L"[SceneManager] Invalid mesh index: %d (max: %d)",
-                meshIndex,
-                static_cast<int>(meshes.size()));
-        #endif
+        debug.logDiagMessage(
+            LogLevel::LOG_ERROR,
+            L"[SceneManager] Invalid mesh index: %d (max: %d)",
+            meshIndex,
+            static_cast<int>(meshes.size()));
         return;
     }
 
@@ -2550,9 +2493,7 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
     // Validate primitives array. (No primitives means no geometry.)
     if (!mesh.contains("primitives"))
     {
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] Mesh has no primitives array");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] Mesh has no primitives array");
         return;
     }
 
@@ -2570,9 +2511,7 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
     // Validate binary buffer presence. (GLB must have data for accessors.)
     if (gltfBinaryData.empty())
     {
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[SceneManager] CRITICAL: gltfBinaryData is empty - cannot load vertex/index data!");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_CRITICAL, L"[SceneManager] CRITICAL: gltfBinaryData is empty - cannot load vertex/index data!");
         return;
     }
 
@@ -2589,9 +2528,7 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
         // If we could not acquire the lock, we must not mutate shared texture containers.
         if (!lock.IsLocked())
         {
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] LoadGLTFMeshPrimitives() could not acquire lock for model ID %d - skipping texture pre-allocation.", model.m_modelInfo.ID);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"[SceneManager] LoadGLTFMeshPrimitives() could not acquire lock for model ID %d - skipping texture pre-allocation.", model.m_modelInfo.ID);
             return;
         }
 
@@ -2624,9 +2561,7 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
         // Ensure primitive has attributes. (Required for POSITION and others.)
         if (!prim.contains("attributes"))
         {
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[SceneManager] Primitive missing attributes - skipping");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[SceneManager] Primitive missing attributes - skipping");
             continue;
         }
 
@@ -2645,14 +2580,12 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
         // Validate accessor indices. (Prevents out-of-range JSON accessors.)
         if (posAccessor < 0 || posAccessor >= (int)accessors.size() || idxAccessor < 0 || idxAccessor >= (int)accessors.size())
         {
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logDebugMessage(
-                    LogLevel::LOG_ERROR,
-                    L"[SceneManager] Invalid accessor indices - pos: %d, idx: %d (max: %d)",
-                    posAccessor,
-                    idxAccessor,
-                    static_cast<int>(accessors.size()));
-            #endif
+            debug.logDiagMessage(
+                LogLevel::LOG_ERROR,
+                L"[SceneManager] Invalid accessor indices - pos: %d, idx: %d (max: %d)",
+                posAccessor,
+                idxAccessor,
+                static_cast<int>(accessors.size()));
             continue;
         }
 
@@ -2665,13 +2598,11 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
         // Validate bufferView index for positions.
         if (posViewIdx < 0 || posViewIdx >= (int)bufferViews.size())
         {
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logDebugMessage(
-                    LogLevel::LOG_ERROR,
-                    L"[SceneManager] Invalid position bufferView index: %d (max: %d)",
-                    posViewIdx,
-                    static_cast<int>(bufferViews.size()));
-            #endif
+            debug.logDiagMessage(
+                LogLevel::LOG_ERROR,
+                L"[SceneManager] Invalid position bufferView index: %d (max: %d)",
+                posViewIdx,
+                static_cast<int>(bufferViews.size()));
             continue;
         }
 
@@ -2681,23 +2612,19 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
         // Validate vertexCount and buffer bounds for positions. (12 bytes per vertex for float3.)
         if (vertexCount <= 0)
         {
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[SceneManager] POSITION accessor has zero vertices - skipping primitive");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[SceneManager] POSITION accessor has zero vertices - skipping primitive");
             continue;
         }
 
         const size_t posBytesNeeded = (size_t)vertexCount * (size_t)12; // float3
         if (posOffset > gltfBinaryData.size() || (posOffset + posBytesNeeded) > gltfBinaryData.size())
         {
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logDebugMessage(
-                    LogLevel::LOG_ERROR,
-                    L"[SceneManager] CRITICAL: Position data out of bounds. Offset=%d Needed=%d BufferSize=%d",
-                    static_cast<int>(posOffset),
-                    static_cast<int>(posBytesNeeded),
-                    static_cast<int>(gltfBinaryData.size()));
-            #endif
+            debug.logDiagMessage(
+                LogLevel::LOG_ERROR,
+                L"[SceneManager] CRITICAL: Position data out of bounds. Offset=%d Needed=%d BufferSize=%d",
+                static_cast<int>(posOffset),
+                static_cast<int>(posBytesNeeded),
+                static_cast<int>(gltfBinaryData.size()));
             continue;
         }
 
@@ -2790,21 +2717,17 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
                     }
                     else
                     {
-                        #if defined(_DEBUG_SCENEMANAGER_)
-                            debug.logDebugMessage(
-                                LogLevel::LOG_WARNING,
-                                L"[SceneManager] NORMAL data out of bounds. Offset=%d Needed=%d BufferSize=%d. Using default normals.",
-                                static_cast<int>(normOffset),
-                                static_cast<int>(normBytesNeeded),
-                                static_cast<int>(gltfBinaryData.size()));
-                        #endif
+                        debug.logDiagMessage(
+                            LogLevel::LOG_WARNING,
+                            L"[SceneManager] NORMAL data out of bounds. Offset=%d Needed=%d BufferSize=%d. Using default normals.",
+                            static_cast<int>(normOffset),
+                            static_cast<int>(normBytesNeeded),
+                            static_cast<int>(gltfBinaryData.size()));
                     }
                 }
                 else
                 {
-                    #if defined(_DEBUG_SCENEMANAGER_)
-                        debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] Invalid normal bufferView index: %d. Using default normals.", normViewIdx);
-                    #endif
+                    debug.logDiagMessage(LogLevel::LOG_WARNING, L"[SceneManager] Invalid normal bufferView index: %d. Using default normals.", normViewIdx);
                 }
             }
         }
@@ -2838,9 +2761,7 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
                     int componentCount = 2;
                     if (texType != "VEC2")
                     {
-                        #if defined(_DEBUG_SCENEMANAGER_)
-                            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] TEXCOORD_0 accessor type is not VEC2 (type=%hs). Using default UVs.", texType.c_str());
-                        #endif
+                        debug.logDiagMessage(LogLevel::LOG_WARNING, L"[SceneManager] TEXCOORD_0 accessor type is not VEC2 (type=%hs). Using default UVs.", texType.c_str());
                         componentCount = 0;
                     }
 
@@ -2982,24 +2903,20 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
                         }
                         else
                         {
-                            #if defined(_DEBUG_SCENEMANAGER_)
-                                debug.logDebugMessage(
-                                    LogLevel::LOG_WARNING,
-                                    L"[SceneManager] TEXCOORD_0 data out of bounds. Offset=%d LastByte=%d BufferSize=%d. Using default UVs.",
-                                    static_cast<int>(texOffset),
-                                    static_cast<int>(lastByte),
-                                    static_cast<int>(gltfBinaryData.size()));
-                            #endif
+                            debug.logDiagMessage(
+                                LogLevel::LOG_WARNING,
+                                L"[SceneManager] TEXCOORD_0 data out of bounds. Offset=%d LastByte=%d BufferSize=%d. Using default UVs.",
+                                static_cast<int>(texOffset),
+                                static_cast<int>(lastByte),
+                                static_cast<int>(gltfBinaryData.size()));
                         }
                     }
                     else
                     {
-                        #if defined(_DEBUG_SCENEMANAGER_)
-                            debug.logDebugMessage(LogLevel::LOG_WARNING,
-                                L"[SceneManager] TEXCOORD_0 accessor has unsupported componentType=%d or componentCount=%d. Using default UVs.",
-                                texComponentType,
-                                componentCount);
-                        #endif
+                        debug.logDiagMessage(LogLevel::LOG_WARNING,
+                            L"[SceneManager] TEXCOORD_0 accessor has unsupported componentType=%d or componentCount=%d. Using default UVs.",
+                            texComponentType,
+                            componentCount);
                     }
                 }
             }
@@ -3085,13 +3002,11 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
         // Validate index bufferView before accessing.
         if (idxViewIdx < 0 || idxViewIdx >= (int)bufferViews.size())
         {
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logDebugMessage(
-                    LogLevel::LOG_ERROR,
-                    L"[SceneManager] Invalid index bufferView index: %d (max: %d)",
-                    idxViewIdx,
-                    static_cast<int>(bufferViews.size()) - 1);
-            #endif
+            debug.logDiagMessage(
+                LogLevel::LOG_ERROR,
+                L"[SceneManager] Invalid index bufferView index: %d (max: %d)",
+                idxViewIdx,
+                static_cast<int>(bufferViews.size()) - 1);
             continue;
         }
 
@@ -3102,9 +3017,7 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
         // Validate idxCount.
         if (idxCount <= 0)
         {
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[SceneManager] Indices accessor has zero indices - skipping primitive");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[SceneManager] Indices accessor has zero indices - skipping primitive");
             continue;
         }
 
@@ -3117,12 +3030,10 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
         // Reject unsupported component types.
         if (bytesPerIndex == 0)
         {
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logDebugMessage(
-                    LogLevel::LOG_ERROR,
-                    L"[SceneManager] Unsupported index componentType: %d - skipping primitive",
-                    idxComponentType);
-            #endif
+            debug.logDiagMessage(
+                LogLevel::LOG_ERROR,
+                L"[SceneManager] Unsupported index componentType: %d - skipping primitive",
+                idxComponentType);
             continue;
         }
 
@@ -3131,14 +3042,12 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
         // Validate index data bounds.
         if (idxOffset > gltfBinaryData.size() || (idxOffset + idxBytesNeeded) > gltfBinaryData.size())
         {
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logDebugMessage(
-                    LogLevel::LOG_ERROR,
-                    L"[SceneManager] CRITICAL: Index data out of bounds. Offset=%d Needed=%d BufferSize=%d - skipping primitive",
-                    static_cast<int>(idxOffset),
-                    static_cast<int>(idxBytesNeeded),
-                    static_cast<int>(gltfBinaryData.size()));
-            #endif
+            debug.logDiagMessage(
+                LogLevel::LOG_ERROR,
+                L"[SceneManager] CRITICAL: Index data out of bounds. Offset=%d Needed=%d BufferSize=%d - skipping primitive",
+                static_cast<int>(idxOffset),
+                static_cast<int>(idxBytesNeeded),
+                static_cast<int>(gltfBinaryData.size()));
             continue;
         }
 
@@ -3185,13 +3094,11 @@ void SceneManager::LoadGLTFMeshPrimitives(int meshIndex, const json& doc, Model&
 
         if (hasInvalidIndex)
         {
-            #if defined(_DEBUG_SCENEMANAGER_)
-                debug.logDebugMessage(
-                    LogLevel::LOG_ERROR,
-                    L"[SceneManager] CRITICAL: Primitive has out-of-range indices. MaxIndex=%d VertexCount=%d - skipping primitive to prevent heap corruption",
-                    static_cast<int>(maxIndexSeen),
-                    static_cast<int>(rawVertices.size()));
-            #endif
+            debug.logDiagMessage(
+                LogLevel::LOG_ERROR,
+                L"[SceneManager] CRITICAL: Primitive has out-of-range indices. MaxIndex=%d VertexCount=%d - skipping primitive to prevent heap corruption",
+                static_cast<int>(maxIndexSeen),
+                static_cast<int>(rawVertices.size()));
             continue;
         }
 
@@ -3432,9 +3339,7 @@ XMMATRIX SceneManager::GetNodeWorldMatrix(const json& node,
 
     if (!hasValidTransform)
     {
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] Node has no transform. Using identity.");
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"[SceneManager] Node has no transform. Using identity.");
     }
 
     XMMATRIX finalMatrix = T * R * S;
@@ -3527,15 +3432,13 @@ std::shared_ptr<Texture> SceneManager::LoadGLTFImage(const json& imageEntry, con
         if (tex->LoadFromFile(fullTexPath))
             return tex;
 
-        #if defined(_DEBUG_SCENEMANAGER_)
-            // Log with a clear failure reason so we know whether the path was wrong or the
-            // device/WIC pipeline failed.  file-exists is re-checked here to distinguish
-            // "path mismatch" from "LoadFromFile internal failure".
-            debug.logDebugMessage(LogLevel::LOG_ERROR,
-                L"[SceneManager] LoadGLTFImage: LoadFromFile FAILED for '%ls' (file on disk: %s) - model will use fallback",
-                fullTexPath.wstring().c_str(),
-                std::filesystem::exists(fullTexPath) ? L"YES - decode/upload error" : L"NO - bad path");
-        #endif
+        // Log with a clear failure reason so we know whether the path was wrong or the
+        // device/WIC pipeline failed.  file-exists is re-checked here to distinguish
+        // "path mismatch" from "LoadFromFile internal failure".
+        debug.logDiagMessage(LogLevel::LOG_ERROR,
+            L"[SceneManager] LoadGLTFImage: LoadFromFile FAILED for '%ls' (file on disk: %s) - model will use fallback",
+            fullTexPath.wstring().c_str(),
+            std::filesystem::exists(fullTexPath) ? L"YES - decode/upload error" : L"NO - bad path");
 
         return nullptr;
     }
@@ -3557,11 +3460,9 @@ std::shared_ptr<Texture> SceneManager::LoadGLTFImage(const json& imageEntry, con
 
     if (byteLength == 0 || byteOffset + byteLength > gltfBinaryData.size())
     {
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_ERROR,
-                L"[SceneManager] LoadGLTFImage: bufferView %d out of range (offset=%zu len=%zu bufSize=%zu)",
-                bvIdx, byteOffset, byteLength, gltfBinaryData.size());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR,
+            L"[SceneManager] LoadGLTFImage: bufferView %d out of range (offset=%zu len=%zu bufSize=%zu)",
+            bvIdx, byteOffset, byteLength, gltfBinaryData.size());
         return nullptr;
     }
 
@@ -3575,10 +3476,8 @@ std::shared_ptr<Texture> SceneManager::LoadGLTFImage(const json& imageEntry, con
         return tex;
     }
 
-    #if defined(_DEBUG_SCENEMANAGER_)
-        debug.logDebugMessage(LogLevel::LOG_WARNING,
-            L"[SceneManager] LoadGLTFImage: failed to decode embedded image from bufferView %d", bvIdx);
-    #endif
+    debug.logDiagMessage(LogLevel::LOG_WARNING,
+        L"[SceneManager] LoadGLTFImage: failed to decode embedded image from bufferView %d", bvIdx);
     return nullptr;
 }
 
@@ -3607,9 +3506,7 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
 
     if (!lock.IsLocked())
     {
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] Could not acquire lock for material bind on model ID %d (material %d) - skipping.", info.ID, materialIndex);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"[SceneManager] Could not acquire lock for material bind on model ID %d (material %d) - skipping.", info.ID, materialIndex);
         return;
     }
 
@@ -3694,11 +3591,9 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
                             newMat.normalMapPath = uri;
                             hasDiffuseTexture    = false;
 
-                            #if defined(_DEBUG_SCENEMANAGER_)
-                                debug.logDebugMessage(LogLevel::LOG_WARNING,
-                                    L"[SceneManager] Model[%d] material[%d] baseColorTexture re-routed as NormalMap (name heuristic)",
-                                    info.ID, materialIndex);
-                            #endif
+                            debug.logDiagMessage(LogLevel::LOG_WARNING,
+                                L"[SceneManager] Model[%d] material[%d] baseColorTexture re-routed as NormalMap (name heuristic)",
+                                info.ID, materialIndex);
                         }
                         else
                         {
@@ -3721,18 +3616,16 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
                             #endif
                         }
                     }
-                    #if defined(_DEBUG_SCENEMANAGER_)
                     else
                     {
                         // LoadGLTFImage returned null: the URI was found in the GLTF but the
                         // texture could not be loaded.  Check the LoadFromFile output above for
                         // the specific reason (bad path, missing device, WIC failure, etc.).
-                        debug.logDebugMessage(LogLevel::LOG_ERROR,
+                        debug.logDiagMessage(LogLevel::LOG_ERROR,
                             L"[SceneManager] Model[%d] material[%d]: LoadGLTFImage returned NULL for "
                             L"baseColorTexture (imgIndex=%d uri='%hs') - solid-colour fallback will be used",
                             info.ID, materialIndex, imgIndex, uri.c_str());
                     }
-                    #endif
                 }
             }
         }
@@ -3824,23 +3717,21 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
         newMat.diffuseMapPath = "SOLID_COLOR";
         info.useDiffuseMap    = false;          // solid-colour: shader uses Kd directly, not texture sample
 
-        #if defined(_DEBUG_SCENEMANAGER_)
-            if (!solidOk)
-            {
-                // CreateSolidColorTexture failed - the D3D device is probably not yet available.
-                // textureSRVs[0] will be null; SetupModelForRendering will call LoadFallbackTexture.
-                debug.logDebugMessage(LogLevel::LOG_ERROR,
-                    L"[SceneManager] Model[%d] material[%d] -> CreateSolidColorTexture FAILED "
-                    L"(device unavailable?) - brick fallback will be used instead",
-                    info.ID, materialIndex);
-            }
-            else
-            {
-                debug.logDebugMessage(LogLevel::LOG_WARNING,
-                    L"[SceneManager] Model[%d] material[%d] -> Solid colour fallback (%.2f, %.2f, %.2f, a=%.2f) alphaMode=%hs.",
-                    info.ID, materialIndex, Kd.x, Kd.y, Kd.z, alpha, newMat.alphaMode.c_str());
-            }
-        #endif
+        if (!solidOk)
+        {
+            // CreateSolidColorTexture failed - the D3D device is probably not yet available.
+            // textureSRVs[0] will be null; SetupModelForRendering will call LoadFallbackTexture.
+            debug.logDiagMessage(LogLevel::LOG_ERROR,
+                L"[SceneManager] Model[%d] material[%d] -> CreateSolidColorTexture FAILED "
+                L"(device unavailable?) - brick fallback will be used instead",
+                info.ID, materialIndex);
+        }
+        else
+        {
+            debug.logDiagMessage(LogLevel::LOG_WARNING,
+                L"[SceneManager] Model[%d] material[%d] -> Solid colour fallback (%.2f, %.2f, %.2f, a=%.2f) alphaMode=%hs.",
+                info.ID, materialIndex, Kd.x, Kd.y, Kd.z, alpha, newMat.alphaMode.c_str());
+        }
     }
 
     // Load Normal Map (optional)
@@ -3975,7 +3866,6 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
             }
         }
     }
-    #if defined(_DEBUG_SCENEMANAGER_)
     else
     {
         // Warn when the material declares a non-black emissiveFactor but exports no texture.
@@ -3985,7 +3875,7 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
         const auto& ef = newMat.emissiveFactor;
         if (ef.x > 0.001f || ef.y > 0.001f || ef.z > 0.001f)
         {
-            debug.logDebugMessage(LogLevel::LOG_WARNING,
+            debug.logDiagMessage(LogLevel::LOG_WARNING,
                 L"[SceneManager] Model[%d] material[%d] \"%hs\": emissiveFactor=(%.2f,%.2f,%.2f)x%.2f "
                 L"but NO emissiveTexture in GLTF -- shader will emit solid colour. "
                 L"In Blender: connect a texture node to the Emission Color socket of Principled BSDF before exporting.",
@@ -3993,7 +3883,6 @@ void SceneManager::BindGLTFMaterialTexturesToModel(int materialIndex, ModelInfo&
                 ef.x, ef.y, ef.z, newMat.emissiveStrength);
         }
     }
-    #endif
 
     // PBR scalars (Kd, Metallic, Roughness, emissive, alpha, extensions) were
     // already applied by BlenderImports::ApplyPBRMaterial() above the texture block.
@@ -4360,8 +4249,8 @@ void SceneManager::ParseFBXCameras(const FBXScene& fbx)
         bGltfCameraParsed = true;
 
         {
-            wchar_t buf[256];
-            swprintf_s(buf, L"[SceneManager] FBX Camera '%ls' applied: pos=(%.1f,%.1f,%.1f) target=(%.1f,%.1f,%.1f)",
+            wchar_t buf[768];
+            swprintf_s(buf, L"[SceneManager] FBX Camera '%.128ls' applied: pos=(%.1f,%.1f,%.1f) target=(%.1f,%.1f,%.1f)",
                 first.name.c_str(),
                 first.position.x, first.position.y, first.position.z,
                 first.target.x,   first.target.y,   first.target.z);
@@ -4491,9 +4380,7 @@ void SceneManager::ParseGLTFCamera(const nlohmann::json& gltf, Camera& camera, f
         bGltfCameraParsed = false;
         if (!gltf.contains("nodes") || !gltf.contains("cameras"))
         {
-            #if defined(_DEBUG_CAMERA_)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[GLTF]: No cameras or nodes found. Reverting to SetupDefaultCamera().");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[GLTF]: No cameras or nodes found. Reverting to SetupDefaultCamera().");
     		camera.SetupDefaultCamera(windowWidth, windowHeight);
 
             return;
@@ -4515,9 +4402,7 @@ void SceneManager::ParseGLTFCamera(const nlohmann::json& gltf, Camera& camera, f
 
         if (cameraNodeIndex == -1)
         {
-            #if defined(_DEBUG_CAMERA_)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[GLTF]: No camera node found. Reverting to SetupDefaultCamera().");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[GLTF]: No camera node found. Reverting to SetupDefaultCamera().");
 
             camera.SetupDefaultCamera(windowWidth, windowHeight);
             return;
@@ -4528,9 +4413,7 @@ void SceneManager::ParseGLTFCamera(const nlohmann::json& gltf, Camera& camera, f
 
         if (camIndex < 0 || camIndex >= (int)cameras.size())
         {
-            #if defined(_DEBUG_CAMERA_)
-                debug.logDebugMessage(LogLevel::LOG_WARNING, L"[GLTF]: Invalid camera index (%d). Reverting to default.", camIndex);
-            #endif
+            debug.logDiagMessage(LogLevel::LOG_WARNING, L"[GLTF]: Invalid camera index (%d). Reverting to default.", camIndex);
             camera.SetupDefaultCamera(windowWidth, windowHeight);
             return;
         }
@@ -4538,9 +4421,7 @@ void SceneManager::ParseGLTFCamera(const nlohmann::json& gltf, Camera& camera, f
         const auto& cam = cameras[camIndex];
         if (!cam.contains("type") || cam["type"] != "perspective" || !cam.contains("perspective"))
         {
-            #if defined(_DEBUG_CAMERA_)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[GLTF]: Unsupported camera type or missing perspective.");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[GLTF]: Unsupported camera type or missing perspective.");
 
             camera.SetupDefaultCamera(windowWidth, windowHeight);
             return;
@@ -4635,9 +4516,7 @@ void SceneManager::ParseGLTFCamera(const nlohmann::json& gltf, Camera& camera, f
         }
         else
         {
-            #if defined(_DEBUG_CAMERA_)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"[GLTF CAMERA] Missing rotation quaternion, using default forward.");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[GLTF CAMERA] Missing rotation quaternion, using default forward.");
             target = XMVectorAdd(eye, forward);                                 // Use initialized default forward vector.
         }
 
@@ -4718,6 +4597,7 @@ bool SceneManager::ParseGLTFLights(const json& doc)
     {
         LightStruct out = {};
         out.active = 1;
+        out.castShadows = 1;                        // KHR_lights_punctual has no shadow flag - all glTF lights cast
 
         std::string type = light.value("type", "point");
         if (type == "point")            out.type = int(LightType::POINT);
@@ -4799,9 +4679,7 @@ bool SceneManager::ParseGLTFLights(const json& doc)
         std::wstring lightName = L"GLTF_Light_" + std::to_wstring(i);
         lightsManager.CreateLight(lightName, lref);
 
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"[SceneManager] Light[%d] Unbound: Defaulted to origin and forward.", (int)i);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"[SceneManager] Light[%d] Unbound: Defaulted to origin and forward.", (int)i);
     }
 
     #if defined(_DEBUG_SCENEMANAGER_)
@@ -4835,6 +4713,7 @@ void SceneManager::EnsureDefaultSunLight()
     sun.animMode       = int(LightAnimMode::None);
     sun.Shiningness    = 32.0f;
     sun.Reflection     = 0.5f;
+    sun.castShadows    = 1;
 
     lightsManager.CreateLight(L"DefaultSun", sun);
     #if defined(_DEBUG_SCENEMANAGER_)
@@ -4998,6 +4877,7 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile, bool bCacheOnly)
                     ls.intensity = fl.intensity / 100.0f;
                     ls.color     = fl.color;
                     ls.range     = fl.range;
+                    ls.castShadows = fl.castShadows ? 1 : 0;
                     switch (fl.lightType)
                     {
                         case FBXLightType::Directional: ls.type = int(LightType::DIRECTIONAL); break;
@@ -5408,6 +5288,7 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile, bool bCacheOnly)
         ls.intensity = fl.intensity / 100.0f; // normalise from FBX candela-like scale
         ls.color     = fl.color;
         ls.range     = fl.range;
+        ls.castShadows = fl.castShadows ? 1 : 0;   // FBX light CastShadows property
 
         switch (fl.lightType)
         {
@@ -5719,7 +5600,8 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile, bool bCacheOnly)
                 subInfo.baseLocalRotationQuat  = mdl.m_modelInfo.baseLocalRotationQuat;
                 subInfo.animLocalRotationQuat  = mdl.m_modelInfo.animLocalRotationQuat;
                 subInfo.bHasBaseLocalTRS       = mdl.m_modelInfo.bHasBaseLocalTRS;
-                subInfo.fxActive               = fbxModel.castShadow ? 1 : 0;
+                subInfo.castShadows            = fbxModel.castShadow;
+                subInfo.receiveShadows         = fbxModel.receiveShadow;
                 scene_models[subInstIdx].m_modelInfo = subInfo;
                 models[subMdlSlot].m_modelInfo       = subInfo;
             }
@@ -5918,8 +5800,12 @@ bool SceneManager::ParseFBXScene(const std::wstring& fbxFile, bool bCacheOnly)
                 #endif
             }
 
-            // Shadow flag
-            scene_models[subInstIdx].m_modelInfo.fxActive = fbxModel.castShadow ? 1 : 0;
+            // Shadow flags (FBX CastShadow / ReceiveShadow).  Written to both the scene
+            // instance and the models[] pool entry so SaveCache persists them.
+            scene_models[subInstIdx].m_modelInfo.castShadows    = fbxModel.castShadow;
+            scene_models[subInstIdx].m_modelInfo.receiveShadows = fbxModel.receiveShadow;
+            models[subMdlSlot].m_modelInfo.castShadows          = fbxModel.castShadow;
+            models[subMdlSlot].m_modelInfo.receiveShadows       = fbxModel.receiveShadow;
 
             // ---- GPU upload ----
             scene_models[subInstIdx].ApplyDefaultLightingFromManager(lightsManager);
@@ -6199,9 +6085,7 @@ void SceneManager::DetectGLTFExporter(const nlohmann::json& doc)
 
     if (!doc.contains("asset") || !doc["asset"].is_object())
     {
-        #if defined(_DEBUG_SCENEMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[SceneManager] GLTF 'asset' section missing for exporter detection.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[SceneManager] GLTF 'asset' section missing for exporter detection.");
        return;
     }
 
@@ -6234,9 +6118,7 @@ void SceneManager::DetectGLTFExporter(const nlohmann::json& doc)
     }
     else
     {
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[SceneManager] No 'generator' field found in GLTF asset block.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"[SceneManager] No 'generator' field found in GLTF asset block.");
     }
 }
 
@@ -6491,15 +6373,13 @@ int SceneManager::FindParentModelID(const std::wstring& modelName)
     }
 
     // Model not found in scene_models array - log once per unique name to avoid per-frame spam
-    #if defined(_DEBUG_SCENEMANAGER_)
-        static std::unordered_set<std::wstring> s_notFoundLogged;
-        if (s_notFoundLogged.find(modelName) == s_notFoundLogged.end())
-        {
-            s_notFoundLogged.insert(modelName);
-            debug.logDebugMessage(LogLevel::LOG_WARNING,
-                L"[SceneManager] Model \"%ls\" not found in scene_models array (logged once)", modelName.c_str());
-        }
-    #endif
+    static std::unordered_set<std::wstring> s_notFoundLogged;
+    if (s_notFoundLogged.find(modelName) == s_notFoundLogged.end())
+    {
+        s_notFoundLogged.insert(modelName);
+        debug.logDiagMessage(LogLevel::LOG_WARNING,
+            L"[SceneManager] Model \"%ls\" not found in scene_models array (logged once)", modelName.c_str());
+    }
 
     return -1;  // Return -1 to indicate model not found
 }
@@ -6539,10 +6419,8 @@ int SceneManager::PutModelToScene(std::wstring name, XMFLOAT3 atWorldCoords, boo
 
     if (rootCacheSlot < 0)
     {
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING,
-                L"[SceneManager::PutModelToScene] Model not found or not GPU-ready in cache: " + name);
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
+            L"[SceneManager::PutModelToScene] Model not found or not GPU-ready in cache: " + name);
         return -1;
     }
 
@@ -6578,10 +6456,8 @@ int SceneManager::PutModelToScene(std::wstring name, XMFLOAT3 atWorldCoords, boo
 
     if ((int)freeSlots.size() < (int)cacheSlots.size())
     {
-        #if defined(_DEBUG_SCENEMANAGER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING,
-                L"[SceneManager::PutModelToScene] Not enough free scene_models[] slots for: " + name);
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
+            L"[SceneManager::PutModelToScene] Not enough free scene_models[] slots for: " + name);
         return -1;
     }
 
@@ -6629,8 +6505,13 @@ int SceneManager::PutModelToScene(std::wstring name, XMFLOAT3 atWorldCoords, boo
         scene_models[sceneSlot].ApplyDefaultLightingFromManager(lightsManager);
         scene_models[sceneSlot].m_isLoaded = true;
 
-        // Keep the cache entry's cachedInstanceIndex current
-        models[cacheSlot].m_modelInfo.cachedInstanceIndex = sceneSlot;
+        // NOTE: Do NOT overwrite models[cacheSlot].m_modelInfo.cachedInstanceIndex here.
+        // That field must keep its LOAD-TIME scene slot: it is the key that pairs a root
+        // with its primitive children in Step 2 (child iParentModelID == root
+        // cachedInstanceIndex), and the cache-restore fast-path in ParseGLB/GLTF/FBXScene
+        // uses it to rebuild the original scene layout. Overwriting it with the gameplay
+        // inject slot broke repeat injections (children no longer found) and would have
+        // restored cached models into arbitrary slots on the next scene reload.
     }
 
     // --- Step 6: Start animation on the new parent scene model if requested ---
@@ -6654,6 +6535,219 @@ int SceneManager::PutModelToScene(std::wstring name, XMFLOAT3 atWorldCoords, boo
     #endif
 
     return newParentSceneID;
+}
+
+// --------------------------------------------------------------------------------------------------
+// FastAsmZero()
+// Assembly-level memory clear used by the scene-buffer slot reset routines.
+// On x86/x64 this emits a single REP STOSB instruction, which microcode-expands to the
+// fastest available wide-store fill on any CPU with ERMSB (all Intel/AMD since ~2013).
+// IMPORTANT: This must ONLY ever be pointed at trivially-destructible POD memory.
+// Never aim it at std::vector / std::wstring / ComPtr / shared_ptr / mutex members --
+// that corrupts the heap and leaks GPU resources (see the guard note in Models.cpp
+// DestroyModel(): "Do NOT SecureZeroMemory() ModelInfo").
+// --------------------------------------------------------------------------------------------------
+#if defined(_MSC_VER)
+    #define SCENE_FORCEINLINE __forceinline
+#elif defined(__GNUC__) || defined(__clang__)
+    #define SCENE_FORCEINLINE inline __attribute__((always_inline))
+#else
+    #define SCENE_FORCEINLINE inline
+#endif
+
+static SCENE_FORCEINLINE void FastAsmZero(void* dst, size_t bytes)
+{
+    if (!dst || bytes == 0) return;
+
+#if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
+    // MSVC x64 has no inline asm; __stosb compiles directly to REP STOSB.
+    __stosb(static_cast<unsigned char*>(dst), 0, bytes);
+#elif (defined(__GNUC__) || defined(__clang__)) && (defined(__x86_64__) || defined(__i386__))
+    void*  d = dst;
+    size_t n = bytes;
+    __asm__ __volatile__("rep stosb" : "+D"(d), "+c"(n) : "a"(0) : "memory");
+#else
+    // Non-x86 targets (ARM etc.): memset lowers to the platform's optimal fill loop.
+    memset(dst, 0, bytes);
+#endif
+}
+
+// --------------------------------------------------------------------------------------------------
+// SceneManager::ClearSceneModelSlot()
+// Resets one scene_models[] slot to a pristine, free state (m_isLoaded == false).
+// Step 1 releases every resource-owning member through normal C++ destructors:
+//   - ComPtr / shared_ptr references drop their ref-counts (DX11/DX12 safe),
+//   - vectors / strings / material maps free their heap blocks,
+//   - raw OpenGL/Vulkan handles are simply dropped WITHOUT being destroyed, because the
+//     global models[] cache still owns those exact handles (CopyFrom shares them; see the
+//     Vulkan stale-handle note in CleanUp()). Freeing them here would crash the next inject.
+// Step 2 clears the contiguous POD transform/state block (position .. projectionMatrix)
+// with the FastAsmZero REP STOSB routine. This also guarantees the matrices are in a
+// deterministic all-zero state (ModelInfo's default constructor leaves them uninitialized).
+// Step 3 restores the non-zero defaults inside the zeroed block and the slot flags.
+// --------------------------------------------------------------------------------------------------
+void SceneManager::ClearSceneModelSlot(Model& slot)
+{
+    // --- Step 1: Release resource-owning members via destructors (never via memory wipe) ---
+    slot.m_modelInfo = ModelInfo();
+    slot.m_materials.clear();
+
+    // --- Step 2: Assembly fast-clear of the contiguous POD transform/state block ---
+    // Every member from position through projectionMatrix is trivially-destructible POD
+    // declared contiguously in ModelInfo (Models.h); no heap-owning member lives inside it.
+    ModelInfo& mi = slot.m_modelInfo;
+    unsigned char* blockBegin = reinterpret_cast<unsigned char*>(&mi.position);
+    unsigned char* blockEnd   = reinterpret_cast<unsigned char*>(&mi.projectionMatrix) + sizeof(mi.projectionMatrix);
+    FastAsmZero(blockBegin, static_cast<size_t>(blockEnd - blockBegin));
+
+    // --- Step 3: Restore non-zero defaults inside the zeroed block ---
+    mi.scale                 = { 0.01f, 0.01f, 0.01f };
+    mi.baseLocalRotationQuat = { 0.0f, 0.0f, 0.0f, 1.0f };
+    mi.animLocalRotationQuat = { 0.0f, 0.0f, 0.0f, 1.0f };
+    mi.baseLocalScale        = { 1.0f, 1.0f, 1.0f };
+    mi.animLocalScale        = { 1.0f, 1.0f, 1.0f };
+#if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__) || (defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS))
+    mi.worldMatrix      = XMMatrixIdentity();
+    mi.viewMatrix       = XMMatrixIdentity();
+    mi.projectionMatrix = XMMatrixIdentity();
+#endif
+
+    // --- Slot bookkeeping: mark the slot free and pristine ---
+    slot.m_isLoaded       = false;
+    slot.bInitialized     = false;
+    slot.bIsDestroyed     = false;
+    slot.m_animationTime  = 0.0f;
+}
+
+// --------------------------------------------------------------------------------------------------
+// SceneManager::ClearSceneBuffer()
+// Wipes the ENTIRE scene_models[] array back to pristine free slots using the assembly
+// fast-clear helper. Animation instances keyed to scene parent IDs are removed first so
+// the animators hold no stale references (loaded clips are preserved for re-injection).
+// NOTE: This intentionally does NOT free GPU resources owned by the global models[] cache;
+// full GPU teardown at scene end remains CleanUp()'s job. This routine exists so dynamic
+// scenes can be re-assembled at runtime via InjectModelIntoScene()/PutModelToScene().
+// --------------------------------------------------------------------------------------------------
+void SceneManager::ClearSceneBuffer()
+{
+    for (int i = 0; i < MAX_SCENE_MODELS; ++i)
+    {
+        // Remove any animation instance bound to this scene slot before wiping it
+        if (scene_models[i].m_isLoaded && scene_models[i].m_modelInfo.iParentModelID == -1)
+        {
+            if (modelAnimator.IsAnimationPlaying(i))
+                modelAnimator.StopAnimation(i);
+            modelAnimator.gltfAnimator.RemoveAnimationInstance(i);
+            modelAnimator.fbxAnimator.RemoveAnimationInstance(i);
+        }
+
+        ClearSceneModelSlot(scene_models[i]);
+    }
+
+    #if defined(_DEBUG_SCENEMANAGER_)
+        debug.logDebugMessage(LogLevel::LOG_INFO,
+            L"[SceneManager::ClearSceneBuffer] All %d scene_models[] slots cleared.", MAX_SCENE_MODELS);
+    #endif
+}
+
+// --------------------------------------------------------------------------------------------------
+// SceneManager::InjectModelIntoScene()  (by model name)
+// Locates the named GPU-ready model in the global models[] cache and injects it (with its
+// primitive children) into the next free scene_models[] slot(s) at Coords in world space.
+// Delegates to PutModelToScene(), which performs the full render-readiness preparation:
+// bGpuReady + IsActive() validation, free-slot allocation, CopyFrom (GPU resource AddRef),
+// world matrix translation override, SetupModelForRendering(), and scene lighting.
+// Returns false if the model is not found, is not GPU-ready, or no free slots remain.
+// --------------------------------------------------------------------------------------------------
+bool SceneManager::InjectModelIntoScene(std::wstring modelName, XMFLOAT3 Coords)
+{
+    return PutModelToScene(modelName, Coords, true, false) >= 0;
+}
+
+// --------------------------------------------------------------------------------------------------
+// SceneManager::InjectModelIntoScene()  (by cache model ID)
+// Locates the model whose m_modelInfo.ID matches modelID in the global models[] cache.
+// If the model exists but is not GPU-ready (bGpuReady == false), returns false immediately
+// as required -- the renderer cannot draw it. Otherwise injects via the name-based path.
+// --------------------------------------------------------------------------------------------------
+bool SceneManager::InjectModelIntoScene(int modelID, XMFLOAT3 Coords)
+{
+    for (int i = 0; i < MAX_MODELS; ++i)
+    {
+        if (!models[i].IsActive())                  continue;   // Must be loaded, initialized, not destroyed
+        if (models[i].m_modelInfo.ID != modelID)    continue;   // Cache model ID must match
+
+        if (!models[i].m_modelInfo.bGpuReady)
+        {
+            debug.logDiagMessage(LogLevel::LOG_WARNING,
+                L"[SceneManager::InjectModelIntoScene] Model ID %d found but not GPU-ready.", modelID);
+            return false;
+        }
+
+        return PutModelToScene(models[i].m_modelInfo.name, Coords, true, false) >= 0;
+    }
+
+    debug.logDiagMessage(LogLevel::LOG_WARNING,
+        L"[SceneManager::InjectModelIntoScene] Model ID %d not found in models[] cache.", modelID);
+    return false;
+}
+
+// --------------------------------------------------------------------------------------------------
+// SceneManager::RemoveModelFromScene()  (by scene model ID)
+// Removes the model occupying the given scene_models[] slot, plus every primitive child
+// reparented to it (iParentModelID == modelID). Any animation instance keyed to the slot
+// is stopped and removed from both sub-animators first. Each slot is then reset with the
+// assembly fast-clear helper (ClearSceneModelSlot), making it immediately reusable.
+// GPU resources owned by the models[] cache are NOT destroyed, so the model can be
+// re-injected later without a reload. Returns false if the slot holds no loaded model.
+// --------------------------------------------------------------------------------------------------
+bool SceneManager::RemoveModelFromScene(int modelID)
+{
+    if (modelID < 0 || modelID >= MAX_SCENE_MODELS) return false;
+    if (!scene_models[modelID].m_isLoaded)          return false;
+
+    // Stop and remove any animation instance bound to this scene slot
+    if (modelAnimator.IsAnimationPlaying(modelID))
+        modelAnimator.StopAnimation(modelID);
+    modelAnimator.gltfAnimator.RemoveAnimationInstance(modelID);
+    modelAnimator.fbxAnimator.RemoveAnimationInstance(modelID);
+
+    // Clear all primitive children reparented to this slot by the inject path
+    int clearedCount = 0;
+    for (int i = 0; i < MAX_SCENE_MODELS; ++i)
+    {
+        if (i == modelID)                                          continue;
+        if (!scene_models[i].m_isLoaded)                           continue;
+        if (scene_models[i].m_modelInfo.iParentModelID != modelID) continue;
+
+        ClearSceneModelSlot(scene_models[i]);
+        ++clearedCount;
+    }
+
+    // Clear the parent slot itself with the assembly fast-clear
+    ClearSceneModelSlot(scene_models[modelID]);
+    ++clearedCount;
+
+    #if defined(_DEBUG_SCENEMANAGER_)
+        debug.logDebugMessage(LogLevel::LOG_INFO,
+            L"[SceneManager::RemoveModelFromScene] Removed scene model ID %d (%d slot(s) cleared).",
+            modelID, clearedCount);
+    #endif
+    return true;
+}
+
+// --------------------------------------------------------------------------------------------------
+// SceneManager::RemoveModelFromScene()  (by model name)
+// Resolves the named parent model in scene_models[] via FindParentModelID(), then removes
+// it (and its primitive children) through the ID-based removal path above.
+// Returns false if no loaded parent model with that name exists in the scene.
+// --------------------------------------------------------------------------------------------------
+bool SceneManager::RemoveModelFromScene(std::wstring modelName)
+{
+    int sceneID = FindParentModelID(modelName);
+    if (sceneID < 0) return false;
+
+    return RemoveModelFromScene(sceneID);
 }
 
 // --------------------------------------------------------------------------------------------------
@@ -6708,24 +6802,27 @@ void SceneManager::DiagnoseGLBParsing(const std::wstring& glbFile)
         debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Total loaded models: %d", loadedModels);
         debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Models with vertices: %d", modelsWithVertices);
         debug.logDebugMessage(LogLevel::LOG_INFO, L"[SceneManager] Models with indices: %d", modelsWithIndices);
-        
-        if (loadedModels == 0)
-        {
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] CRITICAL: No models loaded into scene_models[]!");
-        }
-        else if (modelsWithVertices == 0)
-        {
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] CRITICAL: Models loaded but contain no vertex data!");
-        }
-        else if (modelsWithIndices == 0)
-        {
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] CRITICAL: Models loaded but contain no index data!");
-        }
-        else
+    #endif
+
+    if (loadedModels == 0)
+    {
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] CRITICAL: No models loaded into scene_models[]!");
+    }
+    else if (modelsWithVertices == 0)
+    {
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] CRITICAL: Models loaded but contain no vertex data!");
+    }
+    else if (modelsWithIndices == 0)
+    {
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] CRITICAL: Models loaded but contain no index data!");
+    }
+
+    #if defined(_DEBUG_SCENEMANAGER_)
+        if (loadedModels > 0 && modelsWithVertices > 0 && modelsWithIndices > 0)
         {
             debug.logLevelMessage(LogLevel::LOG_INFO, L"[SceneManager] Models appear to have valid geometry data.");
         }
-        
+
         debug.logLevelMessage(LogLevel::LOG_INFO, L"[SceneManager] === GLB DIAGNOSTIC END ===");
     #endif
 }
@@ -6766,7 +6863,7 @@ namespace {
 
 // Magic + version constants for the cache file header.
 static constexpr uint32_t CACHE_MAGIC      = 0x4D444C43u; // 'CLDM'
-static constexpr uint32_t CACHE_VERSION    = 1u;
+static constexpr uint32_t CACHE_VERSION    = 2u;   // v2: + castShadows / receiveShadows per model
 
 // --------------------------------------------------------------------------------------------------
 // SceneManager::SaveCache()
@@ -6856,6 +6953,8 @@ bool SceneManager::SaveCache(const std::string& filepath)
         uint8_t  bUseRoughness   = info.useRoughnessMap   ? 1u : 0u;
         uint8_t  bUseAO          = info.useAOMap          ? 1u : 0u;
         uint8_t  bUseEnv         = info.useEnvironmentMap ? 1u : 0u;
+        uint8_t  bCastShadows    = info.castShadows       ? 1u : 0u;
+        uint8_t  bRecvShadows    = info.receiveShadows    ? 1u : 0u;
 
         f.write(reinterpret_cast<const char*>(&ID),            sizeof(ID));
         f.write(reinterpret_cast<const char*>(&parentID),      sizeof(parentID));
@@ -6874,6 +6973,8 @@ bool SceneManager::SaveCache(const std::string& filepath)
         f.write(reinterpret_cast<const char*>(&bUseRoughness), sizeof(bUseRoughness));
         f.write(reinterpret_cast<const char*>(&bUseAO),        sizeof(bUseAO));
         f.write(reinterpret_cast<const char*>(&bUseEnv),       sizeof(bUseEnv));
+        f.write(reinterpret_cast<const char*>(&bCastShadows),  sizeof(bCastShadows));
+        f.write(reinterpret_cast<const char*>(&bRecvShadows),  sizeof(bRecvShadows));
 
         // Transform fields (XMFLOAT3 == Vector3 on all platforms; both are float x,y,z)
         f.write(reinterpret_cast<const char*>(&info.position),       sizeof(XMFLOAT3));
@@ -6957,12 +7058,10 @@ bool SceneManager::LoadCache(const std::string& filepath)
 
     if (!cacheExists)
     {
-        #if defined(_DEBUG_SCENEMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING,
-                L"[SceneManager] Models cache '" +
-                std::wstring(filepath.begin(), filepath.end()) +
-                L"' not found - a full model reload is required.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
+            L"[SceneManager] Models cache '" +
+            std::wstring(filepath.begin(), filepath.end()) +
+            L"' not found - a full model reload is required.");
         return false;
     }
 
@@ -7025,6 +7124,7 @@ bool SceneManager::LoadCache(const std::string& filepath)
         int32_t  ID, parentID, gltfNodeIdx, cachedInstIdx, iAnimIdx, fxID_v;
         uint8_t  bTransOnly, bTransProxy, bHasBase, bGpuReady_v, bFxActive;
         uint8_t  bIsLoaded, bInited, bUseMetallic, bUseRoughness, bUseAO, bUseEnv;
+        uint8_t  bCastShadows = 1, bRecvShadows = 1;
 
         f.read(reinterpret_cast<char*>(&ID),            sizeof(ID));
         f.read(reinterpret_cast<char*>(&parentID),      sizeof(parentID));
@@ -7043,6 +7143,8 @@ bool SceneManager::LoadCache(const std::string& filepath)
         f.read(reinterpret_cast<char*>(&bUseRoughness), sizeof(bUseRoughness));
         f.read(reinterpret_cast<char*>(&bUseAO),        sizeof(bUseAO));
         f.read(reinterpret_cast<char*>(&bUseEnv),       sizeof(bUseEnv));
+        f.read(reinterpret_cast<char*>(&bCastShadows),  sizeof(bCastShadows));
+        f.read(reinterpret_cast<char*>(&bRecvShadows),  sizeof(bRecvShadows));
 
         info.ID                  = ID;
         info.iParentModelID      = parentID;
@@ -7059,6 +7161,8 @@ bool SceneManager::LoadCache(const std::string& filepath)
         info.useRoughnessMap     = bUseRoughness != 0;
         info.useAOMap            = bUseAO        != 0;
         info.useEnvironmentMap   = bUseEnv       != 0;
+        info.castShadows         = bCastShadows  != 0;
+        info.receiveShadows      = bRecvShadows  != 0;
         mdl.m_isLoaded           = bIsLoaded     != 0;
         mdl.bInitialized         = bInited       != 0;
 

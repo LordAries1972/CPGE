@@ -94,6 +94,10 @@ as authored.
 **API set:** `Initialize()` -> optional `LoadCache()` -> `CleanUp()` ->
 `ParseSceneAutoDetect(..., false)` -> camera fallback -> per-frame animation.
 
+**Cache versioning:** the model cache file carries a version number (`CACHE_VERSION`, now 2: it adds the
+per-model `castShadows` / `receiveShadows` flags). A cache written by an older engine is rejected as a normal
+cache miss and rebuilt from the source scene once, so the first run after an engine update re-parses the scene.
+
 ```cpp
 class GameplayScene
 {
@@ -645,6 +649,37 @@ for (int i = 0; i < 8; ++i)
 Each root ID owns separate animation playback state. Capacity use is one scene
 slot for the root plus one for every included primitive child.
 
+### Injecting and removing scene models at runtime
+
+Level code often needs to add or drop individual models while a scene is running (pickups, enemies, props)
+without re-parsing the level. Three calls cover that, all working on the cached `models[]` data and the live
+`scene_models[]` slots:
+
+```cpp
+bool InjectModelIntoScene(int modelID, XMFLOAT3 Coords);            // by cache model ID
+bool InjectModelIntoScene(std::wstring modelName, XMFLOAT3 Coords); // by cache model name
+bool RemoveModelFromScene(int modelID);                             // by scene ID (scene_models[] index)
+bool RemoveModelFromScene(std::wstring modelName);                  // by exact root name
+void ClearSceneBuffer();                                            // wipes every scene_models[] slot
+```
+
+| Function | Behaviour |
+|---|---|
+| `InjectModelIntoScene(id / name, Coords)` | Finds an active, **GPU-ready** (`bGpuReady`) model in `models[]`, copies it with its primitive children into the next free `scene_models[]` slots, places it at `Coords` in world space and runs `SetupModelForRendering` plus scene lighting. Returns `false` if the model is not found, not GPU-ready, or there are not enough free slots. It is a thin wrapper over `PutModelToScene(name, Coords, true, false)` |
+| `RemoveModelFromScene(id / name)` | Stops and removes any animation instance keyed to the scene ID (glTF and FBX), clears the root slot and all of its primitive children, and returns `false` if the model is not in the scene. The name overload uses `FindParentModelID` |
+| `ClearSceneBuffer()` | Removes every animation instance and clears all `MAX_SCENE_MODELS` slots. Does **not** free GPU resources owned by the global `models[]` cache, so cached models stay valid for later injection (that remains `CleanUp()`'s job) |
+| `ClearSceneModelSlot(Model&)` | Helper that resets one slot to the pristine free state |
+
+Slot clearing releases resource-owning members (`ComPtr`, `shared_ptr`, vectors) through their destructors so GPU references drop correctly, then wipes the contiguous plain-data transform block with a `rep stosb` fast zero (`FastAsmZero`, with a `memset` fallback on non-x86 targets). Raw OpenGL / Vulkan handles are never destroyed here because they are shared with the `models[]` cache.
+
+```cpp
+// Drop a pickup and spawn an explosion prop in its place:
+scene.RemoveModelFromScene(L"Pickup_01");
+scene.InjectModelIntoScene(L"Explosion", XMFLOAT3(4.0f, 0.0f, 12.0f));
+```
+
+As with the rest of the API there is no internal synchronisation: call these from the thread that owns scene updates.
+
 ### Disk cache
 
 ```cpp
@@ -946,6 +981,9 @@ Current scene types are `SCENE_NONE`, `SCENE_INITIALISE`,
 | `ParseFBXScene(path, cacheOnly)` | Loads FBX or prepares its cache. |
 | `SaveCache(path)` / `LoadCache(path)` | Saves/restores global model-cache records. |
 | `PutModelToScene(...)` | Inserts cached data; returns root scene ID or -1. |
+| `InjectModelIntoScene(id or name, Coords)` | Places a GPU-ready cached model at `Coords`; false on failure. |
+| `RemoveModelFromScene(id or name)` | Removes a root model, its children and its animation state; false if absent. |
+| `ClearSceneBuffer()` | Clears every `scene_models[]` slot without freeing the `models[]` cache. |
 | `FindParentModelID(name)` | Returns exact-name root scene ID or -1. |
 | `UpdateSceneAnimations(dt)` | Updates active animation instances. |
 | `AutoFrameSceneToCamera(fov, padding)` | Frames loaded CPU geometry. |

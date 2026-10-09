@@ -183,9 +183,9 @@ struct FBXModel
     int64_t              attributeID = 0;   // NodeAttribute (camera/light)
     std::vector<int64_t> materialIDs;
 
-    // Shadow
-    bool castShadow    = false;
-    bool receiveShadow = false;
+    // Shadow (FBX SDK defaults are true for both)
+    bool castShadow    = true;
+    bool receiveShadow = true;
     bool visible       = true;
 };
 
@@ -284,7 +284,7 @@ struct FBXLight
     float        innerAngle    = 0.0f;   // Degrees (spot)
     float        outerAngle    = 45.0f;  // Degrees (spot)
     float        range         = 1000.0f;
-    bool         castShadows   = false;
+    bool         castShadows   = true;   // FBX SDK default
     XMFLOAT3     shadowColor   = { 0.0f, 0.0f, 0.0f };
     float        shadowOpacity = 1.0f;
     float        decayStart    = 0.0f;

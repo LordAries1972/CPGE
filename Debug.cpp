@@ -1,9 +1,7 @@
 #include "Includes.h"
 #include "Debug.h"
-#ifdef _DEBUG
 #include "ConsoleWindow.h"
 extern ConsoleWindow consoleWindow;
-#endif
 
 // -----------------------------------------
 // ClearLogFile  --  truncate the session log to zero bytes.
@@ -125,23 +123,103 @@ void Debug::Insert_Into_Log_File(const std::wstring& filename, const std::wstrin
 }
 
 
+// Formats into an exactly-sized buffer so arbitrarily long messages (e.g. GLSL
+// info logs) can never trip the CRT "Buffer too small" assert in vswprintf_s.
+static std::wstring FormatLogMessage(const wchar_t* format, va_list args)
+{
+    if (!format)
+        return std::wstring();
+
+    va_list argsCopy;
+    va_copy(argsCopy, args);
+    const int needed = _vscwprintf(format, argsCopy);
+    va_end(argsCopy);
+
+    if (needed < 0)
+        return std::wstring(format);    // bad format string: log it raw rather than crash
+
+    std::wstring out(static_cast<size_t>(needed) + 1, L'\0');
+    const int written = vswprintf_s(out.data(), out.size(), format, args);
+    out.resize(written > 0 ? static_cast<size_t>(written) : 0);
+    return out;
+}
+
 void Debug::logDebugMessage(LogLevel level, const wchar_t* format, ...)
 {
     if (int(level) >= int(currentLogLevel))
     {
-        wchar_t buffer[2048];
-
         va_list args;
         va_start(args, format);
-        vswprintf_s(buffer, format, args);
+        std::wstring message = FormatLogMessage(format, args);
         va_end(args);
 
-        std::wstring message(buffer);
         logLevelMessage(level, message); // logLevelMessage already writes the tagged message to the log file
     }
 }
 
 void Debug::logLevelMessage(LogLevel level, const std::wstring& message)
+{
+    EmitMessage(level, message, true);
+}
+
+// -----------------------------------------
+// Release-visible diagnostics (see Debug.h).
+// Never shows a dialog or quits.  Repeated messages are throttled per unique
+// text (so warnings raised every frame, even interleaved with others, cannot
+// flood the log): the first occurrence is logged, then one "[repeated N more
+// times]" line every DIAG_REPEAT_FLUSH occurrences.  The tracking table is
+// cleared when it reaches DIAG_MAX_TRACKED entries to bound memory.
+// -----------------------------------------
+void Debug::logDiagLevelMessage(LogLevel level, const std::wstring& message)
+{
+    if (level < currentLogLevel)
+        return;
+
+    static constexpr unsigned int DIAG_REPEAT_FLUSH = 1000;
+    static constexpr size_t       DIAG_MAX_TRACKED  = 512;
+    static std::mutex                                     s_diagMutex;
+    static std::unordered_map<std::wstring, unsigned int> s_diagCounts;
+
+    bool bFirst   = false;
+    bool bSummary = false;
+    {
+        std::lock_guard<std::mutex> lock(s_diagMutex);
+        auto it = s_diagCounts.find(message);
+        if (it == s_diagCounts.end())
+        {
+            if (s_diagCounts.size() >= DIAG_MAX_TRACKED)
+                s_diagCounts.clear();
+            s_diagCounts.emplace(message, 0u);      // value = repeats since last line written
+            bFirst = true;
+        }
+        else if (++it->second >= DIAG_REPEAT_FLUSH)
+        {
+            it->second = 0;
+            bSummary   = true;
+        }
+    }
+
+    // Emit outside the lock: EmitMessage takes the log-file mutex itself.
+    if (bFirst)
+        EmitMessage(level, message, false);
+    else if (bSummary)
+        EmitMessage(level, message + L" [repeated " + std::to_wstring(DIAG_REPEAT_FLUSH) + L" more times]", false);
+}
+
+void Debug::logDiagMessage(LogLevel level, const wchar_t* format, ...)
+{
+    if (int(level) >= int(currentLogLevel))
+    {
+        va_list args;
+        va_start(args, format);
+        std::wstring message = FormatLogMessage(format, args);
+        va_end(args);
+
+        logDiagLevelMessage(level, message);
+    }
+}
+
+void Debug::EmitMessage(LogLevel level, const std::wstring& message, bool bAllowFatalUI)
 {
     if (level >= currentLogLevel)
     {
@@ -174,25 +252,29 @@ void Debug::logLevelMessage(LogLevel level, const std::wstring& message)
         woss << taggedMessage << L"\n";
         OutputDebugStringW(woss.str().c_str());
 
-#ifdef _DEBUG
+        // In-game console: every level in Debug builds; WARNING and above in Release builds.
+#ifndef _DEBUG
+        if (level >= LogLevel::LOG_WARNING)
+#endif
         {
             ConsoleLineColor clr = ConsoleLineColor::Normal;
             if (level == LogLevel::LOG_WARNING)
                 clr = ConsoleLineColor::Warning;
-            else if (level == LogLevel::LOG_ERROR || level == LogLevel::LOG_CRITICAL)
+            else if (level == LogLevel::LOG_ERROR || level == LogLevel::LOG_CRITICAL ||
+                     level == LogLevel::LOG_TERMINATION)
                 clr = ConsoleLineColor::Error;
             consoleWindow.AddLine(taggedMessage, clr);
         }
-#endif
 
         // Write unmodified (but tagged) message to the log file
         #if (!defined(NO_DEBUGFILE_OUTPUT))
             Insert_Into_Log_File(LOG_FILE_NAME, taggedMessage);
         #endif
 
-        if (level == LogLevel::LOG_ERROR    ||
-            level == LogLevel::LOG_CRITICAL ||
-            level == LogLevel::LOG_TERMINATION)
+        if (bAllowFatalUI &&
+            (level == LogLevel::LOG_ERROR    ||
+             level == LogLevel::LOG_CRITICAL ||
+             level == LogLevel::LOG_TERMINATION))
         {
 #if defined(PLATFORM_WINDOWS)
             if (level == LogLevel::LOG_TERMINATION)

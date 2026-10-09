@@ -28,6 +28,7 @@
 #include "Vectors.h"
 #include "Color.h"
 #include "Models.h"
+#include "Lights.h"                                                             // ShadowFrameData / ShadowBufferData
 //#include "SceneManager.h"
 #include "ThreadManager.h"
 #include "ConstantBuffer.h"
@@ -261,6 +262,7 @@ public:
     void Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, int iDestY, int iDestW, int iDestH, float zoomFactor);
     void Blit2DObjectToSizeWithAlpha(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float alpha);
     void Blit2DAtlasTile(BlitObj2DIndexType iIndex, int iTileIndex, int iTileSizeX, int iTileSizeY, int iDestX, int iDestY);
+    void Blit2DScrollingObjectToSize(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float scrollFraction, bool reverseDirection);
     void Clear2DBlitQueue();
     void ResumeLoader(bool isResizing = false) override;
 
@@ -359,6 +361,32 @@ private:
     void CreateDirect2DResources();
     void CreateRenderTargetViews();
     void CreateDepthStencilBuffer();
+
+    // --- Multisampled anti-aliasing (Video settings: Anti-Aliasing + MSAA + MSAA Samples) ---
+    // The flip-model swap chain (and the D2D UI drawn on it) must stay single-sample, so with MSAA on the 3D
+    // pass renders into m_msaaColorTex + a multisampled depth buffer and is resolved into the back buffer
+    // before the D2D overlay.  The D2D background drawn first is copied (m_msaaBgTex) and blitted into the
+    // MSAA target so 3D edges blend against it.  Sample count is picked at Initialize() (restart to change).
+    UINT  m_msaaSampleCount = 1;                                   // 1 = MSAA off
+    UINT  m_msaaQuality     = 0;
+    ComPtr<ID3D11Texture2D>          m_msaaColorTex;               // multisampled colour target of the 3D pass
+    ComPtr<ID3D11RenderTargetView>   m_msaaRTV;
+    ComPtr<ID3D11Texture2D>          m_msaaBgTex;                  // single-sample copy of the back buffer (D2D background)
+    ComPtr<ID3D11ShaderResourceView> m_msaaBgSRV;
+    ComPtr<ID3D11VertexShader>       m_msaaBlitVS;
+    ComPtr<ID3D11PixelShader>        m_msaaBlitPS;
+    ComPtr<ID3D11DepthStencilState>  m_msaaBlitDS;                 // depth off
+    ComPtr<ID3D11RasterizerState>    m_msaaBlitRS;                 // no cull, no scissor
+    void ChooseMsaaSampleCount();                                  // Fills m_msaaSampleCount / m_msaaQuality from config + device support
+    bool CreateMsaaTargets(UINT width, UINT height);               // (Re)creates the MSAA colour target + bg copy (no-op while MSAA is off)
+    bool CreateMsaaBlitResources();                                // Blit shaders + states (once)
+    void BindMainRenderTargets();                                  // MSAA colour (or back buffer) + depth for the 3D pass
+    void BeginMsaaScenePass();                                     // Copies the D2D background into the MSAA target, binds it
+    void ResolveMsaaScenePass();                                   // MSAA colour -> back buffer, rebinds the back buffer (no depth)
+public:
+    bool UsingMsaa() const { return m_msaaSampleCount > 1 && m_msaaColorTex != nullptr; }
+    UINT GetMsaaSampleCount() const { return m_msaaSampleCount; }
+private:
     void SetupViewport();
     void SetupPipelineStates();
     void LoadShaders();
@@ -383,6 +411,69 @@ private:
     ComPtr<ID3D11SamplerState> m_samplerState;
     ComPtr<ID3D11BlendState> blendState;
     ComPtr<ID3D11RasterizerState> m_wireframeState;
+
+    // --- Shadow mapping (shared planner in Lights.h) ---
+    // t8 = directional depth map, t9 = spot/point depth array, b6 = ShadowBufferData, s2 = PCF sampler.
+    ComPtr<ID3D11Texture2D>          m_shadowDirTex;
+    ComPtr<ID3D11DepthStencilView>   m_shadowDirDSV;
+    ComPtr<ID3D11ShaderResourceView> m_shadowDirSRV;
+    ComPtr<ID3D11Texture2D>          m_shadowLocalTex;
+    ComPtr<ID3D11DepthStencilView>   m_shadowLocalDSV[MAX_LOCAL_SHADOW_SLICES];
+    ComPtr<ID3D11ShaderResourceView> m_shadowLocalSRV;
+    ComPtr<ID3D11VertexShader>       m_shadowVS;                                // Depth-only VS (no pixel shader)
+    ComPtr<ID3D11InputLayout>        m_shadowInputLayout;                       // POSITION only
+    ComPtr<ID3D11Buffer>             m_shadowPassCB;                            // b0 for the depth pass: worldLightVP + scale
+    ComPtr<ID3D11Buffer>             m_shadowFrameCB;                           // b6: ShadowBufferData
+    ComPtr<ID3D11RasterizerState>    m_shadowRasterState;                       // Slope-scaled depth bias, no culling
+    ComPtr<ID3D11SamplerState>       m_shadowCmpSampler;                        // s2: LESS_EQUAL comparison, border = lit
+    int                              m_shadowDirSize   = 0;
+    int                              m_shadowLocalSize = 0;
+    bool                             m_shadowResourcesReady = false;
+    ShadowFrameData                  m_shadowFrame;
+    std::vector<ShadowCaster>        m_shadowCasters;
+    std::vector<int>                 m_shadowCasterModels;                      // scene_models[] index per caster
+
+    bool CreateShadowResources();                                               // Called from Initialize()
+    void ReleaseShadowResources();                                              // Called from Cleanup()
+    void RenderShadowPass(const std::vector<LightStruct>& lights);              // Depth passes + b6/t8/t9 binding
+
+    // --- Scene reflections (shared probe builder in Lights.h) ---
+    // t5 = scene probe cube map for models without their own environment map (useEnvMap = 2).
+    // The texture is created lazily on the first upload, at the probe's size.
+    ReflectionProbe                  m_reflProbe;
+    ComPtr<ID3D11Texture2D>          m_reflTex;
+    ComPtr<ID3D11ShaderResourceView> m_reflSRV;
+    uint64_t                         m_reflUploadedVersion = 0;
+
+    // --- Planar reflections (shared planner in Lights.h): t11 = mirror render of the scene ---
+    ComPtr<ID3D11Texture2D>          m_planarColorTex;                                      // Texture2DArray, MAX_PLANAR_PLANES slices
+    ComPtr<ID3D11RenderTargetView>   m_planarRTV[MAX_PLANAR_PLANES];                        // One per slice
+    ComPtr<ID3D11ShaderResourceView> m_planarSRV;
+    ComPtr<ID3D11Texture2D>          m_planarDepthTex;
+    ComPtr<ID3D11DepthStencilView>   m_planarDSV;
+    int                              m_planarW = 0;
+    int                              m_planarH = 0;
+    bool                             m_planarFailed = false;                                // creation failed - do not retry every frame
+
+    bool CreatePlanarResources();                                                           // Lazy; sized from config planarQuality
+    void ReleasePlanarResources();                                                          // Called from Cleanup()
+    void PlanarPlan();                                                                      // Finds + registers reflectors, decides active (BEFORE RenderShadowPass)
+    void RenderPlanarPass();                                                                // Mirror render of every plane + t11 binding (AFTER RenderShadowPass)
+
+    // --- Live scene capture (see "Live scene capture" in Lights.h): the capture cube is the sky cube with the real
+    // scene drawn over it, one face per frame; t10 switches to it after the first full cycle. ---
+    ComPtr<ID3D11Texture2D>          m_capTex;                                              // Cube, full mip chain, GENERATE_MIPS
+    ComPtr<ID3D11ShaderResourceView> m_capSRV;
+    ComPtr<ID3D11RenderTargetView>   m_capRTV[6];                                           // Mip 0 of each face
+    ComPtr<ID3D11Texture2D>          m_capDepthTex;
+    ComPtr<ID3D11DepthStencilView>   m_capDSV;
+    bool                             m_capFailed = false;
+    bool CreateCaptureResources();                                                          // Lazy, at the sky probe's size
+    void ReleaseCaptureResources();
+    void RenderReflectionCapture(float deltaTime);                                          // AFTER RenderShadowPass: draws one face + binds t10
+
+    void UpdateReflectionProbe(const std::vector<LightStruct>& lights, float deltaTime);   // Rebuild + upload + publish g_reflectionFrame
+    void ReleaseReflectionResources();                                                      // Called from Cleanup()
 
     // Mutexes for thread safety
     static std::mutex s_loaderMutex;

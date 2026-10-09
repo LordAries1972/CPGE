@@ -243,8 +243,10 @@ void SetMyKeyUpHandler(KeyboardHandler& keyboard)
 
                 case KeyCode::KEY_ENTER:
                 {
-                    if (consoleWindow.bIsVisible)
-                        guiManager.HandleEnter();
+                    // Route to the focused GUI window (console, file dialog, ...).
+                    // HandleEnter only fires the focused window's own onEnter, so
+                    // windows without one are unaffected.
+                    guiManager.HandleEnter();
                     break;
                 }
 

@@ -292,10 +292,8 @@ bool FBXImporter::InflateData(const uint8_t* src, size_t srcLen,
 
     if (srcLen < 6)
     {
-        #if defined(_DEBUG_FBXIMPORTER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING,
-                L"[FBXImporter] InflateData: compressed block too small");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
+            L"[FBXImporter] InflateData: compressed block too small");
         return false;
     }
 
@@ -393,10 +391,8 @@ bool FBXImporter::ParseBinaryProperty(const std::vector<uint8_t>& data,
         }
         else
         {
-            #if defined(_DEBUG_FBXIMPORTER_)
-                debug.logLevelMessage(LogLevel::LOG_WARNING,
-                    L"[FBXImporter] Unknown array encoding; skipping.");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
+                L"[FBXImporter] Unknown array encoding; skipping.");
             return true; // skip, leave arrays empty
         }
 
@@ -451,10 +447,8 @@ bool FBXImporter::ParseBinaryProperty(const std::vector<uint8_t>& data,
     }
 
     default:
-        #if defined(_DEBUG_FBXIMPORTER_)
-            debug.logLevelMessage(LogLevel::LOG_WARNING,
-                L"[FBXImporter] Unknown property type; aborting property read.");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
+            L"[FBXImporter] Unknown property type; aborting property read.");
         return false;
     }
 }
@@ -513,11 +507,9 @@ bool FBXImporter::ParseBinaryNode(const std::vector<uint8_t>& data,
     // trigger abort() via the custom new-handler (proven by crash stack trace).
     if (endOffset > data.size())
     {
-        #if defined(_DEBUG_FBXIMPORTER_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING,
-                L"[FBXImporter] ParseBinaryNode: node '%hs' endOffset=%llu exceeds fileSize=%llu -- corrupt/trailing record, skipping.",
-                out.name.c_str(), (unsigned long long)endOffset, (unsigned long long)data.size());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING,
+            L"[FBXImporter] ParseBinaryNode: node '%hs' endOffset=%llu exceeds fileSize=%llu -- corrupt/trailing record, skipping.",
+            out.name.c_str(), (unsigned long long)endOffset, (unsigned long long)data.size());
         return false;
     }
     const size_t propsEnd = off + static_cast<size_t>(propListLen);
@@ -525,11 +517,9 @@ bool FBXImporter::ParseBinaryNode(const std::vector<uint8_t>& data,
     {
         // numProps > propListLen is impossible in a valid file (each property is
         // at least 1 byte), so this also catches a corrupted numProps.
-        #if defined(_DEBUG_FBXIMPORTER_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING,
-                L"[FBXImporter] ParseBinaryNode: node '%hs' corrupt property count/length (numProps=%llu propListLen=%llu) -- aborting node.",
-                out.name.c_str(), (unsigned long long)numProps, (unsigned long long)propListLen);
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING,
+            L"[FBXImporter] ParseBinaryNode: node '%hs' corrupt property count/length (numProps=%llu propListLen=%llu) -- aborting node.",
+            out.name.c_str(), (unsigned long long)numProps, (unsigned long long)propListLen);
         return false;
     }
     out.properties.reserve(static_cast<size_t>(numProps));
@@ -1237,8 +1227,9 @@ void FBXImporter::ExtractModel(const FBXNode& node)
     const FBXNode* p70 = node.FindChild("Properties70");
     if (p70)
     {
-        m.castShadow    = ReadP70Bool(*p70, "CastShadow",    false);
-        m.receiveShadow = ReadP70Bool(*p70, "ReceiveShadow", false);
+        // Missing property = FBX SDK default (true) - Blender omits unchanged defaults.
+        m.castShadow    = ReadP70Bool(*p70, "CastShadow",    true);
+        m.receiveShadow = ReadP70Bool(*p70, "ReceiveShadow", true);
         m.visible       = ReadP70Bool(*p70, "Visibility",    true);
     }
 
@@ -1455,7 +1446,7 @@ void FBXImporter::ExtractNodeAttribute(const FBXNode& node)
             lt.innerAngle   = ReadP70Float(*p70, "InnerAngle",    0.0f);
             lt.outerAngle   = ReadP70Float(*p70, "OuterAngle",    45.0f);
             lt.range        = ReadP70Float(*p70, "FarAttenuationEnd", 1000.0f);
-            lt.castShadows  = ReadP70Bool(*p70,  "CastShadows",   false);
+            lt.castShadows  = ReadP70Bool(*p70,  "CastShadows",   true);    // FBX SDK default is true
             lt.shadowColor  = ReadP70Vec3(*p70,  "ShadowColor",   {0,0,0});
             lt.shadowOpacity= ReadP70Float(*p70, "ShadowOpacity", 1.0f);
             lt.decayType    = ReadP70Int(*p70,   "DecayType",     0);
@@ -2278,12 +2269,10 @@ bool FBXImporter::BuildMaterial(
         if (tex->LoadFromFile(path))
             return tex;
 
-        #if defined(_DEBUG_FBXIMPORTER_)
-            debug.logDebugMessage(LogLevel::LOG_WARNING,
-                L"[FBXImporter] BuildMaterial: LoadFromFile FAILED for '%ls' -- "
-                L"material colour fallback will be used instead",
-                path.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING,
+            L"[FBXImporter] BuildMaterial: LoadFromFile FAILED for '%ls' -- "
+            L"material colour fallback will be used instead",
+            path.c_str());
         return nullptr;
     };
 

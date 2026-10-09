@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="F:\Projects\C++\CPGE2026\build\Vulkan\Debug\CMakeFiles\c68fb430d7af32270b2fcade8df99498\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{057251A6-FAA4-34CC-8F75-41D692F80C5D}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

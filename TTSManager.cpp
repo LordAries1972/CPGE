@@ -51,9 +51,7 @@ bool TTSManager::Initialize() {
     // Thread safety lock for initialization using ThreadManager
     ThreadLockHelper lock(threadManager, "tts_init_lock", 5000);
     if (!lock.IsLocked()) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::Initialize() - Failed to acquire initialization lock");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::Initialize() - Failed to acquire initialization lock");
         return false;
     }
 
@@ -63,50 +61,38 @@ bool TTSManager::Initialize() {
 
     // Check if already initialized
     if (m_bIsInitialized) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"TTSManager::Initialize() - Already initialized");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"TTSManager::Initialize() - Already initialized");
         return true;
     }
 
     try {
         // Step 1: Initialize COM for SAPI usage
         if (!InitializeCOM()) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::Initialize() - Failed to initialize COM");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::Initialize() - Failed to initialize COM");
             return false;
         }
 
         // Step 2: Create main voice interface
         if (!CreateVoiceInterface()) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::Initialize() - Failed to create voice interface");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::Initialize() - Failed to create voice interface");
             return false;
         }
 
         // Step 3: Enumerate available voices
         if (!EnumerateVoices()) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"TTSManager::Initialize() - Failed to enumerate voices, using default");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"TTSManager::Initialize() - Failed to enumerate voices, using default");
             // Continue with default voice if enumeration fails
         }
 
         // Step 4: Apply default voice settings
         if (!ApplyVoiceSettings()) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::Initialize() - Failed to apply voice settings");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::Initialize() - Failed to apply voice settings");
             return false;
         }
 
         // Step 5: Setup audio output configuration
         if (!SetupAudioOutput()) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"TTSManager::Initialize() - Failed to setup audio output, using defaults");
-#endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"TTSManager::Initialize() - Failed to setup audio output, using defaults");
             // Continue with default audio output if setup fails
         }
 
@@ -122,9 +108,7 @@ bool TTSManager::Initialize() {
     }
     catch (const std::exception& e) {
         // Handle any exceptions during initialization
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_TERMINATION, L"TTSManager::Initialize() - Exception caught: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_TERMINATION, L"TTSManager::Initialize() - Exception caught: %S", e.what());
 
         // Cleanup partial initialization
         ReleaseCOMInterfaces();
@@ -132,9 +116,7 @@ bool TTSManager::Initialize() {
     }
     catch (...) {
         // Handle unknown exceptions
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_TERMINATION, L"TTSManager::Initialize() - Unknown exception caught");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_TERMINATION, L"TTSManager::Initialize() - Unknown exception caught");
 
         // Cleanup partial initialization
         ReleaseCOMInterfaces();
@@ -147,9 +129,7 @@ void TTSManager::CleanUp() {
     // Thread safety lock for cleanup using ThreadManager
     ThreadLockHelper lock(threadManager, "tts_cleanup_lock", 5000);
     if (!lock.IsLocked()) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"TTSManager::CleanUp() - Failed to acquire cleanup lock, proceeding anyway");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"TTSManager::CleanUp() - Failed to acquire cleanup lock, proceeding anyway");
     }
 
 #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
@@ -158,9 +138,7 @@ void TTSManager::CleanUp() {
 
     // Check if already cleaned up
     if (m_bHasCleanedUp) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_WARNING, L"TTSManager::CleanUp() - Already cleaned up");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"TTSManager::CleanUp() - Already cleaned up");
         return;
     }
 
@@ -186,15 +164,11 @@ void TTSManager::CleanUp() {
     }
     catch (const std::exception& e) {
         // Handle exceptions during cleanup
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"TTSManager::CleanUp() - Exception during cleanup: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"TTSManager::CleanUp() - Exception during cleanup: %S", e.what());
     }
     catch (...) {
         // Handle unknown exceptions during cleanup
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::CleanUp() - Unknown exception during cleanup");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::CleanUp() - Unknown exception during cleanup");
     }
 }
 
@@ -203,9 +177,7 @@ bool TTSManager::SetVoiceVolume(float volume) {
     // Thread safety lock using ThreadManager
     ThreadLockHelper lock(threadManager, "tts_volume_lock", 2000);
     if (!lock.IsLocked()) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::SetVoiceVolume() - Failed to acquire volume lock");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::SetVoiceVolume() - Failed to acquire volume lock");
         return false;
     }
 
@@ -215,9 +187,7 @@ bool TTSManager::SetVoiceVolume(float volume) {
 
     // Check if initialized
     if (!m_bIsInitialized || !m_pVoice) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::SetVoiceVolume() - TTS not initialized");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::SetVoiceVolume() - TTS not initialized");
         return false;
     }
 
@@ -250,9 +220,7 @@ bool TTSManager::SetVoiceVolume(float volume) {
         return true;
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"TTSManager::SetVoiceVolume() - Exception: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"TTSManager::SetVoiceVolume() - Exception: %S", e.what());
         return false;
     }
 }
@@ -262,9 +230,7 @@ bool TTSManager::SetVoicePitch(float pitch) {
     // Thread safety lock using ThreadManager
     ThreadLockHelper lock(threadManager, "tts_pitch_lock", 2000);
     if (!lock.IsLocked()) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::SetVoicePitch() - Failed to acquire pitch lock");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::SetVoicePitch() - Failed to acquire pitch lock");
         return false;
     }
 
@@ -274,9 +240,7 @@ bool TTSManager::SetVoicePitch(float pitch) {
 
     // Check if initialized
     if (!m_bIsInitialized || !m_pVoice) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::SetVoicePitch() - TTS not initialized");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::SetVoicePitch() - TTS not initialized");
         return false;
     }
 
@@ -306,9 +270,7 @@ bool TTSManager::SetVoicePitch(float pitch) {
         return true;
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"TTSManager::SetVoicePitch() - Exception: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"TTSManager::SetVoicePitch() - Exception: %S", e.what());
         return false;
     }
 }
@@ -318,9 +280,7 @@ bool TTSManager::SetVoiceRate(float rate) {
     // Thread safety lock using ThreadManager
     ThreadLockHelper lock(threadManager, "tts_rate_lock", 2000);
     if (!lock.IsLocked()) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::SetVoiceRate() - Failed to acquire rate lock");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::SetVoiceRate() - Failed to acquire rate lock");
         return false;
     }
 
@@ -330,9 +290,7 @@ bool TTSManager::SetVoiceRate(float rate) {
 
     // Check if initialized
     if (!m_bIsInitialized || !m_pVoice) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::SetVoiceRate() - TTS not initialized");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::SetVoiceRate() - TTS not initialized");
         return false;
     }
 
@@ -365,9 +323,7 @@ bool TTSManager::SetVoiceRate(float rate) {
         return true;
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"TTSManager::SetVoiceRate() - Exception: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"TTSManager::SetVoiceRate() - Exception: %S", e.what());
         return false;
     }
 }
@@ -377,9 +333,7 @@ bool TTSManager::SetSpeakerChannel(TTSSpeakerChannel channel) {
     // Thread safety lock using ThreadManager
     ThreadLockHelper lock(threadManager, "tts_channel_lock", 2000);
     if (!lock.IsLocked()) {
-        #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::SetSpeakerChannel() - Failed to acquire channel lock");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::SetSpeakerChannel() - Failed to acquire channel lock");
         return false;
     }
 
@@ -389,9 +343,7 @@ bool TTSManager::SetSpeakerChannel(TTSSpeakerChannel channel) {
 
     // Check if initialized
     if (!m_bIsInitialized || !m_pVoice) {
-        #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::SetSpeakerChannel() - TTS not initialized");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::SetSpeakerChannel() - TTS not initialized");
         return false;
     }
 
@@ -401,9 +353,7 @@ bool TTSManager::SetSpeakerChannel(TTSSpeakerChannel channel) {
 
         // Setup audio output with new channel configuration
         if (!SetupAudioOutput()) {
-            #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-                debug.logLevelMessage(LogLevel::LOG_WARNING, L"TTSManager::SetSpeakerChannel() - Failed to update audio output");
-            #endif
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"TTSManager::SetSpeakerChannel() - Failed to update audio output");
             return false;
         }
 
@@ -414,9 +364,7 @@ bool TTSManager::SetSpeakerChannel(TTSSpeakerChannel channel) {
         return true;
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"TTSManager::SetSpeakerChannel() - Exception: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"TTSManager::SetSpeakerChannel() - Exception: %S", e.what());
         return false;
     }
 }
@@ -426,9 +374,7 @@ bool TTSManager::Play(const std::wstring& text) {
     // Thread safety lock using ThreadManager
     ThreadLockHelper lock(threadManager, "tts_play_lock", 3000);
     if (!lock.IsLocked()) {
-        #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::Play() - Failed to acquire play lock");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::Play() - Failed to acquire play lock");
         return false;
     }
 
@@ -438,17 +384,13 @@ bool TTSManager::Play(const std::wstring& text) {
 
     // Check if initialized
     if (!m_bIsInitialized || !m_pVoice) {
-        #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::Play() - TTS not initialized");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::Play() - TTS not initialized");
         return false;
     }
 
     // Check if text is empty
     if (text.empty()) {
-        #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"TTSManager::Play() - Empty text provided");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"TTSManager::Play() - Empty text provided");
         return false;
     }
 
@@ -500,9 +442,7 @@ bool TTSManager::Play(const std::wstring& text) {
         m_bSpeaking.store(false);
         m_currentState = TTSPlaybackState::STATE_ERROR;
 
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"TTSManager::Play() - Exception: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"TTSManager::Play() - Exception: %S", e.what());
         return false;
     }
 }
@@ -513,9 +453,7 @@ bool TTSManager::PlayAsync(const std::wstring& text) {
     ThreadLockHelper lock(threadManager, "tts_playasync_lock", 2000);
 
     if (!lock.IsLocked()) {
-        #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::GetCurrentVoiceName() - Failed to acquire get voice lock");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::GetCurrentVoiceName() - Failed to acquire get voice lock");
         return false;
     }
 
@@ -525,17 +463,13 @@ bool TTSManager::PlayAsync(const std::wstring& text) {
 
     // Check if initialized
     if (!m_bIsInitialized || !m_pVoice) {
-        #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::PlayAsync() - TTS not initialized");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::PlayAsync() - TTS not initialized");
         return false;
     }
 
     // Check if text is empty
     if (text.empty()) {
-        #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"TTSManager::PlayAsync() - Empty text provided");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"TTSManager::PlayAsync() - Empty text provided");
         return false;
     }
 
@@ -586,9 +520,7 @@ bool TTSManager::PlayAsync(const std::wstring& text) {
         m_bSpeaking.store(false);
         m_currentState = TTSPlaybackState::STATE_ERROR;
 
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"TTSManager::PlayAsync() - Exception: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"TTSManager::PlayAsync() - Exception: %S", e.what());
         return false;
     }
 }
@@ -599,9 +531,7 @@ bool TTSManager::Pause() {
     ThreadLockHelper lock(threadManager, "tts_pause_lock", 2000);
 
     if (!lock.IsLocked()) {
-        #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::GetCurrentVoiceName() - Failed to acquire get voice lock");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::GetCurrentVoiceName() - Failed to acquire get voice lock");
         return false;
     }
 
@@ -611,17 +541,13 @@ bool TTSManager::Pause() {
 
     // Check if initialized
     if (!m_bIsInitialized || !m_pVoice) {
-        #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::Pause() - TTS not initialized");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::Pause() - TTS not initialized");
         return false;
     }
 
     // Check if currently speaking
     if (!m_bSpeaking.load() || m_currentState != TTSPlaybackState::STATE_PLAYING) {
-        #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"TTSManager::Pause() - Not currently speaking");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"TTSManager::Pause() - Not currently speaking");
         return false;
     }
 
@@ -643,9 +569,7 @@ bool TTSManager::Pause() {
         return true;
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"TTSManager::Pause() - Exception: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"TTSManager::Pause() - Exception: %S", e.what());
         return false;
     }
 }
@@ -656,9 +580,7 @@ bool TTSManager::Resume() {
     ThreadLockHelper lock(threadManager, "tts_resume_lock", 2000);
 
     if (!lock.IsLocked()) {
-        #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::GetCurrentVoiceName() - Failed to acquire get voice lock");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::GetCurrentVoiceName() - Failed to acquire get voice lock");
         return false;
     }
 
@@ -668,17 +590,13 @@ bool TTSManager::Resume() {
 
     // Check if initialized
     if (!m_bIsInitialized || !m_pVoice) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::Resume() - TTS not initialized");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::Resume() - TTS not initialized");
         return false;
     }
 
     // Check if currently paused
     if (m_currentState != TTSPlaybackState::STATE_PAUSED) {
-        #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_WARNING, L"TTSManager::Resume() - Speech is not paused");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"TTSManager::Resume() - Speech is not paused");
         return false;
     }
 
@@ -700,9 +618,7 @@ bool TTSManager::Resume() {
         return true;
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"TTSManager::Resume() - Exception: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"TTSManager::Resume() - Exception: %S", e.what());
         return false;
     }
 }
@@ -713,9 +629,7 @@ bool TTSManager::Stop() {
     ThreadLockHelper lock(threadManager, "tts_stop_lock", 2000);
 
     if (!lock.IsLocked()) {
-        #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::GetCurrentVoiceName() - Failed to acquire get voice lock");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::GetCurrentVoiceName() - Failed to acquire get voice lock");
         return false;
     }
 
@@ -725,9 +639,7 @@ bool TTSManager::Stop() {
 
     // Check if initialized
     if (!m_bIsInitialized || !m_pVoice) {
-        #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::Stop() - TTS not initialized");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::Stop() - TTS not initialized");
         return false;
     }
 
@@ -757,9 +669,7 @@ bool TTSManager::Stop() {
         m_bSpeaking.store(false);
         m_currentState = TTSPlaybackState::STATE_STOPPED;
 
-        #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"TTSManager::Stop() - Exception: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"TTSManager::Stop() - Exception: %S", e.what());
         return false;
     }
 }
@@ -811,17 +721,13 @@ std::vector<std::wstring> TTSManager::GetAvailableVoices() {
 #endif
 
     if (!lock.IsLocked()) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::GetAvailableVoices() - Failed to acquire voices lock");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::GetAvailableVoices() - Failed to acquire voices lock");
         return voiceList;
     }
 
     // Check if initialized
     if (!m_bIsInitialized) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::GetAvailableVoices() - TTS not initialized");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::GetAvailableVoices() - TTS not initialized");
         return voiceList;
     }
 
@@ -862,9 +768,7 @@ std::vector<std::wstring> TTSManager::GetAvailableVoices() {
 #endif
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"TTSManager::GetAvailableVoices() - Exception: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"TTSManager::GetAvailableVoices() - Exception: %S", e.what());
     }
 
     return voiceList;
@@ -876,9 +780,7 @@ std::wstring TTSManager::GetCurrentVoiceName() const {
     ThreadLockHelper lock(threadManager, "tts_get_voice_lock", 2000);
 
     if (!lock.IsLocked()) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::GetCurrentVoiceName() - Failed to acquire get voice lock");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::GetCurrentVoiceName() - Failed to acquire get voice lock");
         return L"";
     }
 
@@ -888,9 +790,7 @@ std::wstring TTSManager::GetCurrentVoiceName() const {
 
     // Check if initialized
     if (!m_bIsInitialized || !m_pVoice) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::GetCurrentVoiceName() - TTS not initialized");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::GetCurrentVoiceName() - TTS not initialized");
         return L"";
     }
 
@@ -921,9 +821,7 @@ std::wstring TTSManager::GetCurrentVoiceName() const {
         return voiceName;
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"TTSManager::GetCurrentVoiceName() - Exception: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"TTSManager::GetCurrentVoiceName() - Exception: %S", e.what());
         return L"";
     }
 }
@@ -972,9 +870,7 @@ bool TTSManager::CreateVoiceInterface() {
         return true;
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"TTSManager::CreateVoiceInterface() - Exception: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"TTSManager::CreateVoiceInterface() - Exception: %S", e.what());
         return false;
     }
 }
@@ -1008,9 +904,7 @@ bool TTSManager::EnumerateVoices() {
         return true;
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"TTSManager::EnumerateVoices() - Exception: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"TTSManager::EnumerateVoices() - Exception: %S", e.what());
         return false;
     }
 }
@@ -1053,9 +947,7 @@ bool TTSManager::ApplyVoiceSettings() {
         return true;
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"TTSManager::ApplyVoiceSettings() - Exception: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"TTSManager::ApplyVoiceSettings() - Exception: %S", e.what());
         return false;
     }
 }
@@ -1137,9 +1029,7 @@ void TTSManager::ReleaseCOMInterfaces() {
 #endif
     }
     catch (const std::exception& e) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logDebugMessage(LogLevel::LOG_ERROR, L"TTSManager::ReleaseCOMInterfaces() - Exception: %S", e.what());
-#endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"TTSManager::ReleaseCOMInterfaces() - Exception: %S", e.what());
     }
 }
 
@@ -1168,9 +1058,7 @@ void TTSManager::ResetInternalState() {
 void TTSManager::LogTTSError(HRESULT hr, const std::wstring& operation) const {
     std::wstring errorMsg = operation + L" failed with HRESULT: " + HResultToString(hr);
 
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-    debug.logLevelMessage(LogLevel::LOG_ERROR, errorMsg);
-#endif
+    debug.logDiagLevelMessage(LogLevel::LOG_ERROR, errorMsg);
 }
 
 // Convert HRESULT to readable string
@@ -1187,9 +1075,7 @@ void TTSManager::SaveConfiguration(const TTSConfiguration& config) {
     ThreadLockHelper lock(threadManager, "tts_get_voice_lock", 2000);
 
     if (!lock.IsLocked()) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::GetCurrentVoiceName() - Failed to acquire get voice lock");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::GetCurrentVoiceName() - Failed to acquire get voice lock");
         return;
     }
     m_currentConfig = config;
@@ -1214,9 +1100,7 @@ void TTSManager::ResetToDefaults() {
     ThreadLockHelper lock(threadManager, "tts_get_voice_lock", 2000);
 
     if (!lock.IsLocked()) {
-#if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::GetCurrentVoiceName() - Failed to acquire get voice lock");
-#endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::GetCurrentVoiceName() - Failed to acquire get voice lock");
         return;
     }
 
@@ -1239,9 +1123,7 @@ bool TTSManager::SetVoiceByName(const std::wstring& voiceName) {
     ThreadLockHelper lock(threadManager, "tts_setvoicebyname_lock", 2000);
 
     if (!lock.IsLocked()) {
-        #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::GetCurrentVoiceName() - Failed to acquire get voice lock");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::GetCurrentVoiceName() - Failed to acquire get voice lock");
         return false;
     }
 
@@ -1250,9 +1132,7 @@ bool TTSManager::SetVoiceByName(const std::wstring& voiceName) {
     #endif
 
     if (!m_bIsInitialized || !m_pVoice) {
-        #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::SetVoiceByName() - TTS not initialized");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::SetVoiceByName() - TTS not initialized");
         return false;
     }
 
@@ -1304,16 +1184,12 @@ bool TTSManager::SetVoiceByName(const std::wstring& voiceName) {
             }
         }
 
-        #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_WARNING, L"TTSManager::SetVoiceByName() - Voice not found: %s", voiceName.c_str());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_WARNING, L"TTSManager::SetVoiceByName() - Voice not found: %s", voiceName.c_str());
 
         return false;
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"TTSManager::SetVoiceByName() - Exception: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"TTSManager::SetVoiceByName() - Exception: %S", e.what());
         return false;
     }
 }
@@ -1330,9 +1206,7 @@ bool TTSManager::SetVoiceQuality(TTSVoiceQuality quality) {
     ThreadLockHelper lock(threadManager, "tts_setvoicequality_lock", 2000);
 
     if (!lock.IsLocked()) {
-        #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::GetCurrentVoiceName() - Failed to acquire get voice lock");
-        #endif
+        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::GetCurrentVoiceName() - Failed to acquire get voice lock");
         return false;
     }
 
@@ -1373,9 +1247,7 @@ void TTSManager::UpdatePlaybackState() {
         }
     }
     catch (const std::exception& e) {
-        #if defined(_DEBUG_TTSMANAGER_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_ERROR, L"TTSManager::UpdatePlaybackState() - Exception: %S", e.what());
-        #endif
+        debug.logDiagMessage(LogLevel::LOG_ERROR, L"TTSManager::UpdatePlaybackState() - Exception: %S", e.what());
     }
 }
 

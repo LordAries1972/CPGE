@@ -121,10 +121,16 @@ static std::vector<std::pair<std::wstring, bool>> ScanDirectory(const fs::path& 
                 #endif
                 out.push_back({ name, isDir });
             }
-            catch (...) {}
+            catch (...) {
+                // Skip this entry only - a stat/attribute failure on one path must not abort the scan.
+                debug.logDebugMessage(LogLevel::LOG_WARNING, L"ScanDirectory - skipped unreadable directory entry");
+            }
         }
     }
-    catch (...) {}
+    catch (...) {
+        // Directory iterator could not be created (access denied, path removed); return what we have.
+        debug.logDebugMessage(LogLevel::LOG_WARNING, L"ScanDirectory - failed to iterate directory");
+    }
 
     // Sort: directories first, then files; both alphabetically (case-insensitive)
     std::sort(out.begin(), out.end(), [](const auto& a, const auto& b) {
