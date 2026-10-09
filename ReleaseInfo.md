@@ -1,4 +1,4 @@
-# DirectX 11 & 12, OpenGL, Radeon & Vulkan Game Engine
+# DirectX 11 & 12, OpenGL, Metal & Vulkan Game Engine
 
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
