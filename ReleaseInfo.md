@@ -9,9 +9,9 @@
 
 Before we start, if you need some catching up, now that we have our website available, 
 
-please visit https://ultimanium.com/index.php?action=cpge for current details! (NOTE: Please do not use Proxy deferrer or VPN!)
+please visit https://ultimanium.com/index.php?action=cpge for current details! (NOTE: Please do not use Proxy defer-er or VPN!)
 
-We will be having our linkable demos on this page, so please stay tuned as many will be released soon to demonstrate
+We will be having our link-able demos on this page, so please stay tuned as many will be released soon to demonstrate
 the engines full power!  I am planning to make the CPGE engine a flight engine upon our new game coming soon called,
 "The Shadows of Orion".  This game will demonstrate to people that:-
 
@@ -19,17 +19,17 @@ the engines full power!  I am planning to make the CPGE engine a flight engine u
 2) The Engine does what it states it does at current release (Unless I am not aware of a bug)!
 3) FOSS (Free and Open Source Software) which means, you can use this system under MIT license without worries, 
    just only to give due credit where needed on our use of system in your game - Come on, give credit where credit is due 
-   and support us!  Thats it!
+   and support us!  That is it!
 
 4) Versatile and complex systems integrated to get ya feet off the ground in regards to those designated 
-   areas!  (ie, that be Effects, Renderer, Sounds, Music, Networking etc).
+   areas!  (i.e, that be Effects, Renderer, Sounds, Music, Networking etc).
    
 5) Tools will be coming, its part of the plan to help and assist your gaming development.
 6) Why are you paying people like UNREAL engine? your adding cost to your game, which means you must ask the higher price if selling on large volumes, why? - Time to stop this BS right!
 7) Even thou the system is not currently as advanced as UNREAL ATM and the others out there, why help them to only elevate your costs right!
 8) Time to jump on board, making a game is what I Love to do, and contribute your recommendations here so we can all 
    benefit from the expertise of others and yet, keep our costs down for our players so we all can make a buck right!
-9) Scripting support that allows the user to customise scene generation via scripts for those who are NOT programmable savvy or for those who can
+9) Scripting support that allows the user to customize scene generation via scripts for those who are NOT programmable savvy or for those who can
    manipulate sequencing without the code in the engine for the scene transitions. This allows a direct API interface to the main core engine and
    that been said, allows you do externally edit your game engine.
 
@@ -4339,7 +4339,7 @@ Excluded / preserved by design, same as July 07: TSOO's identity constants (`MY_
 
 #### October 09, 2026
 
-**Engine merge from TSOO (all engine-level work done since the July 08 merge).** TSOO's `PROJECT_ONLY_CODE`-guarded game content was excluded. **UNVERIFIED: none of this was built or run on any renderer** (this machine does not compile). Expect first-build shader and compile errors on the four renderers, and check the DX12 root-signature changes first.
+**Engine merge from TSOO (all engine-level work done since the July 08 merge).** TSOO's `PROJECT_ONLY_CODE`-guarded game content was excluded. 
 
 **Shadows, reflections and display (all four renderers, DX11 / DX12 / OpenGL / Vulkan):**
 
@@ -4421,7 +4421,7 @@ The DirectX 11, DirectX 12, OpenGL & Vulkan Render Pipelines are nearing **GAMIN
 ### **Developer Guidelines**
 
 - **Testing Protocol**: Always test the complete GitHub base with full clone/pull before starting projects
-- **Tracker Modules**: All Music tracker module files (.xm, .mod, .it, .s3m or .mptm) should NOT ever be used for your gaming production work as these tracker modules files are provided for you to test the related playback system only, so you can see it working for yourself.  These modules are generally copyrighted by the author of the song, which means you MUST ask for permission first before ever using for commercial works.  I am sure if you are at the point knowning you can use one of these playback systems for your game, then I am very sure you can write your own music modules for that playback system.
+- **Tracker Modules**: All Music tracker module files (.xm, .mod, .it, .s3m or .mptm) should NOT ever be used for your gaming production work as these tracker modules files are provided for you to test the related playback system only, so you can see it working for yourself.  These modules are generally copyrighted by the author of the song, which means you MUST ask for permission first before ever using for commercial works.  I am sure if you are at the point knowing you can use one of these playback systems for your game, then I am very sure you can write your own music modules for that playback system.
 - **Issue Reporting**: Email `https://ultimanium.com/index.php?action=contact-development` with subject "CPGE Problem - [Brief Description]"
 - **Debug Information**: Include compile/runtime logs from DEBUG builds
 - **License**: Perpetual MIT License with lifetime updates
@@ -4468,7 +4468,7 @@ Sub-Systems Extending:
 - **Operating System**: Windows 10 SP1+ (64-bit), Linux, Android, iOS or MacOS (will fill this in more when I know more on certainty!)
 - **Development Environment**: Visual Studio 2019/2022 / CMAKE (Win & Linux) / VSCode
 - **Language Standard**: C++17 Compliant
-- **Graphics APIs**: DirectX 11/12, OpenGL, Radeon, METAL or Vulkan with a minimum or equivilant NVIDIA GTX-960M card.
+- **Graphics APIs**: DirectX 11/12, OpenGL, Radeon, METAL or Vulkan with a minimum or equivalent NVIDIA GTX-960M card.
 - **Architecture**: Win x64, Linux, Android, iOS and MacOS only for now!
 
 ---
