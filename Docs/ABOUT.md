@@ -41,10 +41,10 @@ to ensure complete control and transparency over behavior, performance, and debu
 Versions of the required OS's above that are missing, will be given later as development proceeds as at this point in time, who knows what may be upgraded!!!
 
 ### 🎮 Graphics API Rendering Support Systems
-- DirectX 11 (Primary focus for now!)
-- DirectX 12 (Implemented, but not working WIP)
-- OpenGL (Implemented, but not working WIP)
-- Vulkan (Implemented, but not working WIP)
+- DirectX 11 (Fully working!)
+- DirectX 12 (Fully working!)
+- OpenGL (Fully working!)
+- Vulkan (Fully working!)
 
 These four Render Engines above, will cover all OS (Operating System) platforms.
 
