@@ -80,9 +80,11 @@ With our First Release, you can now create a full working 2D/3D game using the 2
 - Math Precalculation system,
 - Networking, 
 - Game AI,
+- Model Lighting and Emissions are fully working, including shadowing!
 - Script Manager allow users to program the system via scripting,
 - Screen and Audio Recording (dumps to recording.mp4)
 - Scene Management & cacheing,
+- Full Working Vectoring system and supports 3D as well as 2D,
 - Randomizer (RNG System) & 
 - Custom Windows and Controls. 
 
@@ -101,7 +103,7 @@ Recorded demos will be available again once the website returns.
 ## Known Issues 25th June, 2026:
 These are the following known issues and will be resolved as humanly possible.
 
-1) Window Resizing (On Windows, now forbidden - What Resolution set in config.cfg is go!).  To change this, you must goto the SCENE_GAMETITLE and visit the configuration system.  AT ALL COST! DO NOT Alter the GameConfig.cfg file manually as its checksum protected!  ANTI-CHEAT Protection! - PUNPACK will be enforced on this file as well very soon so its fully encyrpted!
+1) Window Resizing (On Windows, now forbidden - What Resolution set in config.cfg is go!).  To change this, you must go to the SCENE_GAMETITLE and visit the configuration system.  AT ALL COST! DO NOT Alter the GameConfig.cfg file manually as its checksum protected!  ANTI-CHEAT Protection! - PUNPACK will be enforced on this file as well very soon so its fully encyrpted!
 
 2) Full Screen Exclusive modes causing all sorts of mayhem at the moment, from readings and analysis, this is due to the push of win messages and causing things to be out of sync, resulting crashing problems - I am currently investigating this issue!
 
