@@ -4,11 +4,35 @@ Welcome to the Cross Platform Gaming Engine (CPGE) repository which was original
 
 ## Introduction
 
-CPGE is a powerful and flexible gaming engine designed to work across multiple platforms. It aims to provide an easy-to-use C++ Class Modules interface for game developers while maintaining high performance and scalability.
+CPGE is a powerful and flexible gaming engine designed to work across multiple platforms. It aims to provide an easy-to-use C++ Class Modules interface for game developers while maintaining high performance and scalability. You can now also use CPGE as an AI/SI framework to build your own game.
 
 The idea of this is to give the developer a great starting frame-work to use with a game or system that they want to develop and the objective of this is to make it work across all platforms (Yes a big project!).  To use this successfully, you will need a very good understanding on C/C++ & low level programming, especially on the targeted O/S you want to develop it for as some things can vary from each OS and Renderer Platform.
 
-If you like to know more about me and my history, please goto my website at https://www.ultimanium.com/index.php?action=aboutus
+## Phase 2 Vector Gaming Release
+
+The upcoming CPGE Phase 2 release brings the new vector gaming system and **27 playable game demonstrations** into one Windows build. The games demonstrate the engine in action through playable examples.
+
+The vector release is pending merge into [CPGE Phase 2 on GitHub](https://github.com/LordAries1972/CPGE/tree/Phase2).
+
+| Platform | Vector release status | Rendering backends |
+| --- | --- | --- |
+| Windows 10 and 11 (64-bit) | Supported release platform | DirectX 11, DirectX 12, OpenGL and Vulkan |
+| Linux | Coming soon | To be confirmed for the vector release |
+| macOS | Coming soon | To be confirmed for the vector release |
+
+### Vector system and game catalogue
+
+The vector gaming system is designed to work across CPGE’s supported Windows rendering backends. The 27 playable games showcase how the vector system can be used in a working game engine.
+
+The detailed vector module and API inventory, the 27 game titles, and game-specific credits will be added after review of the pre-merge source.
+
+### Demo use and credits
+
+**The 27 games are non-commercial demonstrations only. Do not sell them, list them for sale, or include them in a paid product, marketplace listing, or bundle.**
+
+Some demonstrations are inspired by existing games. Credit belongs to the original creators, developers, publishers, and other applicable rights holders. Third-party game names, artwork, audio, trademarks, and other materials remain the property of their respective owners. Attribution does not grant permission to use or redistribute third-party material.
+
+CPGE was originally co-founded and designed by Daniel J. Hobson of Ultimanium Designs. Thanks to the contributors, testers, and players who help develop and test the engine.
 
 ## Important Links
 
@@ -18,11 +42,7 @@ If you like to know more about me and my history, please goto my website at http
 
 👉 [Blender Modelling System v4.3 - v5.2](https://www.blender.org/download/)
 
-👉 [Supporting me on my Website](https://www.ultimanium.com/).  Please do NOT use a VPN Accessing this site or you will be blocked!
-
-👉 Recorded Demos on our website → [CPGE Demos](https://www.ultimanium.com/index.php?action=cpge-demos)
-
-👉 [Donate to the CPGE Project](https://ultimanium.com/index.php?action=makedonation) — Your donation directly supports ongoing development and helps keep this project alive and growing. Every contribution, large or small, is deeply appreciated! **Please do NOT use a VPN when visiting our site or you will be blocked by the system.**
+> **Website status:** The Ultimanium Designs website (`ultimanium.com`) is temporarily offline while we look for a new hosting provider. Links to the site, including the recorded demos and donations page, are currently unavailable. For CPGE source and contributions, use [CPGE Phase 2 on GitHub](https://github.com/LordAries1972/CPGE/tree/Phase2).
 
 ## History Related Links
 
@@ -33,12 +53,16 @@ record a build history file as well and can be found here below:-
 
 ## Features
 
-- Support for multiple platforms (Windows (DirectX 11, DirectX 12, OpenGL, Vulkan), macOS & iOS (OpenGL (For Previous supported OS, METAL for the later MAC technological systems), Linux & Android (Vulkan, OpenGL (Linux only)))
+- Windows rendering through DirectX 11, DirectX 12, OpenGL and Vulkan
+- Linux and macOS ports planned, with Android and iOS as longer-term targets
 - High-performance rendering
 - Flexible and modular architecture
 - Extensive documentation and tutorials
 
 ## What you could achieve with CPGE so far!
+
+The full vector gaming system is now working on Windows across all four supported rendering backends (DirectX 11, DirectX 12, OpenGL and Vulkan). You can use it to build your own vector-based games. The upcoming Phase 2 release showcases the system with 27 playable demonstrations.
+
 With our First Release, you can now create a full working 2D/3D game using the 2D / 3D Rendering system via DirectX 11, DirectX 12, OpenGL & Vulkan under the Windows Platform.  
 
 - CMAKE & VS2022 compiling are currently supported, other compiler support will soon come (GCC for one!).
@@ -72,9 +96,7 @@ I, myself, uses Blender v4.3 and above which is also free to use.  You can find 
 - Documents and example usages to this project can be found within the Docs folder (constantly been updated).
 
 ## Demos
-Demo Recordings can now be found on our website on the below link, please do not use a VPN accessing this site or you will be blocked.
-
-👉 Recorded Demos on our website → [CPGE Demos](https://www.ultimanium.com/index.php?action=cpge-demos)
+Recorded demos will be available again once the website returns.
 
 ## Known Issues 25th June, 2026:
 These are the following known issues and will be resolved as humanly possible.
@@ -89,14 +111,13 @@ To get started with CPGE, follow these steps:
 
 1. **Clone the repository:**
    ```sh
-   git clone https://github.com/LordAries1972/CPGE.git
+   git clone --branch Phase2 https://github.com/LordAries1972/CPGE.git
    cd CPGE
    ```
 2. **Contribution to repository:**
    ```sh
    Only work on files that relate to the CPGE project itself, do NOT start your own game or system
-   within the base CPGE folder.  If you would like to contribute to the project, then please contact
-   management at our web site and make a pull request.
+   within the base CPGE folder.  If you would like to contribute to the project, then please submit a pull request on GitHub.
 
    If you are wanting to just start a project of your own, please copy the CPGE folder to a new location
    on your drive and use that instead with your chosen IDE / Compiling system.  If you are NOT using
@@ -108,7 +129,7 @@ To get started with CPGE, follow these steps:
 
 This project's future depends heavily on passionate, skilled developers who want to make a real difference in the open-source game engine space. CPGE is an ambitious, cross-platform C++ game engine targeting Windows, Linux, Android, macOS, and iOS — and to truly deliver on that promise, we need talented contributors across several key areas. If you see yourself in any of the profiles below, **we want to hear from you.**
 
-> To get involved, please visit us at: **[ultimanium.com/index.php?action=cpge](https://ultimanium.com/index.php?action=cpge)** and please visit under the community menu on the top right of the web system, to contact Management for PULL Requests - Thank you!
+> To get involved, visit the [CPGE repository on GitHub](https://github.com/LordAries1972/CPGE).
 
 ---
 
@@ -132,7 +153,7 @@ Whether you are a seasoned game developer or someone who is just beginning to ta
 - Willingness to read and understand existing systems before modifying them
 - Respect for the modular architecture and coding standards used throughout the project
 - Patience — cross-platform development requires careful, considered changes
-- Communication via our website contact or GitHub pull requests before making major changes
+- Communication via GitHub before making major changes
 
 **What you will gain:**
 
@@ -175,7 +196,7 @@ Apple hardware is increasingly dominant in the creative and gaming space, especi
 ### 3. DirectX 12 Developers with Capable Hardware
 
 **Who this is for:**
-DirectX 12 is one of the most powerful — and most complex — graphics APIs available on Windows. We are looking for developers who not only understand DX12 at a deep level but who also have access to a **modern DX12-capable GPU** (NVIDIA RTX series, AMD RDNA2/3, or equivalent) to properly develop, test, and profile DX12 rendering features. The DX12 renderer is partially implemented; we need developers who can push it to production-ready quality.
+DirectX 12 is one of the most powerful — and most complex — graphics APIs available on Windows. We are looking for developers who not only understand DX12 at a deep level but who also have access to a **modern DX12-capable GPU** (NVIDIA RTX series, AMD RDNA2/3, or equivalent) to properly develop, test, and profile DX12 rendering features. We are looking for developers to improve the DX12 renderer and validate its behaviour across hardware.
 
 **What you will be working on:**
 
@@ -206,7 +227,7 @@ DirectX 12 is the primary high-performance rendering target on Windows 10/11 and
 ### 4. Linux and Android Programmers
 
 **Who this is for:**
-Linux and Android represent a massive and growing gaming audience. We need developers who are fluent in Linux system programming, the Android NDK, and who understand the rendering and build system differences that come with targeting these platforms. Both Vulkan and OpenGL are supported on this platform tier — contributors will work across both.
+Linux and Android represent a massive and growing gaming audience. We need developers who are fluent in Linux system programming, the Android NDK, and who understand the rendering and build system differences that come with targeting these platforms. Contributors will work on Vulkan and OpenGL support for these target platforms.
 
 **What you will be working on:**
 
@@ -246,9 +267,9 @@ Linux gaming has seen explosive growth with Steam Deck and Proton, and Android r
 
 ### How to Contribute
 
-1. Visit our project page: [ultimanium.com/index.php?action=cpge](https://ultimanium.com/index.php?action=cpge)
+1. Visit the [CPGE Phase 2 branch on GitHub](https://github.com/LordAries1972/CPGE/tree/Phase2)
 2. Review the existing codebase and identify an area that aligns with your expertise
-3. Contact us via the website before beginning significant work, so efforts are coordinated
+3. Coordinate significant work with the project maintainers on GitHub before you begin
 4. Submit pull requests against the main repository at: [github.com/LordAries1972/CPGE](https://github.com/LordAries1972/CPGE)
 5. Clearly describe what you changed, why, and which platform(s) you tested on
 
