@@ -1,4 +1,4 @@
-﻿//-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
 // MathPrecalculation.cpp - High-Performance Mathematical Precalculation Class Implementation
 //
 // This implementation provides optimized lookup tables and precalculated values for complex
@@ -95,11 +95,22 @@ bool MathPrecalculation::Initialize()
         // Initialize all lookup tables in order of dependency
         InitializeTrigonometricTables();
         InitializeInverseTrigonometricTables();
+        InitializeVectorMathTables();                                           // Accurate-acos + unit-circle tables for Vectors.h
         InitializeColorConversionTables();
         InitializeInterpolationTables();
         InitializeParticleData();
         InitializeMatrixCaches();
         InitializeTextOptimizations();
+        // Physics tables (including grenade arcs) must exist before the first
+        // game: the previous startup path never called this initializer.
+        InitializePhysicsPrecalculations();
+        for (size_t i = 0; i < m_decayTable.size(); ++i)
+            m_decayTable[i] = std::exp(-static_cast<float>(i) / 32.0f);
+        for (size_t i = 0; i < 257; ++i) {
+            const float cosine = static_cast<float>(i) / 256.0f;
+            m_surfaceReflection[0][i] = std::pow(cosine, 8.0f);
+            m_surfaceReflection[1][i] = std::pow(cosine, 48.0f);
+        }
 
         // Calculate total memory usage for debugging
         m_totalMemoryUsage.store(GetMemoryUsage());
@@ -138,6 +149,23 @@ bool MathPrecalculation::Initialize()
     }
 }
 
+float MathPrecalculation::FastDecay(float age, float rate) const
+{
+    const float t = (std::max)(0.0f, age) * (std::max)(0.0f, rate);
+    if (!std::isfinite(t) || t >= 8.0f) return 0.0f;
+    if (!IsInitialized()) return std::exp(-t);
+    const float index = t * 32.0f; const int i = static_cast<int>(index);
+    return m_decayTable[i] + (m_decayTable[i + 1] - m_decayTable[i]) * (index - static_cast<float>(i));
+}
+float MathPrecalculation::FastSurfaceReflection(float cosine, float roughness) const
+{
+    cosine = (std::clamp)(cosine, 0.0f, 1.0f); roughness = (std::clamp)(roughness, 0.0f, 1.0f);
+    if (cosine >= 1.0f) return 1.0f;
+    const float at = cosine * 256.0f; const int i = static_cast<int>(at); const float fraction = at - i;
+    const float broad = m_surfaceReflection[0][i] + (m_surfaceReflection[0][i+1]-m_surfaceReflection[0][i])*fraction;
+    const float sharp = m_surfaceReflection[1][i] + (m_surfaceReflection[1][i+1]-m_surfaceReflection[1][i])*fraction;
+    return sharp + (broad-sharp)*roughness;
+}
 void MathPrecalculation::InitializeTrigonometricTables()
 {
 #if defined(_DEBUG_MATHPRECALC_)
@@ -229,6 +257,57 @@ void MathPrecalculation::InitializeInverseTrigonometricTables()
     debug.logDebugMessage(LogLevel::LOG_INFO,
         L"[MathPrecalculation] Inverse trigonometric tables initialized - Entries: %d",
         INVERSE_TRIG_TABLE_SIZE);
+#endif
+}
+
+void MathPrecalculation::InitializeVectorMathTables()
+{
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logLevelMessage(LogLevel::LOG_INFO, L"[MathPrecalculation] Initializing vector-math tables");
+#endif
+
+    // --- asin(s) for s in [0, 1/sqrt(2)] : backbone of FastACosAccurate -----------------------------
+    m_halfAngleAsinTable.clear();
+    m_halfAngleAsinTable.resize(HALF_ANGLE_TABLE_SIZE);
+    for (int i = 0; i < HALF_ANGLE_TABLE_SIZE; ++i)
+    {
+        // Evaluate in double so the stored float is correctly rounded (tables are built once, so cost is irrelevant).
+        const double s = (static_cast<double>(i) / static_cast<double>(HALF_ANGLE_TABLE_SIZE - 1)) * static_cast<double>(HALF_ANGLE_MAX_INPUT);
+        m_halfAngleAsinTable[i] = static_cast<float>(std::asin(s));
+    }
+
+    // --- unit-circle point tables for mesh generation -----------------------------------------------
+    static const int kSegmentCounts[] = { 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 48, 64 };
+    m_unitCircleTables.clear();
+    for (int segments : kSegmentCounts)
+    {
+        std::vector<XMFLOAT2>& ring = m_unitCircleTables[segments];
+        ring.reserve(static_cast<size_t>(segments));
+        for (int k = 0; k < segments; ++k)
+        {
+            const double a = 6.283185307179586476925286766559 * static_cast<double>(k) / static_cast<double>(segments);
+            ring.push_back(XMFLOAT2(static_cast<float>(std::cos(a)), static_cast<float>(std::sin(a))));
+        }
+    }
+
+    // --- unit directions on the sphere: Fibonacci spiral (even spread, no pole clumping) -------------
+    // y runs from +1 to -1 in equal steps (equal area bands), the azimuth advances by the golden angle each point.
+    m_unitSphereDirections.clear();
+    m_unitSphereDirections.reserve(static_cast<size_t>(kUnitSphereCount));
+    for (int i = 0; i < kUnitSphereCount; ++i)
+    {
+        const double y     = 1.0 - 2.0 * (static_cast<double>(i) + 0.5) / static_cast<double>(kUnitSphereCount);
+        const double ring  = std::sqrt(1.0 - y * y);
+        const double theta = static_cast<double>(i) * 2.399963229728653;                  // golden angle in radians
+        m_unitSphereDirections.push_back(Vector3(static_cast<float>(ring * std::cos(theta)),
+                                                 static_cast<float>(y),
+                                                 static_cast<float>(ring * std::sin(theta))));
+    }
+
+#if defined(_DEBUG_MATHPRECALC_)
+    debug.logDebugMessage(LogLevel::LOG_INFO,
+        L"[MathPrecalculation] Vector-math tables initialized - half-angle entries: %d, unit circles: %zu",
+        HALF_ANGLE_TABLE_SIZE, m_unitCircleTables.size());
 #endif
 }
 
@@ -816,6 +895,112 @@ float MathPrecalculation::FastATan2(float y, float x) const
 
     // This should never be reached due to earlier checks, but included for completeness
     return basicAtan;
+}
+
+float MathPrecalculation::FastACosAccurate(float value) const
+{
+    // Ensure the system is initialized before attempting lookup
+    if (!m_bIsInitialized.load())
+    {
+        return std::acos(std::clamp(value, -1.0f, 1.0f));                       // Fallback (no log: this is a hot path)
+    }
+
+    // acos is symmetric: acos(-v) = PI - acos(v), so only |v| needs the table.
+    const float clamped = std::clamp(value, -1.0f, 1.0f);
+    const float a = (clamped < 0.0f) ? -clamped : clamped;
+
+    // acos(a) = 2 * asin(sqrt((1 - a) / 2)); s lies in [0, 1/sqrt(2)] because a >= 0.
+    const float s = std::sqrt(0.5f * (1.0f - a));                               // Hardware sqrt: exact and cheaper than a lookup
+
+    // Linear interpolation between the two nearest table entries.
+    const float pos = s * HALF_ANGLE_PRECISION_FACTOR;
+    int index = static_cast<int>(pos);
+    index = std::clamp(index, 0, HALF_ANGLE_TABLE_SIZE - 2);                    // Keep index+1 in range at the upper edge
+    const float frac = pos - static_cast<float>(index);
+    const float halfAngle = m_halfAngleAsinTable[index] + (m_halfAngleAsinTable[index + 1] - m_halfAngleAsinTable[index]) * frac;
+
+    const float angle = 2.0f * halfAngle;                                       // acos(|v|)
+    return (clamped < 0.0f) ? (XM_PI - angle) : angle;
+}
+
+void MathPrecalculation::FastSinCosDeg(float degrees, float& outSin, float& outCos) const
+{
+    // Ensure the system is initialized before attempting lookup
+    if (!m_bIsInitialized.load())
+    {
+        const float rad = degrees * (XM_PI / 180.0f);
+        outSin = std::sin(rad);
+        outCos = std::cos(rad);
+        return;
+    }
+
+    // O(1) wrap into [0, 360) - the radian path's NormalizeAngle loops once per revolution.
+    degrees -= 360.0f * std::floor(degrees * (1.0f / 360.0f));
+
+    // Fractional table position, then interpolate between neighbours (TRIG_TABLE_SIZE is a power of two,
+    // so the wrap of index+1 back to 0 is a single AND).
+    const float pos = degrees * TRIG_DEGREE_PRECISION_FACTOR;
+    const int index = static_cast<int>(pos) & (TRIG_TABLE_SIZE - 1);
+    const float frac = pos - std::floor(pos);
+    const TrigonometricData& d0 = m_trigonometricTable[index];
+    const TrigonometricData& d1 = m_trigonometricTable[(index + 1) & (TRIG_TABLE_SIZE - 1)];
+
+    outSin = d0.sine   + (d1.sine   - d0.sine)   * frac;
+    outCos = d0.cosine + (d1.cosine - d0.cosine) * frac;
+
+    // Statistics: one bump for the pair, matching FastSinCos.
+    m_lookupCount.fetch_add(1);
+}
+
+const std::vector<XMFLOAT2>& MathPrecalculation::GetUnitCircle(int segments) const
+{
+    static const std::vector<XMFLOAT2> kEmpty;                                  // Returned for counts that were not precomputed
+    const auto it = m_unitCircleTables.find(segments);
+    return (it != m_unitCircleTables.end()) ? it->second : kEmpty;
+}
+
+Vector3 MathPrecalculation::GetUnitSphereDirection(uint32_t rnd) const
+{
+    // Bits 10..19 of the random number: the low bits of a power-of-two LCG repeat with a very short period.
+    // kUnitSphereCount is a power of two, so the index is a shift and a mask.
+    if (m_unitSphereDirections.empty()) return Vector3(0.0f, 1.0f, 0.0f);              // tables not built (cannot happen after GetInstance())
+    return m_unitSphereDirections[(rnd >> 10) & (kUnitSphereCount - 1)];
+}
+
+MathPrecalculation::PowerCurveId MathPrecalculation::RegisterPowerCurve(float exponent)
+{
+    std::lock_guard<std::mutex> lock(m_powerCurveMutex);
+    const int count = m_powerCurveCount.load(std::memory_order_relaxed);               // only this function raises it, and only under the lock
+
+    for (int i = 0; i < count; ++i)                                                    // the same exponent shares one table
+        if (std::fabs(m_powerCurveExponent[i] - exponent) < 1.0e-4f) return i;
+
+    if (count >= kMaxPowerCurves)                                                      // full: reuse the last curve rather than fail
+    {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[MathPrecalculation] RegisterPowerCurve: table full, reusing the last curve.");
+        return kMaxPowerCurves - 1;
+    }
+
+    std::array<float, kPowerCurveSteps + 1>& table = m_powerCurveTables[count];
+    for (int i = 0; i <= kPowerCurveSteps; ++i)                                        // double precision, built once
+        table[i] = static_cast<float>(std::pow(static_cast<double>(i) / static_cast<double>(kPowerCurveSteps), static_cast<double>(exponent)));
+    m_powerCurveExponent[count] = exponent;
+    m_powerCurveCount.store(count + 1, std::memory_order_release);                     // publish: readers may now use slot `count`
+    return count;
+}
+
+float MathPrecalculation::FastPowCurve(PowerCurveId id, float t) const
+{
+    if (id < 0 || id >= m_powerCurveCount.load(std::memory_order_acquire))             // unknown id: behave as a plain ramp
+        return (t < 0.0f) ? 0.0f : ((t > 1.0f) ? 1.0f : t);
+
+    const float c   = !(t > 0.0f) ? 0.0f : ((t > 1.0f) ? 1.0f : t);                    // "!(t > 0)" also catches NaN, so the int cast below is always in range
+    const float pos = c * static_cast<float>(kPowerCurveSteps);
+    int i = static_cast<int>(pos);
+    if (i >= kPowerCurveSteps) i = kPowerCurveSteps - 1;                               // c == 1: last segment, frac == 1
+    const float f = pos - static_cast<float>(i);
+    const std::array<float, kPowerCurveSteps + 1>& table = m_powerCurveTables[id];
+    return table[i] + (table[i + 1] - table[i]) * f;
 }
 
 void MathPrecalculation::FastSinCos(float angle, float& outSin, float& outCos) const
@@ -1520,6 +1705,14 @@ size_t MathPrecalculation::GetMemoryUsage() const
     totalMemory += m_particleDirections.size() * sizeof(ParticleData);
     totalMemory += m_transparencyLookup.size() * sizeof(float);
     totalMemory += m_inverseTrigonometricTable.size() * sizeof(InverseTrigonometricData);
+    totalMemory += m_halfAngleAsinTable.size() * sizeof(float);
+    for (const auto& ring : m_unitCircleTables)
+    {
+        totalMemory += ring.second.size() * sizeof(XMFLOAT2);
+    }
+    totalMemory += m_unitSphereDirections.size() * sizeof(Vector3);                                              // Fibonacci unit-sphere directions
+    totalMemory += static_cast<size_t>(m_powerCurveCount.load(std::memory_order_acquire)) *
+                   (static_cast<size_t>(kPowerCurveSteps) + 1) * sizeof(float);                                 // registered power-curve tables
     // Calculate memory usage for physics-specific lookup tables
     totalMemory += m_gravityIntensityTable.size() * sizeof(GravityIntensityData);
     totalMemory += m_reflectionAngleTable.size() * sizeof(ReflectionAngleData);
@@ -1732,6 +1925,14 @@ void MathPrecalculation::Cleanup()
 
     m_inverseTrigonometricTable.clear();
     m_inverseTrigonometricTable.shrink_to_fit();
+
+    m_halfAngleAsinTable.clear();
+    m_halfAngleAsinTable.shrink_to_fit();
+
+    m_unitCircleTables.clear();
+    m_unitSphereDirections.clear();
+    m_unitSphereDirections.shrink_to_fit();
+    // The power-curve tables are fixed-size and stay valid for the program's life (ids may be cached in statics).
 
     m_explosionPatterns.clear();
     m_scaleMatrixCache.clear();
@@ -2914,6 +3115,36 @@ void MathPrecalculation::InitializeOrbitalMechanicsTables()
     #endif
 }
 
+// LOBBED SHOTS: builds the two arc profiles once at startup (see LobbedShotData in the header).  Each entry is the flight time the profile chooses for that horizontal distance, and its reciprocal.
+void MathPrecalculation::InitializeLobbedShotTables()
+{
+    for (int p = 0; p < 2; ++p)
+    {
+        const float k = (p == 0) ? 14.0f : 16.0f, lo = (p == 0) ? 1.2f : 1.3f, hi = (p == 0) ? 2.2f : 2.6f;       // t = R / k, held between lo and hi
+        std::vector<LobbedShotData>& tab = m_lobbedShotTable[p]; tab.resize(static_cast<size_t>(kLobbedShotCount));
+        for (int n = 0; n < kLobbedShotCount; ++n)
+        {
+            float t = (static_cast<float>(n) * kLobbedShotStep) / k; t = (t < lo) ? lo : ((t > hi) ? hi : t);
+            tab[static_cast<size_t>(n)].flightTime = t; tab[static_cast<size_t>(n)].invFlightTime = 1.0f / t;
+        }
+    }
+    m_totalMemoryUsage += 2 * static_cast<size_t>(kLobbedShotCount) * sizeof(LobbedShotData);
+}
+
+// The solver: two table reads and a lerp for t and 1 / t, then  hs = R / t,  vy = dy / t + g t / 2  (see the header).  The launch angle is the only trig, once per throw.
+bool MathPrecalculation::SolveLobbedShot(int profile, float horizDist, float launchY, float targetY, float gravity, LobbedShotSolution& out) const
+{
+    if (!m_bIsInitialized.load() || profile < 0 || profile > 1 || m_lobbedShotTable[profile].size() < 2) return false;
+    const float maxD = static_cast<float>(kLobbedShotCount - 1) * kLobbedShotStep; const float d = (horizDist < 0.0f) ? 0.0f : ((horizDist > maxD) ? maxD : horizDist);
+    const float f = d * (1.0f / kLobbedShotStep); int i0 = static_cast<int>(f); if (i0 > kLobbedShotCount - 2) i0 = kLobbedShotCount - 2; const float u = f - static_cast<float>(i0);
+    const LobbedShotData& a = m_lobbedShotTable[profile][static_cast<size_t>(i0)]; const LobbedShotData& b = m_lobbedShotTable[profile][static_cast<size_t>(i0) + 1];
+    const float t = a.flightTime + (b.flightTime - a.flightTime) * u, inv = a.invFlightTime + (b.invFlightTime - a.invFlightTime) * u;
+    out.flightTime = t; out.hSpeed = d * inv; out.vSpeed = (targetY - launchY) * inv + 0.5f * gravity * t;
+    out.apexHeight = (out.vSpeed > 0.0f && gravity > 0.0f) ? out.vSpeed * out.vSpeed / (2.0f * gravity) : 0.0f;
+    out.launchAngleDeg = std::atan2(out.vSpeed, out.hSpeed) * 57.2957795f; out.landDistance = out.hSpeed * t; out.reachable = (horizDist <= maxD);
+    return true;
+}
+
 void MathPrecalculation::InitializePhysicsPrecalculations()
 {
     #if defined(_DEBUG_MATHPRECALC_)
@@ -2929,6 +3160,7 @@ void MathPrecalculation::InitializePhysicsPrecalculations()
         InitializeCollisionResponseTables();
         InitializeAudioAttenuationTables();
         InitializeOrbitalMechanicsTables();
+        InitializeLobbedShotTables();                                                            // grenade arc profiles: built once here, read by SolveLobbedShot
 
         #if defined(_DEBUG_MATHPRECALC_)
                 debug.logLevelMessage(LogLevel::LOG_INFO, L"[MathPrecalculation] Physics precalculations initialized successfully");

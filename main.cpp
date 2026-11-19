@@ -389,24 +389,28 @@ void ApplySystemMasterVolume(int vol64)
 {
     float scalar = static_cast<float>(std::clamp(vol64, 0, MAX_GLOBAL_VOLUME)) / 64.0f;
 
+    // The options window's sliders (and the keyboard hot-keys) call this from whatever thread is running them, and COM is only initialised on the main thread: on any other
+    // thread CoCreateInstance fails (CO_E_NOTINITIALIZED) and the master volume silently never changed.  So make sure THIS thread has COM first (and balance it afterwards).
+    const HRESULT hrInit = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    const bool needUninit = SUCCEEDED(hrInit);                                  // S_OK or S_FALSE: one reference taken that we must release (RPC_E_CHANGED_MODE: already an STA, fine)
+
     IMMDeviceEnumerator* pEnum = nullptr;
-    if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr,
-                                CLSCTX_ALL, IID_PPV_ARGS(&pEnum)))) return;
-
+    HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&pEnum));
     IMMDevice* pDevice = nullptr;
-    HRESULT hr = pEnum->GetDefaultAudioEndpoint(eRender, eConsole, &pDevice);
-    pEnum->Release();
-    if (FAILED(hr)) return;
-
-    IAudioEndpointVolume* pVol = nullptr;
-    if (SUCCEEDED(pDevice->Activate(__uuidof(IAudioEndpointVolume),
-                                    CLSCTX_ALL, nullptr,
-                                    reinterpret_cast<void**>(&pVol))))
+    if (SUCCEEDED(hr)) { hr = pEnum->GetDefaultAudioEndpoint(eRender, eConsole, &pDevice); pEnum->Release(); }
+    if (SUCCEEDED(hr))
     {
-        pVol->SetMasterVolumeLevelScalar(scalar, nullptr);
-        pVol->Release();
+        IAudioEndpointVolume* pVol = nullptr;
+        hr = pDevice->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_ALL, nullptr, reinterpret_cast<void**>(&pVol));
+        if (SUCCEEDED(hr))
+        {
+            hr = pVol->SetMasterVolumeLevelScalar(scalar, nullptr);
+            pVol->Release();
+        }
+        pDevice->Release();
     }
-    pDevice->Release();
+    if (FAILED(hr)) debug.logLevelMessage(LogLevel::LOG_WARNING, L"[Audio] The master volume could not be applied to the output device. HRESULT: " + std::to_wstring(static_cast<long>(hr)));
+    if (needUninit) CoUninitialize();
 }
 
 // Sets DPI awareness before any window or display-mode API call so Win32 APIs report physical
@@ -594,6 +598,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
         // Restore audio levels that were saved in the config
         soundManager.SetGlobalVolume(static_cast<float>(config.myConfig.dialogVolume) / 64.0f);
+        soundManager.SetAmbientVolume(static_cast<float>(config.myConfig.ambientVolume) / 64.0f);        // the looping background sounds (sirens, buzzes)
         #if defined(PLATFORM_WINDOWS)
             ApplySystemMasterVolume(config.myConfig.masterVolume);
         #endif
@@ -843,6 +848,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         // Whenever the config window saves, immediately push new values to all live subsystems.
         config.setOnApplyCallback([](const MyConfig& cfg) {
             soundManager.SetGlobalVolume(static_cast<float>(cfg.dialogVolume) / 64.0f);
+            soundManager.SetAmbientVolume(static_cast<float>(cfg.ambientVolume) / 64.0f);
             #if defined(PLATFORM_WINDOWS)
                 ApplySystemMasterVolume(cfg.masterVolume);
             #endif
@@ -877,7 +883,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             screenRecorder.SetMicMonitorGain(static_cast<float>(cfg.microphoneVolume));
             screenRecorder.SetMicRecordGain (static_cast<float>(cfg.microphoneVolume));
             #if defined(_WIN64) || defined(_WIN32)
-                if (cfg.UseTTS && ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR)
+                // Always hand the volume to the speech engine, whether or not Text-to-Speech is switched on right now: the manager remembers it, so a line spoken after the
+                // switch is turned on already uses the slider's value (it used to keep the old volume until the slider was moved again).
+                if (ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR)
                     ttsManager.SetVoiceVolume(static_cast<float>(cfg.TTSVolume));
             #endif
         });

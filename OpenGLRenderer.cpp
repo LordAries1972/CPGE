@@ -12,6 +12,7 @@
 #define NOMINMAX                                                                // Prevent Windows min/max macro conflicts
 
 #include "Includes.h"
+#include "VectorAA.h"
 
 // OpenGL Required Headers & Linking
 #include "Renderer.h"
@@ -1200,7 +1201,7 @@ void OpenGLRenderer::LoadShaders()
     glGenBuffers(1, &m_2dVBO);
     glBindVertexArray(m_2dVAO);
     glBindBuffer(GL_ARRAY_BUFFER, m_2dVBO);
-    glBufferData(GL_ARRAY_BUFFER, 6 * 4 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, 32 * 4 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);                  // room for a 32-vertex polygon fan (DrawFilledPolygon); the quads use the first 6 vertices
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
@@ -2172,6 +2173,68 @@ void OpenGLRenderer::DrawCircle(const Vector2& center, float radius, const MyCol
                 DrawRectangle(Vector2(center.x + dx - 1.0f, center.y + dy), Vector2(1.0f, 1.0f), color, true);
         }
     }
+}
+
+// Native filled convex polygon: a triangle fan drawn with the same 2D shader / VAO as Render2DQuad.
+// The shared VBO only has room for a quad's six vertices, so the fan is uploaded and drawn one
+// triangle at a time (3 vertices each) - a face has at most a handful of triangles.
+void OpenGLRenderer::DrawFilledPolygon(const Vector2* points, int count, const MyColor& color)
+{
+    if (!points || count < 3) return;
+    if (!m_2dShaderProgram.isLinked || !m_2dVAO) return;
+
+    const float W = static_cast<float>(m_renderTargetWidth  > 0 ? m_renderTargetWidth  : iOrigWidth);
+    const float H = static_cast<float>(m_renderTargetHeight > 0 ? m_renderTargetHeight : iOrigHeight);
+    if (W <= 0.0f || H <= 0.0f) return;
+
+    // Same cached top-left-origin orthographic matrix Render2DQuad uses (rebuilt only on resize).
+    if (W != m_cachedOrthoW || H != m_cachedOrthoH) {
+        m_cachedOrthoW = W; m_cachedOrthoH = H;
+        m_cachedOrtho[0]  =  2.0f/W; m_cachedOrtho[1]  = 0.0f;  m_cachedOrtho[2]  = 0.0f;  m_cachedOrtho[3]  = 0.0f;
+        m_cachedOrtho[4]  =  0.0f;   m_cachedOrtho[5]  = -2.0f/H; m_cachedOrtho[6] = 0.0f;  m_cachedOrtho[7]  = 0.0f;
+        m_cachedOrtho[8]  =  0.0f;   m_cachedOrtho[9]  = 0.0f;  m_cachedOrtho[10] = -1.0f; m_cachedOrtho[11] = 0.0f;
+        m_cachedOrtho[12] = -1.0f;   m_cachedOrtho[13] = 1.0f;  m_cachedOrtho[14] = 0.0f;  m_cachedOrtho[15] = 1.0f;
+    }
+
+    glUseProgram(m_2dShaderProgram.programID);
+    if (m_uniforms2D.uOrtho  >= 0) glUniformMatrix4fv(m_uniforms2D.uOrtho, 1, GL_FALSE, m_cachedOrtho);
+    if (m_uniforms2D.uColor  >= 0) glUniform4f(m_uniforms2D.uColor,
+        color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, color.a / 255.0f);
+    if (m_uniforms2D.uUseTex >= 0) glUniform1i(m_uniforms2D.uUseTex, 0);     // flat colour, no texture
+
+    // 2D overlay state: no depth, no culling (the ortho Y flip makes every face look back-facing), alpha blend.
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glBindVertexArray(m_2dVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, m_2dVBO);
+    {
+        // The whole polygon in ONE upload and ONE draw (a triangle fan; it used to be a buffer upload and a draw call per triangle).  Capped at 32 vertices like the Direct2D path.
+        const int nv = (count > 32) ? 32 : count;
+        float fan[32][4];
+        for (int i = 0; i < nv; ++i) { fan[i][0] = points[i].x; fan[i][1] = points[i].y; fan[i][2] = 0.0f; fan[i][3] = 0.0f; }
+        glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(float) * 4 * nv, fan);
+        glDrawArrays(GL_TRIANGLE_FAN, 0, nv);
+        // ANTI-ALIASING (Video settings).  With real multisampling (AA + MSAA on) the hardware smooths every edge and nothing more is needed.  With AA on but MSAA off, a smoothed
+        // one-pixel outline in the fill colour (GL_LINE_SMOOTH) is drawn round the polygon: soft silhouettes and no seams between neighbouring faces.  With AA off nothing is added
+        // and line smoothing is off, so the polygon stays aliased.
+        if (VectorAAEnabled() && !VectorMSAAEnabled())
+        {
+            glEnable(GL_LINE_SMOOTH);
+            glLineWidth(1.0f);
+            glDrawArrays(GL_LINE_LOOP, 0, nv);
+        }
+        else if (!VectorAAEnabled()) glDisable(GL_LINE_SMOOTH);
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+
+    // Restore the 3D pipeline state exactly as Render2DQuad does.
+    glEnable(GL_CULL_FACE);
+    glEnable(GL_DEPTH_TEST);
+    glUseProgram(0);
 }
 
 void OpenGLRenderer::DrawCurve(float startX, float startY, float ctrlX, float ctrlY, float endX, float endY,

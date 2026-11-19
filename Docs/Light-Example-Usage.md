@@ -2175,3 +2175,41 @@ The Light Class system is designed to be both powerful and easy to use, providin
 ---
 
 *For additional support and updates, please refer to the engine documentation and community forums.*
+
+---
+
+## Vector lighting (the vector games)
+
+The vector renderers (the `SubmitMesh` family in `main.cpp` and `VectorRender.cpp`) no longer keep their own lighting globals: the sun, the brightness multiplier, flat mode, the shadow direction and the dynamic lamps all live in `lightsManager` (class `LightsManager`, `Lights.h`). It is used from the render thread only, so these calls take no lock.
+
+```cpp
+// once per frame (scene set-up): the shared sun, as a unit vector TOWARD the light in view space
+lightsManager.SetVectorSun(MyVector(-0.40f, 0.60f, -0.70f));          // optional: ambient, diffuse (default 0.30 / 0.70)
+
+// per face (inside the renderer): ambient + diffuse * max(0, n . sun)
+float shade = lightsManager.VectorLambert(nView) * face.tone;
+
+// torch-light / night dimming for one scope (restores the old value on exit)
+{ LightsManager::VectorBrightnessScope dim(lightsManager, 0.55f); /* SubmitMesh(...) */ }
+// plain one-colour silhouette for one scope (hit outlines)
+{ LightsManager::VectorFlatScope flat(lightsManager, true); /* SubmitMesh(...) */ }
+```
+
+`MeshLightScope` and `MeshFlatScope` (and `MyVectorRender::SetMeshLight / SetMeshFlat`) still exist and simply forward to these.
+
+### Dynamic lights (street lamps, floodlights, grid lights)
+
+```cpp
+lightsManager.BeginVectorLights();                    // start of the world pass: empty the list
+VectorLight l;                                        // fill: pos, colour, radius, intensity (fold the fog fade in), glowSize,
+l.kind = VectorLightKind::Street;                     //       surface / axisU / axisV / lenU / lenV = the lit ellipse (lenU 0 = halo only)
+lightsManager.AddVectorLight(l);                      // up to LightsManager::kMaxVectorLights (192) per pass
+float lit = lightsManager.VectorLightAt(modelPos);    // 0..1: brighten the models near the lamps
+SubmitVectorLights();                                 // main.cpp: draws a warm pool on the lit surface and a camera-facing halo for every light
+```
+
+`lightsManager.MakePointLightStruct(light)` / `MakeSunLightStruct(rayDirWorld)` convert a vector light / the sun into real `LightStruct`s for the 3D model pipeline. Racing registers its street lamps (every 8th segment), the six floodlights under each grandstand roof and the lit start-grid lamps this way at night.
+
+## Star light by distance and occlusion (merged 2026-11-19, uncompiled)
+
+`LightsManager::StarLightAtDistance(luminosity, starRadius, distance, minimum = 0.03f)` - 0..1 strength of a star's light: inverse-square fall-off, half strength at 3 star radii + 4 km. `LightsManager::SphereShadowVisibility(from, to, centres, radii, count)` - 0..1 how much of the star at `to` a viewer at `from` can see past spheres (planets, stations, moons) in the way, with a smooth penumbra a quarter of the radius wide. Multiply them for the light a point in space receives, and feed the result to `SetVectorSun`'s ambient / diffuse and to glare, dash lighting and shadow strength.

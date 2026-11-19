@@ -1631,9 +1631,9 @@ fxManager.StopStarfield2D(starsID);
 
 - Each of the 8 directions maps to a fixed unit velocity; every star moves at
   `velocity * layerSpeed[layer] * deltaTime`.
-- When a star exits the screen on the direction-of-travel side, it's respawned along the edge(s)
-  the direction originates from (for diagonals, randomly along either of the two source edges) —
-  this produces a continuous scroll rather than a one-shot burst.
+- When a star exits the screen it wraps toroidally per axis (overshoot carried over to the opposite
+  edge, other coordinate unchanged), so density stays even and no edge lines form, including on
+  diagonals. The initial scatter still uses random placement.
 - Rendered via the existing portable `Blit2DColoredPixel` path (the same helper used by particle
   explosions and fireworks) — no new renderer plumbing was needed for this effect.
 

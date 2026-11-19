@@ -18,6 +18,126 @@ extern ExceptionHandler exceptionHandler;
 // Global physics instance
 Physics* g_pPhysics = nullptr;
 
+float Physics::ReflectedLightGain(float cosine, float reflectivity, float roughness)
+{
+    cosine=(std::clamp)(cosine,0.0f,1.0f); reflectivity=(std::clamp)(reflectivity,0.0f,1.0f); roughness=(std::clamp)(roughness,0.0f,1.0f);
+    const float specular=FAST_MATH.FastSurfaceReflection(cosine,roughness);
+    return reflectivity*(roughness*cosine+(1.0f-roughness)*specular);
+}
+
+float Physics::ProjectilePower(float remaining, float range)
+{
+    if (!(range > 0.0f) || !(remaining > 0.0f)) return 0.0f;
+    const float t = (std::clamp)((1.0f - remaining / range - 0.2f) * 1.25f, 0.0f, 1.0f);
+    return 1.0f - t * t * (3.0f - 2.0f * t);
+}
+
+bool Physics::AccumulateProjectileHit(float& accumulated, float power)
+{
+    accumulated += (std::clamp)(power, 0.0f, 1.0f);
+    if (accumulated < 0.9999f) return false;
+    accumulated = 0.0f; return true;
+}
+
+bool Physics::LimitProjectileStep(float& dx, float& dy, float& dz, float& remaining)
+{
+    if (remaining <= 0.0f) { dx = dy = dz = 0; remaining = 0; return false; }
+    const float distance = std::sqrt(dx*dx + dy*dy + dz*dz);
+    if (distance >= remaining) {
+        const float scale = distance > 0 ? remaining / distance : 0;
+        dx *= scale; dy *= scale; dz *= scale; remaining = 0; return false;
+    }
+    remaining -= distance; return true;
+}
+
+namespace GamePhysics
+{
+    GroundPose FitGroundSupport(const float* heights, int count, float halfWidth)
+    {
+        GroundPose result;
+        if (!heights || count<2 || count>17 || halfWidth<=0.0f) return result;
+        result.slope=(heights[count-1]-heights[0])/(2.0f*halfWidth);
+        result.height=heights[0]+result.slope*halfWidth;
+        for (int i=0;i<count;++i) {
+            const float x=-halfWidth+2.0f*halfWidth*static_cast<float>(i)/static_cast<float>(count-1);
+            result.height=(std::max)(result.height,heights[i]-result.slope*x);
+        }
+        return result;
+    }
+    float WheelGroundSupport(const float* heights, int count, float radius)
+    {
+        if (!heights || count<2 || count>17 || radius<=0.0f) return 0.0f;
+        float support=heights[0];
+        for (int i=0;i<count;++i) {
+            const float x=-radius+2.0f*radius*static_cast<float>(i)/static_cast<float>(count-1);
+            support=(std::max)(support,heights[i]+std::sqrt((std::max)(0.0f,radius*radius-x*x)));
+        }
+        return support;
+    }
+    float FollowGround(float& y, float& velocityY, bool& grounded, float support, float gravity, float dt)
+    {
+        if (!std::isfinite(dt) || dt<=0.0f) return 0.0f;
+        if (grounded && velocityY<=0.0f) { y=support; velocityY=0.0f; return 0.0f; }
+        grounded=false;
+        y+=velocityY*dt-0.5f*gravity*dt*dt; velocityY-=gravity*dt;
+        if (y>support) return 0.0f;
+        const float impact=(std::max)(0.0f,-velocityY);
+        y=support; velocityY=0.0f; grounded=true; return impact;
+    }
+    void SwayStep(SwayState& b, float dt)
+    {
+        if (dt <= 0 || !std::isfinite(dt)) return;
+        dt = (std::min)(dt, 0.1f); const int steps = static_cast<int>(std::ceil(dt / 0.0125f)); const float h = dt / steps;
+        for (int i = 0; i < steps; ++i) {
+            b.vx += (-42.0f * b.x - 6.0f * b.vx) * h;
+            b.vz += (-42.0f * b.z - 6.0f * b.vz) * h;
+            b.x = (std::clamp)(b.x + b.vx * h, -12.0f, 12.0f);
+            b.z = (std::clamp)(b.z + b.vz * h, -12.0f, 12.0f);
+        }
+    }
+    void PushObject(SwayState& b, float x, float z, float radius, float ax, float az, float avx, float avz, float mass, float dt)
+    {
+        const float dx = x - ax, dz = z - az, distance = std::hypot(dx, dz);
+        if (distance >= radius || distance < 0.001f || dt <= 0) return;
+        const float into = (avx * dx + avz * dz) / distance;
+        if (into <= 0) return;
+        const float impulse = into * (1.0f - distance / radius) * 180.0f * (std::min)(dt, 0.1f) / (std::max)(1.0f, mass);
+        b.vx = (std::clamp)(b.vx + dz / distance * impulse, -90.0f, 90.0f);
+        b.vz = (std::clamp)(b.vz - dx / distance * impulse, -90.0f, 90.0f);
+    }
+    int BlastObject(SwayState& b, float x, float y, float z, float bx, float by, float bz, float radius, float energy, float mass, float toughness)
+    {
+        const float dx = x - bx, dy = y - by, dz = z - bz, distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (radius <= 0 || distance >= radius || energy <= 0) return 0;
+        const float f = 1.0f - distance / radius, strength = energy * f * f;
+        const float length = (std::max)(0.01f, std::hypot(dx, dz));
+        const float kick = strength * 12.0f / (std::max)(mass, 1.0f);
+        b.vx = (std::clamp)(b.vx + dz / length * kick, -90.0f, 90.0f);
+        b.vz = (std::clamp)(b.vz - dx / length * kick, -90.0f, 90.0f);
+        if (toughness <= 0) return 0;
+        const int oldStage = static_cast<int>(b.fracture * 10.0f);
+        b.fracture = (std::min)(0.85f, b.fracture + strength / toughness);
+        b.scale = std::cbrt(1.0f - b.fracture);
+        return (std::min)(6, (static_cast<int>(b.fracture * 10.0f) - oldStage) * 2);
+    }
+    void LaunchRockFragment(Tumbler& body, float x, float y, float z, float bx, float bz, float energy, unsigned seed)
+    {
+        const auto direction = FAST_MATH.GetUnitSphereDirection(seed * 1664525u + 1013904223u);
+        const float speed = (std::clamp)(std::sqrt((std::max)(0.0f, energy)) * 0.45f, 1.5f, 8.0f);
+        TumbleLaunch(body, x, y, z, (x - bx) + direction.x * 2.0f, (z - bz) + direction.z * 2.0f,
+            speed, speed * (0.35f + std::fabs(direction.y) * 0.6f), 150.0f, seed);
+    }
+}
+
+float Physics::GroundVehicleSpeedStep(float speed, float target, float maximum, bool tracked, float dt)
+{
+    if (!std::isfinite(speed) || !std::isfinite(target) || !std::isfinite(maximum) || !std::isfinite(dt)) return 0.0f;
+    maximum = (std::max)(0.0f, maximum); target = (std::clamp)(target, 0.0f, maximum);
+    speed = (std::clamp)(speed, 0.0f, maximum); dt = (std::clamp)(dt, 0.0f, 0.1f);
+    const float rate = maximum / (target < speed ? 1.25f : (tracked ? 4.5f : 2.8f));
+    return speed + (std::clamp)(target - speed, -rate * dt, rate * dt);
+}
+
 //==============================================================================
 // PhysicsVector2D Implementation
 //==============================================================================
@@ -3783,3 +3903,75 @@ void Physics::ApplyPositionCorrection(PhysicsBody& bodyA, PhysicsBody& bodyB, co
     }
 }
 
+
+//==============================================================================
+// GamePhysics (see Physics.h): dependency-free helpers for the vector games.
+//==============================================================================
+namespace GamePhysics
+{
+    float EaseInOut(float t)
+    {
+        t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+        return t * t * (3.0f - 2.0f * t);
+    }
+
+    float EaseOutBack(float t)
+    {
+        t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+        const float c1 = 1.70158f, c3 = c1 + 1.0f, u = t - 1.0f;
+        return 1.0f + c3 * u * u * u + c1 * u * u;               // standard "back" ease: ends exactly on 1
+    }
+
+    float HopHeight(float t, float apex)
+    {
+        t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+        return 4.0f * apex * t * (1.0f - t);
+    }
+
+    void SpringStep(float& x, float& v, float target, float omega, float dt)
+    {
+        // Exact solution of a critically damped spring over dt (stable for any dt, unlike a plain Euler step).
+        const float e = 1.0f / (1.0f + omega * dt + 0.48f * omega * omega * dt * dt + 0.235f * omega * omega * omega * dt * dt * dt);
+        const float d = x - target, temp = (v + omega * d) * dt;
+        v = (v - omega * temp) * e;
+        x = target + (d + temp) * e;
+    }
+
+    void TumbleLaunch(Tumbler& b, float x, float y, float z, float dirX, float dirZ, float speed, float up, float spinDegPerSec, unsigned seed)
+    {
+        b = Tumbler();
+        const float l = std::sqrt(dirX * dirX + dirZ * dirZ);
+        const float nx = (l > 1.0e-5f) ? dirX / l : 1.0f, nz = (l > 1.0e-5f) ? dirZ / l : 0.0f;
+        b.px = x; b.py = y; b.pz = z;
+        b.vx = nx * speed; b.vz = nz * speed; b.vy = up;
+        // three cheap hashes of the seed give each body its own tumble axis
+        auto h = [](unsigned s) { s ^= s << 13; s ^= s >> 17; s ^= s << 5; return static_cast<float>(s & 0xFFFF) / 32768.0f - 1.0f; };
+        unsigned s = seed * 2654435761u + 12345u;
+        b.wx = h(s) * spinDegPerSec; s = s * 1664525u + 1013904223u;
+        b.wy = h(s) * spinDegPerSec; s = s * 1664525u + 1013904223u;
+        b.wz = h(s) * spinDegPerSec;
+    }
+
+    bool TumbleStep(Tumbler& b, float dt, float floorY, float gravity, float restitution, float friction)
+    {
+        if (b.resting) return false;
+        b.age += dt;
+        b.vy -= gravity * dt;
+        b.px += b.vx * dt; b.py += b.vy * dt; b.pz += b.vz * dt;
+        b.rx += b.wx * dt; b.ry += b.wy * dt; b.rz += b.wz * dt;
+        if (b.py < floorY)                                        // hit the floor: reflect, lose energy, scrub sideways speed and spin
+        {
+            b.py = floorY;
+            if (b.vy < 0.0f) b.vy = -b.vy * restitution;
+            const float keep = 1.0f - friction;
+            b.vx *= keep; b.vz *= keep; b.wx *= keep; b.wy *= keep; b.wz *= keep;
+            ++b.bounces;
+            if (b.vy < 0.6f && b.bounces >= 1)                    // too small to bounce again: it lies still
+            {
+                b.vx = b.vy = b.vz = 0.0f; b.wx = b.wy = b.wz = 0.0f; b.resting = true;
+                return false;
+            }
+        }
+        return true;
+    }
+}

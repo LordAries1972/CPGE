@@ -60,14 +60,14 @@
     <GameName>CPGE</GameName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <IncludePath>F:\Projects\C++\CPGE;$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir);$(IncludePath)</IncludePath>
     <EnableManagedIncrementalBuild>true</EnableManagedIncrementalBuild>
     <EnableClangTidyCodeAnalysis>false</EnableClangTidyCodeAnalysis>
     <AllProjectIncludesArePublic>false</AllProjectIncludesArePublic>
     <TargetName>$(GameName)</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <IncludePath>F:\Projects\C++\CPGE;$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir);$(IncludePath)</IncludePath>
     <AllProjectIncludesArePublic>false</AllProjectIncludesArePublic>
     <TargetName>$(GameName)</TargetName>
   </PropertyGroup>
@@ -197,6 +197,10 @@
     <ClCompile Include="MPTMPlayer.cpp" />
     <ClCompile Include="ITPlayer.cpp" />
     <ClCompile Include="ThreadManager.cpp" />
+    <ClCompile Include="Vectors.cpp" />
+    <ClCompile Include="VectorShapes.cpp" />
+    <ClCompile Include="VectorRadar.cpp" />
+    <ClCompile Include="VectorRender.cpp" />
     <ClCompile Include="TTSManager.cpp" />
     <ClCompile Include="WinMediaPlayer.cpp" />
     <ClCompile Include="WinSystem.cpp" />
@@ -213,6 +217,7 @@
     <ClInclude Include="DX11Renderer.h" />
     <ClInclude Include="DX12Models.h" />
     <ClInclude Include="DX12Renderer.h" />
+    <ClInclude Include="VectorAA.h" />
     <ClInclude Include="DXCamera.h" />
     <ClInclude Include="ExceptionHandler.h" />
     <ClInclude Include="FileIO.h" />
@@ -240,6 +245,9 @@
     <ClInclude Include="OpenGLModels.h" />
     <ClInclude Include="OpenGLRenderer.h" />
     <ClInclude Include="Physics.h" />
+    <ClInclude Include="FramePacer.h" />
+    <ClInclude Include="AdaptiveQuality.h" />
+    <ClInclude Include="Platform.h" />
     <ClInclude Include="PUNPack.h" />
     <ClInclude Include="Renderer.h" />
     <ClInclude Include="resource.h" />
@@ -256,6 +264,9 @@
     <ClInclude Include="ThreadManager.h" />
     <ClInclude Include="TTSManager.h" />
     <ClInclude Include="Vectors.h" />
+    <ClInclude Include="VectorShapes.h" />
+    <ClInclude Include="VectorRadar.h" />
+    <ClInclude Include="VectorRender.h" />
     <ClInclude Include="VulkanCamera.h" />
     <ClInclude Include="VulkanModels.h" />
     <ClInclude Include="VULKAN_Renderer.h" />

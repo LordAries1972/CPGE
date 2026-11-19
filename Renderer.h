@@ -618,6 +618,20 @@ public:
         const float midY = (startY + endY) * 0.5f;
         DrawCurve(startX, startY, midX, midY, endX, endY, color, thickness, is2D);
     }
+    // Filled CONVEX polygon in screen pixels (points in order, either winding, count >= 3).
+    // Backends with native geometry (D2D on DX11/DX12/Vulkan, a triangle fan on OpenGL) override
+    // this; the base class provides a scanline fallback built on DrawRectangle so any renderer
+    // works even without an override.  Used by the 3D vector demo to draw shaded faces.
+    virtual void DrawFilledPolygon(const Vector2* points, int count, const MyColor& color);
+
+    // Many convex polygons of ONE colour in a single call: polys[i] points at counts[i] vertices.  The D2D back-ends
+    // (DX11 / DX12 / Vulkan) merge them into one path geometry and one fill, which is far cheaper than a geometry per
+    // polygon; the base class simply loops over DrawFilledPolygon.  Overlapping polygons are unioned, not XOR-ed.
+    virtual void DrawFilledPolygonBatch(const Vector2* const* polys, const int* counts, int n, const MyColor& color);
+    // A filled ellipse (radii rx, ry; `rotRad` turns it about its centre, radians).  The base class builds a `segments`-sided polygon and calls DrawFilledPolygon (what every caller did before);
+    // a backend that can fill an ellipse natively (DX11 / Direct2D) overrides it, which skips creating a path geometry per shape - the portraits draw hundreds a frame.
+    virtual void DrawFilledEllipse(float cx, float cy, float rx, float ry, float rotRad, const MyColor& color, int segments = 22);
+
     virtual void DrawMyText(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize) = 0;
     virtual void DrawMyText(const std::wstring& text, const Vector2& position, const Vector2& size, const MyColor& color, const float FontSize) = 0;
     virtual void DrawTexture(int textureId, const Vector2& position, const Vector2& size, const MyColor& tintColor, bool is2D) = 0;
@@ -672,6 +686,18 @@ protected:
     LPCWSTR sName = L"default_";                                                        // Base default Renderer Name
     Renderer() = default;                                                               // Protected constructor to prevent instantiation
 };
+
+// ---------------------------------------------------------------------------------------------
+// Optional 2D overlay hook.
+// When set, every renderer backend (DX11, DX12, OpenGL, Vulkan) calls it once per frame from
+// inside its 2D overlay pass - after the scene's own 2D content and before the FPS/debug text and
+// GUI - passing the renderer and the current client size.  Anything drawn through the Renderer's
+// 2D primitives (DrawRectangle, DrawFilledPolygon, DrawLine, DrawMyText ...) therefore appears
+// identically on all four pipelines.  Runs on the render thread; the callback must not block.
+// C++17 inline variable: one definition shared by every translation unit, no .cpp needed.
+// ---------------------------------------------------------------------------------------------
+using Overlay2DCallback = void (*)(Renderer& r, int clientWidth, int clientHeight);
+inline Overlay2DCallback g_Overlay2DCallback = nullptr;
 
 // Do this as this is a singleton abstract virtual base class.
 extern std::shared_ptr<Renderer> renderer;

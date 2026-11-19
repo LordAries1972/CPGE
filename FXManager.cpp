@@ -2277,9 +2277,20 @@ void FXManager::UpdateStarfield2D(FXItem& fx, float deltaTime)
         star.x += vx * speed * clampedDt;
         star.y += vy * speed * clampedDt;
 
-        // Off-screen on the direction-of-travel side -> respawn at the origin edge(s)
-        if (star.x < -1.0f || star.x > screenW + 1.0f || star.y < -1.0f || star.y > screenH + 1.0f)
-            RespawnStarfield2DStar(star, sf.direction, screenW, screenH, false);
+        // Toroidal wrap per axis: the overshoot past the edge is carried over to the opposite side and
+        // the other coordinate is untouched. Re-randomising onto the edge (old behaviour) piled stars
+        // into visible lines and skewed density on diagonals. fmod keeps it correct even if a long
+        // frame or a layer speed moves a star by more than one screen. No rand() or branching cost.
+        const float fw = static_cast<float>(screenW);
+        const float fh = static_cast<float>(screenH);
+        if (star.x < 0.0f || star.x >= fw) {
+            star.x = std::fmod(star.x, fw);
+            if (star.x < 0.0f) star.x += fw;
+        }
+        if (star.y < 0.0f || star.y >= fh) {
+            star.y = std::fmod(star.y, fh);
+            if (star.y < 0.0f) star.y += fh;
+        }
     }
 }
 

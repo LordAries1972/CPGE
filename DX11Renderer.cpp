@@ -1,6 +1,7 @@
 #define NOMINMAX
 
 #include "Includes.h"
+#include "VectorAA.h"
 
 // Perform Renderer to USE Test.
 // This is done to ensure we only include required code.
@@ -1123,12 +1124,117 @@ void DX11Renderer::DrawRectangle(const Vector2& position, const Vector2& size, c
 void DX11Renderer::DrawCircle(const Vector2& center, float radius, const MyColor& color, bool filled) {
     if (!m_d2dRenderTarget) return;
     float fr = color.r / 255.0f, fg = color.g / 255.0f, fb = color.b / 255.0f, fa = color.a / 255.0f;
-    ComPtr<ID2D1SolidColorBrush> brush;
-    m_d2dRenderTarget->CreateSolidColorBrush(D2D1::ColorF(fr, fg, fb, fa), &brush);
-    if (!brush) return;
+    if (!m_pixelBrush)                                                       // the shared brush: recolouring it is far cheaper than creating a COM brush for every circle
+        m_d2dRenderTarget->CreateSolidColorBrush(D2D1::ColorF(fr, fg, fb, fa), &m_pixelBrush);
+    else
+        m_pixelBrush->SetColor(D2D1::ColorF(fr, fg, fb, fa));
+    if (!m_pixelBrush) return;
     D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(center.x, center.y), radius, radius);
-    if (filled) m_d2dRenderTarget->FillEllipse(ellipse, brush.Get());
-    else        m_d2dRenderTarget->DrawEllipse(ellipse, brush.Get());
+    const D2D1_ANTIALIAS_MODE prevAA = m_d2dRenderTarget->GetAntialiasMode();
+    m_d2dRenderTarget->SetAntialiasMode(VectorAAEnabled() ? D2D1_ANTIALIAS_MODE_PER_PRIMITIVE : D2D1_ANTIALIAS_MODE_ALIASED);       // Video settings: Anti-Aliasing (VectorAA.h)
+    if (filled) m_d2dRenderTarget->FillEllipse(ellipse, m_pixelBrush.Get());
+    else        m_d2dRenderTarget->DrawEllipse(ellipse, m_pixelBrush.Get());
+    m_d2dRenderTarget->SetAntialiasMode(prevAA);
+}
+
+// Native filled convex polygon: one D2D path geometry, filled with the shared pixel brush.
+// Antialiasing is switched off for the fill so neighbouring faces of a mesh meet without the
+// background-coloured seams that per-edge AA would leave between them.
+void DX11Renderer::DrawFilledPolygon(const Vector2* points, int count, const MyColor& color) {
+    if (!points || count < 3 || !m_d2dRenderTarget || !m_d2dFactory) return;
+    if (count > 32) count = 32;                                              // fixed stack buffer; faces are small convex polys
+
+    ComPtr<ID2D1PathGeometry> pathGeometry;
+    if (FAILED(m_d2dFactory->CreatePathGeometry(&pathGeometry)) || !pathGeometry) return;
+    ComPtr<ID2D1GeometrySink> sink;
+    if (FAILED(pathGeometry->Open(&sink)) || !sink) return;
+
+    D2D1_POINT_2F pts[32];
+    for (int i = 0; i < count; ++i) pts[i] = D2D1::Point2F(points[i].x, points[i].y);
+    sink->BeginFigure(pts[0], D2D1_FIGURE_BEGIN_FILLED);
+    sink->AddLines(pts + 1, static_cast<UINT32>(count - 1));
+    sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+    if (FAILED(sink->Close())) return;
+
+    DirectX::XMFLOAT4 c = ConvertColor(color.r, color.g, color.b, color.a);
+    if (!m_pixelBrush)
+        m_d2dRenderTarget->CreateSolidColorBrush(D2D1::ColorF(c.x, c.y, c.z, c.w), &m_pixelBrush);
+    else
+        m_pixelBrush->SetColor(D2D1::ColorF(c.x, c.y, c.z, c.w));
+    if (!m_pixelBrush) return;
+
+    const D2D1_ANTIALIAS_MODE previousAA = m_d2dRenderTarget->GetAntialiasMode();
+    m_d2dRenderTarget->SetAntialiasMode(VectorAAEnabled() ? D2D1_ANTIALIAS_MODE_PER_PRIMITIVE : D2D1_ANTIALIAS_MODE_ALIASED);       // the Video settings' Anti-Aliasing (see VectorAA.h)
+    m_d2dRenderTarget->FillGeometry(pathGeometry.Get(), m_pixelBrush.Get());
+    if (const float seam = VectorSeamStroke()) m_d2dRenderTarget->DrawGeometry(pathGeometry.Get(), m_pixelBrush.Get(), seam);        // MSAA level: a hairline in the fill colour covers the seams AA would open between faces
+    m_d2dRenderTarget->SetAntialiasMode(previousAA);
+}
+
+// Batched fill: all polygons share one colour, so they become ONE path geometry (many figures) and ONE FillGeometry.
+// A native ellipse fill (no path geometry): rotated through the render target's transform, which is restored afterwards.
+void DX11Renderer::DrawFilledEllipse(float cx, float cy, float rx, float ry, float rotRad, const MyColor& color, int) {
+    if (!m_d2dRenderTarget) return;
+    DirectX::XMFLOAT4 c = ConvertColor(color.r, color.g, color.b, color.a);
+    if (!m_pixelBrush)
+        m_d2dRenderTarget->CreateSolidColorBrush(D2D1::ColorF(c.x, c.y, c.z, c.w), &m_pixelBrush);
+    else
+        m_pixelBrush->SetColor(D2D1::ColorF(c.x, c.y, c.z, c.w));
+    if (!m_pixelBrush) return;
+    const bool rotated = (rotRad > 0.0005f || rotRad < -0.0005f);
+    D2D1_MATRIX_3X2_F old = D2D1::Matrix3x2F::Identity();
+    if (rotated)
+    {
+        m_d2dRenderTarget->GetTransform(&old);
+        m_d2dRenderTarget->SetTransform(D2D1::Matrix3x2F::Rotation(rotRad * 57.2957795f, D2D1::Point2F(cx, cy)) * old);
+    }
+    const D2D1_ANTIALIAS_MODE prevAA = m_d2dRenderTarget->GetAntialiasMode();
+    m_d2dRenderTarget->SetAntialiasMode(VectorAAEnabled() ? D2D1_ANTIALIAS_MODE_PER_PRIMITIVE : D2D1_ANTIALIAS_MODE_ALIASED);
+    m_d2dRenderTarget->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), rx, ry), m_pixelBrush.Get());
+    m_d2dRenderTarget->SetAntialiasMode(prevAA);
+    if (rotated) m_d2dRenderTarget->SetTransform(old);
+}
+
+void DX11Renderer::DrawFilledPolygonBatch(const Vector2* const* polys, const int* counts, int n, const MyColor& color) {
+    if (!polys || !counts || n <= 0 || !m_d2dRenderTarget || !m_d2dFactory) return;
+    ComPtr<ID2D1PathGeometry> pathGeometry;
+    if (FAILED(m_d2dFactory->CreatePathGeometry(&pathGeometry)) || !pathGeometry) return;
+    ComPtr<ID2D1GeometrySink> sink;
+    if (FAILED(pathGeometry->Open(&sink)) || !sink) return;
+    sink->SetFillMode(D2D1_FILL_MODE_WINDING);                               // overlapping figures of equal winding are UNIONED
+    D2D1_POINT_2F pts[32];
+    int figures = 0;
+    for (int i = 0; i < n; ++i)
+    {
+        int c = counts[i];
+        const Vector2* p = polys[i];
+        if (c < 3 || !p) continue;
+        if (c > 32) c = 32;
+        float area = 0.0f;                                                   // signed area: normalise every figure to one winding,
+        for (int k = 0; k < c; ++k) { const Vector2& a = p[k]; const Vector2& b = p[(k + 1) % c]; area += a.x * b.y - b.x * a.y; }
+        for (int k = 0; k < c; ++k)                                          // otherwise a figure and its mirror image would cancel
+        {
+            const Vector2& q = (area >= 0.0f) ? p[k] : p[c - 1 - k];
+            pts[k] = D2D1::Point2F(q.x, q.y);
+        }
+        sink->BeginFigure(pts[0], D2D1_FIGURE_BEGIN_FILLED);
+        sink->AddLines(pts + 1, static_cast<UINT32>(c - 1));
+        sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+        ++figures;
+    }
+    if (FAILED(sink->Close()) || figures == 0) return;
+
+    DirectX::XMFLOAT4 c = ConvertColor(color.r, color.g, color.b, color.a);
+    if (!m_pixelBrush)
+        m_d2dRenderTarget->CreateSolidColorBrush(D2D1::ColorF(c.x, c.y, c.z, c.w), &m_pixelBrush);
+    else
+        m_pixelBrush->SetColor(D2D1::ColorF(c.x, c.y, c.z, c.w));
+    if (!m_pixelBrush) return;
+
+    const D2D1_ANTIALIAS_MODE previousAA = m_d2dRenderTarget->GetAntialiasMode();
+    m_d2dRenderTarget->SetAntialiasMode(VectorAAEnabled() ? D2D1_ANTIALIAS_MODE_PER_PRIMITIVE : D2D1_ANTIALIAS_MODE_ALIASED);       // the Video settings' Anti-Aliasing (see VectorAA.h)
+    m_d2dRenderTarget->FillGeometry(pathGeometry.Get(), m_pixelBrush.Get());
+    if (const float seam = VectorSeamStroke()) m_d2dRenderTarget->DrawGeometry(pathGeometry.Get(), m_pixelBrush.Get(), seam);        // MSAA level: a hairline in the fill colour covers the seams AA would open between faces
+    m_d2dRenderTarget->SetAntialiasMode(previousAA);
 }
 
 void DX11Renderer::DrawCurve(float startX, float startY, float ctrlX, float ctrlY, float endX, float endY,
@@ -1210,7 +1316,7 @@ void DX11Renderer::DrawMyTextCentered(const std::wstring& text, const Vector2& p
     // Draw at the exact measured rect — horizontal and vertical centering is guaranteed
     m_d2dRenderTarget->DrawText(
         text.c_str(), static_cast<UINT32>(text.size()), textFormat,
-        D2D1::RectF(centredX, centredY, centredX + metrics.width, centredY + metrics.height),
+        D2D1::RectF(centredX, centredY, centredX + metrics.width + 4.0f, centredY + metrics.height),
         m_pixelBrush.Get()
     );
 }
@@ -1230,7 +1336,7 @@ void DX11Renderer::DrawMyText(const std::wstring& text, const Vector2& position,
 
     m_d2dRenderTarget->DrawText(
         text.c_str(), static_cast<UINT32>(text.size()), textFormat,
-        D2D1::RectF(position.x, position.y, position.x + 1000.0f, position.y + 200.0f),
+        D2D1::RectF(position.x, position.y, position.x + 10000.0f, position.y + 1000.0f),
         m_pixelBrush.Get()
     );
 }
@@ -1271,7 +1377,7 @@ void DX11Renderer::DrawMyTextWithFont(const std::wstring& text, const Vector2& p
 
     m_d2dRenderTarget->DrawText(
         text.c_str(), static_cast<UINT32>(text.size()), textFormat,
-        D2D1::RectF(position.x, position.y, position.x + 1000.0f, position.y + 200.0f),
+        D2D1::RectF(position.x, position.y, position.x + 10000.0f, position.y + 1000.0f),
         m_pixelBrush.Get()
     );
 }

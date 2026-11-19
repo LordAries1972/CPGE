@@ -20,6 +20,7 @@
 16. [Best Practices and Common Pitfalls](#16-best-practices-and-common-pitfalls)
 17. [Troubleshooting Guide](#17-troubleshooting-guide)
 18. [Complete Example Projects](#18-complete-example-projects)
+19. [GamePhysics: lightweight helpers for the vector games](#19-gamephysics-lightweight-helpers-for-the-vector-games)
 
 ---
 
@@ -13280,3 +13281,59 @@ public:
 **Chapter 18 Complete**
 
 ---
+
+
+---
+
+## 19. GamePhysics: lightweight helpers for the vector games
+
+`namespace GamePhysics` (end of `Physics.h`, implemented at the end of `Physics.cpp`) holds small, dependency-free helpers for the arcade-style vector games in `main.cpp`. They use plain floats only: no `MyVector`, no locks, no allocation, no need for the `Physics` object or `Initialize()`, so they are safe to call every frame. The first user is **Chess** (Ctrl+Shift+F12, `Chess*.inl`).
+
+| Function | Purpose |
+|---|---|
+| `EaseInOut(t)` | smoothstep 0..1: slow-fast-slow (piece slides, camera swings) |
+| `EaseOutBack(t)` | overshoots a little and settles on exactly 1: a piece landing on its square |
+| `HopHeight(t, apex)` | parabolic hop, 0 at both ends, `apex` in the middle: the knight's jump |
+| `SpringStep(x, v, target, omega, dt)` | critically damped spring, stable at any frame time; `omega` about 6 (lazy) to 14 (snappy) |
+| `Tumbler`, `TumbleLaunch`, `TumbleStep` | a rigid tumbling body with gravity, floor bounce, friction and spin damping: a captured chess piece knocked off the board |
+
+### Example: smooth camera pitch (spring) and a knight's hop
+
+```cpp
+#include "Physics.h"
+
+float pitch = 90.0f, pitchV = 0.0f;                 // degrees, degrees / second
+void Update(float dt, bool angled)
+{
+    GamePhysics::SpringStep(pitch, pitchV, angled ? 48.0f : 90.0f, 9.0f, dt);   // glides between the two views
+}
+
+// a knight moving from A to B over t = 0..1
+float t = elapsed / 0.7f;
+float e = GamePhysics::EaseInOut(t);
+float x = ax + (bx - ax) * e, z = az + (bz - az) * e;
+float y = GamePhysics::HopHeight(t, 1.4f);          // jumps 1.4 units high half way
+```
+
+### Example: knocking a captured piece off the board
+
+```cpp
+GamePhysics::Tumbler body;
+// start at the victim square, thrown away from the attacker with speed 5, an upward kick of 7 and up to 540 deg/s of spin
+GamePhysics::TumbleLaunch(body, vx, 0.3f, vz, vx - ax, vz - az, 5.0f, 7.0f, 540.0f, seed);
+
+// every frame (floor at y = 0, gravity 22, bounce keeps 45 %, each bounce scrubs 25 % of sideways speed and spin)
+bool flying = GamePhysics::TumbleStep(body, dt, 0.0f, 22.0f, 0.45f, 0.25f);
+// body.px/py/pz = position, body.rx/ry/rz = rotation in degrees; flying == false once it lies still
+```
+
+Notes: `TumbleStep` keeps returning `false` after the body rests, so it costs nothing to leave a settled body in an array. `TumbleLaunch` derives the spin axes from `seed` with a cheap hash, so it needs no random-number generator and is deterministic (handy for replays).
+
+
+See [Arcade setup, score/time records and Player Play-back](Arcade-Playback-Example-Usage.md) for the current shared controls, recording retention, native validation and rendering changes.
+
+### Sampled terrain support and finish bounces
+
+`GamePhysics::FitGroundSupport(heights, count, halfWidth)` fits a rigid base to 2–17 uniformly spaced samples across its footprint. It returns height and slope while clearing intervening ridges. `WheelGroundSupport(heights, count, radius)` evaluates circular rim clearance against the same samples. Both use fixed bounded loops without allocation; games supply terrain facts.
+
+`FollowGround(y, velocityY, grounded, supportHeight, gravity, dt)` follows rising and falling support while grounded, integrates ballistic motion after a positive launch impulse, and returns the downward speed on landing. A caller can apply restitution to that landing speed for repeated bounces. Voxel Guard uses these helpers for rolling-boss contact and ground units; its walking boss samples each foot separately. Marble Madness uses gravity-driven finish bounces, then queues the existing level fade. Finishing stops enemy spawning and the race clock and awards its bonus once.

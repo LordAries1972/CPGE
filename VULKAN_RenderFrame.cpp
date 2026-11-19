@@ -21,6 +21,9 @@
 //   #if defined(PLATFORM_WINDOWS)  /  #elif defined(PLATFORM_LINUX)  /  #elif defined(PLATFORM_ANDROID)
 // ---------------------------------------------------------------------------------------------------------------
 #include "Includes.h"
+#include "KeyboardHandler.h"
+#include "FramePacer.h"
+#include "VectorAA.h"
 
 #if defined(__USE_VULKAN__)
 
@@ -800,7 +803,7 @@ inline void VulkanRenderer::RenderIntroMovie()
                                    D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
 
     // Company logo overlay at half size, bottom-left corner (mirrors DX11 RenderIntroMovie)
-    if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]) {
+    if (!gameplayPlaybackActive && m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]) {
         D2D1_SIZE_F logoSz = m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]->GetSize();
         int halfW = static_cast<int>(logoSz.width  * 0.5f);
         int halfH = static_cast<int>(logoSz.height * 0.5f);
@@ -815,7 +818,7 @@ inline void VulkanRenderer::RenderIntroMovie()
     // FadeOutThenCallback's own completion callback fires, so the fade duration
     // (1.0s) is the single source of truth instead of a guessed frame count.
     // Only active in SCENE_INTRO_MOVIE -- not the splash SCENE_INTRO.
-    if (scene.stSceneType == SceneType::SCENE_INTRO_MOVIE && (GetAsyncKeyState(' ') & 0x8000) && !scene.bSceneSwitching)
+    if (scene.stSceneType == SceneType::SCENE_INTRO_MOVIE && KeyboardHandler::GetInstance().IsPlatformKeyPressed(' ') && !scene.bSceneSwitching)
     {
         scene.bSceneSwitching = true;
         fxManager.FadeOutThenCallback(XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f), 1.0f, 0.06f, []() {
@@ -824,7 +827,7 @@ inline void VulkanRenderer::RenderIntroMovie()
     }
 
 #elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
-    if (moviePlayer.IsPlaying()) {
+    if (moviePlayer.IsPlaying() || (gameplayPlaybackActive && moviePlayer.IsPaused())) {
         uint32_t fw = 0, fh = 0;
         const uint8_t* frameData = moviePlayer.GetCurrentFrameRGBA(fw, fh);
         if (frameData && fw == m_overlayWidth && fh == m_overlayHeight) {
@@ -844,6 +847,7 @@ inline void VulkanRenderer::RenderIntroMovie()
 // ---------------------------------------------------------------------------------------------------------------
 void VulkanRenderer::RenderFrame()
 {
+    moviePlayer.ProcessMovieRequest();
     // ---- Safety guards ----
     if (m_bHasCleanedUp || m_device == VK_NULL_HANDLE || m_swapchain == VK_NULL_HANDLE)
         return;
@@ -883,10 +887,16 @@ void VulkanRenderer::RenderFrame()
             threadManager.threadVars.bIsRendering.store(true);
 #endif
 
+            // One shared pacing policy on every backend, independent of quality and VSync.
+            // This waits only for unused time since the preceding frame, never another
+            // full interval after rendering. Native present/fence waits remain authoritative.
+            static FramePacer framePacer;
+            framePacer.Wait(config.myConfig.vectorTargetFps);
+
             // ---- Delta time ----
             auto   now            = std::chrono::steady_clock::now();
             float  rawDelta       = std::chrono::duration<float>(now - lastFrameTime).count();
-            float  deltaTime      = m_deltaTimeSmoothing.ProcessDelta(rawDelta, 60.0f);
+            float  deltaTime      = m_deltaTimeSmoothing.ProcessDelta(rawDelta, static_cast<float>((std::clamp)(config.myConfig.vectorTargetFps, 20, 240)));
             deltaTime             = std::clamp(deltaTime, 0.001f, 0.1f);
             lastFrameTime         = now;
 
@@ -991,6 +1001,7 @@ void VulkanRenderer::RenderFrame()
                 // Begin D2D drawing for this frame
                 if (m_d2dRenderTarget) {
                     m_d2dRenderTarget->BeginDraw();
+                    VectorApplyD2DAA(m_d2dRenderTarget.Get());                          // Video settings: Anti-Aliasing for every 2D shape and the text (VectorAA.h)
                     m_d2dRenderTarget->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f)); // transparent clear
                 }
             #endif
@@ -1054,6 +1065,10 @@ void VulkanRenderer::RenderFrame()
                         break;
                     default: break;
                 }
+
+                // Optional app-supplied 2D overlay (e.g. a game drawing its vector graphics with MyVectorRender, see VectorRender.h); no-op when unset.
+                if (gameplayPlaybackActive) RenderIntroMovie();
+                if (g_Overlay2DCallback) g_Overlay2DCallback(*this, iOrigWidth, iOrigHeight);
 
                 // FPS / debug overlay
                 if (USE_FPS_DISPLAY && config.myConfig.showDebugInfo) {
@@ -1214,6 +1229,7 @@ void VulkanRenderer::RenderFrame()
                     if (m_bgD2dRenderTarget)
                     {
                         m_bgD2dRenderTarget->BeginDraw();
+                        VectorApplyD2DAA(m_bgD2dRenderTarget.Get());
                         m_bgD2dRenderTarget->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f));
                         m_drawToBackground = true;
                         // Zoomed background image first — starfield appears on top
@@ -1606,10 +1622,18 @@ void VulkanRenderer::RenderFrame()
             //   • m_loaderCommandPool is used concurrently by the loader thread for texture uploads;
             //     Vulkan command pools are not thread-safe, so sharing them across threads without
             //     external synchronisation produces undefined behaviour and validation errors.
-            if (screenRecorder.IsRecording())
+            if (screenRecorder.IsRecording() || gameplayRecorder.IsRecording())
             {
                 vkWaitForFences(m_device, 1, &fd.inFlightFence, VK_TRUE, UINT64_MAX);
                 screenRecorder.CaptureFrame(
+                    m_device, m_physicalDevice,
+                    m_commandPool, m_graphicsQueue,
+                    m_swapchainImages[imageIndex],
+                    VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                    m_swapchainFormat,
+                    m_swapchainExtent.width, m_swapchainExtent.height,
+                    &m_queueMutex);
+                if (gameplayRecorder.IsRecording()) gameplayRecorder.CaptureFrame(
                     m_device, m_physicalDevice,
                     m_commandPool, m_graphicsQueue,
                     m_swapchainImages[imageIndex],

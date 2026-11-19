@@ -10,6 +10,7 @@ This comprehensive example demonstrates the complete usage of the MathPrecalcula
    - [Important Notes](#important-notes)
    
 2. [Basic Usage Examples](#basic-usage-examples)
+   - [Vector-Math Tables (new)](#vector-math-functions-new)
 3. [Advanced Gaming Scenarios](#advanced-gaming-scenarios)
 4. [Performance Considerations](#performance-considerations)
 5. [Integration Examples](#integration-examples)
@@ -62,6 +63,15 @@ This comprehensive example demonstrates the complete usage of the MathPrecalcula
 - Multi-entity management systems
 - Lighting calculations with multiple light sources
 - Real-time animation systems
+
+### 8. Vector-Math Tables (used by `MyVector` / `MyQuaternion`)
+- `FastSinCosDeg` / `FAST_SINCOS_DEG`: sine and cosine of an angle in **degrees**, interpolated, one lookup
+- `FastACosAccurate` / `FAST_ACOS_ACCURATE`: arccosine that stays accurate for nearly parallel / opposite vectors
+- `GetUnitCircle` / `FAST_UNIT_CIRCLE`: precalculated circle points for building prisms, cones and discs
+- `GetUnitSphereDirection` / `FAST_UNIT_SPHERE`: a random direction on the sphere in one table load (explosion bursts)
+- `RegisterPowerCurve` + `FastPowCurve`: `t^exponent` easing from an interpolated table instead of `std::pow`
+- `FastInvInt` / `FAST_INV_INT`: `1/n` from a compile-time table (per-face averages, per-segment steps)
+- See [Vector-Math Functions (new)](#vector-math-functions-new) and `Vectors-Example-Usage.md`
 
 ## Basic Usage Examples
 
@@ -190,6 +200,195 @@ void DemonstrateInterpolationFunctions()
     }
 }
 ```
+
+### Vector-Math Functions (new)
+
+Six lookup facilities serve the vector toolkit in `Vectors.h` / `Vectors.cpp` (`MyVector`, `MyQuaternion`, the explosion effects) and the vector demo. The tables are built in `Initialize()` (`InitializeVectorMathTables()`) - and on the first `GetInstance()` call, so they always exist - and are read-only afterwards, so lookups need no locking. (Power curves are registered on demand; see below. `FastInvInt` is built by the compiler.)
+
+| Function | Macro | Domain | Result |
+|---|---|---|---|
+| `FastSinCosDeg(deg, s, c)` | `FAST_SINCOS_DEG(deg, s, c)` | any angle in degrees (negative and > 360 allowed) | sine and cosine, error about 1e-9 |
+| `FastACosAccurate(v)` | `FAST_ACOS_ACCURATE(v)` | `v` in [-1, 1] (clamped) | radians in [0, PI] |
+| `GetUnitCircle(n)` | `FAST_UNIT_CIRCLE(n)` | n = 3,4,5,6,8,10,12,16,20,24,32,48,64 | `const std::vector<XMFLOAT2>&` of `(cos, sin)` |
+| `GetUnitSphereDirection(rnd)` | `FAST_UNIT_SPHERE(rnd)` | any `uint32_t` (bits 10..19 pick the entry) | unit `Vector3`, 1024 evenly spread directions |
+| `RegisterPowerCurve(e)` / `FastPowCurve(id, t)` | - | `t` clamped to [0, 1]; up to 8 exponents | `t^e` (interpolated table, error < ~1e-6) |
+| `FastInvInt(n)` (static, inline) | `FAST_INV_INT(n)` | `n` = 1..64 from a table, other `n` divides | `1/n` (0 when `n <= 0`) |
+
+#### FastSinCosDeg - degree-domain sine and cosine
+
+```cpp
+// One lookup returns both values, no degree-to-radian multiply, no normalisation loop.
+float s, c;
+FAST_SINCOS_DEG(45.0f, s, c);            // s = c = 0.7071...
+FAST_SINCOS_DEG(-90.0f, s, c);           // s = -1, c = 0
+FAST_SINCOS_DEG(720.0f + 30.0f, s, c);   // wraps in O(1): same as 30 degrees
+
+// Rotating a 2D point by an angle that changes every frame:
+void RotatePoint(float& x, float& y, float degrees)
+{
+    float s, c;
+    FAST_SINCOS_DEG(degrees, s, c);
+    const float nx = x * c - y * s;
+    const float ny = x * s + y * c;
+    x = nx;
+    y = ny;
+}
+```
+
+**Why not the existing `FastSinCos`?** The radian path truncates to the nearest table entry (about 1e-4 rad of error) and `NormalizeAngle` loops once per revolution, which is slow for an angle that keeps accumulating. `FastSinCosDeg` interpolates between entries and wraps with one `floor`.
+
+**Hoist the lookup out of loops.** Every lookup increments an atomic statistics counter, so rotate a whole array with a single call:
+
+```cpp
+float s, c;
+FAST_SINCOS_DEG(angleDegrees, s, c);               // ONE lookup
+for (size_t i = 0; i < count; ++i)                 // pure multiply-add inside
+{
+    const float x = pts[i].x, y = pts[i].y;
+    pts[i].x = x * c - y * s;
+    pts[i].y = x * s + y * c;
+}
+// MyVector::RotateAroundBatch(...) does exactly this for 3D vectors.
+```
+
+#### FastACosAccurate - angle from a dot product
+
+`FastACos` indexes its table directly by the input value, so near +-1 (where acos is steepest) one table step is about 0.6 degrees. `FastACosAccurate` evaluates `acos(|v|) = 2 * asin(sqrt((1 - |v|) / 2))` over an interpolated table whose argument never leaves [0, 0.7071], where asin is gently sloped.
+
+```cpp
+// Angle between two unit vectors
+float dot = a.Dot(b);                                   // a, b normalised
+float radians = FAST_ACOS_ACCURATE(dot);                // safe: out-of-range input is clamped
+float degrees = radians * (180.0f / XM_PI);
+
+// Nearly parallel vectors - the case FastACos gets wrong:
+float tiny = FAST_ACOS_ACCURATE(0.99999f);              // ~0.00447 rad (0.256 degrees)
+float old  = FAST_ACOS(0.99999f);                       // coarse: quantised to the table step
+
+// Field-of-view test: is the target inside a 60 degree view cone?
+bool InCone(const MyVector& forward, const MyVector& toTarget, float coneDegrees)
+{
+    const float dot = forward.Dot(toTarget.Normalized());
+    return FAST_ACOS_ACCURATE(dot) * (180.0f / XM_PI) <= coneDegrees * 0.5f;
+}
+// Cheaper still when you only need a comparison: dot >= cos(halfAngle), with cos computed once outside the loop.
+```
+
+`MyVector::Angle`, `Slerp`, `RotateTowards` and `MyQuaternion::Angle` / `Slerp` / `ToAngleAxis` all use it.
+
+#### GetUnitCircle - precalculated circle points
+
+```cpp
+// Cylinder / prism / cone / disc cross-sections with no trig at mesh-build time.
+const std::vector<XMFLOAT2>& ring = FAST_UNIT_CIRCLE(16);
+if (ring.empty())
+{
+    // Unsupported segment count (only the counts in the table above are stored).
+}
+
+std::vector<XMFLOAT3> vertices;
+for (const XMFLOAT2& p : ring)
+{
+    vertices.push_back(XMFLOAT3(p.x * radius, 0.0f, p.y * radius));        // base circle of a cone
+}
+vertices.push_back(XMFLOAT3(0.0f, height, 0.0f));                          // apex
+
+// Particle burst on a fixed number of rays:
+const auto& rays = FAST_UNIT_CIRCLE(24);
+for (const XMFLOAT2& dir : rays)
+    SpawnParticle(position, XMFLOAT2(dir.x * speed, dir.y * speed));
+```
+
+The returned reference stays valid until `Cleanup()`. Point `k` is at angle `2*PI*k/n`, counter-clockwise, starting at `(1, 0)`.
+
+#### GetUnitSphereDirection - a random direction in one load
+
+The table holds 1024 points of a Fibonacci spiral over the sphere: `y` steps from +1 to -1 in equal-area bands and the azimuth advances by the golden angle, so the spread is even with no clumping at the poles. Picking a direction is a shift, a mask and a load - no `sin` / `cos`, no `sqrt`, and none of the rejection-sampling loop (three random numbers plus a square root per attempt) that a "random point in a cube" approach needs.
+
+```cpp
+// Any random number works: bits 10..19 choose the entry, so a plain LCG (weak low bits) is fine.
+static uint32_t rng = 12345u;
+rng = rng * 1664525u + 1013904223u;
+Vector3 dir = FAST_UNIT_SPHERE(rng);                     // unit length, uniformly spread
+
+// A burst of sparks: every particle flies off in its own direction.
+void SpawnSparks(const MyVector& origin, int count, float speed)
+{
+    for (int i = 0; i < count; ++i)
+    {
+        rng = rng * 1664525u + 1013904223u;              // step the generator for EVERY particle
+        const Vector3 d = FAST_UNIT_SPHERE(rng);
+        Spawn(origin, MyVector(d) * (speed * 0.35f + speed * 0.65f * Rand01()));
+    }
+}
+```
+
+`MyCubeExplosion` and `MyExplosionFX` use it for every debris cube, spark and smoke puff. Directions are quantised to the 1024 table points, which is far finer than a burst of a few dozen particles can show; do not use it where you need a continuous distribution (for example Monte-Carlo integration).
+
+#### RegisterPowerCurve / FastPowCurve - easing without std::pow
+
+`std::pow` costs tens of nanoseconds a call, and easing curves are evaluated per particle per frame. Register each exponent **once** (the table is built then, in double precision) and look it up afterwards: `FastPowCurve` clamps `t` to [0, 1], then interpolates between 1024 table steps.
+
+```cpp
+// Register once - a function-local static is the usual place (thread-safe in C++11).
+static const MathPrecalculation::PowerCurveId kEaseOut = FAST_MATH.RegisterPowerCurve(2.2f);
+
+float ShockwaveRadius(float t, float r0, float r1)       // t = 0 at birth, 1 at death
+{
+    const float eased = 1.0f - FAST_MATH.FastPowCurve(kEaseOut, 1.0f - t);   // fast out of the blast, slowing as it stretches
+    return r0 + (r1 - r0) * eased;
+}
+
+// The same exponent registered twice shares one table:
+const auto a = FAST_MATH.RegisterPowerCurve(1.5f);
+const auto b = FAST_MATH.RegisterPowerCurve(1.5f);       // a == b
+```
+
+Limits: up to `kMaxPowerCurves` (8) distinct exponents; when the table is full the last curve's id is returned and a warning is logged. An unknown id behaves as a plain linear ramp. Tables are never discarded (not even by `Cleanup()`), so an id cached in a static stays valid. The error is below about 1e-6 for exponents of 1 or more; for exponents below 1 the curve is steep near 0, so use `std::pow` there if you need precision at tiny `t`. `MyExplosionFX::Radius` / `Alpha` use curves for the 2.2, 1.5, 1.2 and 1.3 exponents.
+
+#### FastInvInt - integer reciprocals from a compile-time table
+
+`FastInvInt(n)` is `static` and inline (no singleton access); the table `kInverseInt` is built by the compiler, so it needs no `Initialize()`.
+
+```cpp
+// Average depth of a polygon: one multiply instead of a divide per face.
+float zSum = 0.0f;
+for (int k = 0; k < cnt; ++k) zSum += vertexZ[k];
+const float averageZ = zSum * FAST_INV_INT(cnt);         // cnt = 3..32 vertices
+
+// Step through a ring of `segments` points:
+const float step = 360.0f * FAST_INV_INT(segments);      // degrees per segment
+
+FAST_INV_INT(0);       // 0 - never divides by zero
+FAST_INV_INT(100);     // outside the table: a real 1.0f / 100.0f
+```
+
+#### Using them through MyVector
+
+You rarely call these functions directly: `MyVector` and `MyQuaternion` already do.
+
+```cpp
+FAST_MATH.Initialize();                                          // once, before any MyVector rotation or angle
+
+MyVector v(0, 0, 1);
+MyVector r = v.RotatedY(90.0f);                                  // FastSinCosDeg inside
+float    a = MyVector::Angle(v, r);                              // FastACosAccurate inside
+MyQuaternion q = MyQuaternion::AngleAxis(45.0f, MyVector::Up()); // FastSinCosDeg inside
+```
+
+If `FastSinCosDeg` or `FastACosAccurate` is called before `Initialize()`, it falls back to the C runtime (`std::sin`, `std::cos`, `std::acos`) without logging, so results stay correct but the speed benefit is lost. (The older `FastSin` / `FastCos`, which `MyVector::Slerp` also uses, log a warning in that situation.)
+
+#### Memory cost
+
+| Table | Entries | Size |
+|---|---|---|
+| Half-angle asin table | 8192 floats | 32 KB |
+| Unit circles | 13 rings, 3 to 64 points | about 2 KB |
+| Unit-sphere directions | 1024 `Vector3` | 12 KB |
+| Power curves | 1025 floats per registered exponent (the engine registers 4) | about 4 KB each |
+| Inverse integers | 65 floats, compile-time constant | 260 bytes (in the executable, not built at start-up) |
+
+All except the inverse-integer table are included in `GetMemoryUsage()`. `Cleanup()` releases them, except the power curves, whose ids may be cached in statics and which therefore stay valid.
 
 ## Advanced Gaming Scenarios
 

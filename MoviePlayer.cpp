@@ -173,6 +173,32 @@ bool MoviePlayer::InitializeMF()
     return true;
 }
 
+bool gameplayPlaybackActive = false;
+
+void MoviePlayer::RequestMovie(const std::wstring& path, bool holdOpeningFrame)
+{
+    std::lock_guard<std::mutex> lock(m_requestMutex);
+    m_requestedMovie = path; m_holdOpeningFrame.store(holdOpeningFrame);
+    m_resumeRequested.store(false); m_movieRequested.store(true);
+}
+void MoviePlayer::ProcessMovieRequest()
+{
+    if (m_resumeRequested.exchange(false)) { SeekTo(0.0); Play(); }
+    // Decode the opening image behind black, then hold it through the fade.
+    // Seek/resume is also serviced here, outside any active BeginDraw session.
+    if (!m_movieRequested.load()) {
+        if (m_holdOpeningFrame.load() && IsPlaying() && GetCurrentPosition() >= 0.05) {
+            UpdateFrame(); Pause(); m_holdOpeningFrame.store(false);
+        }
+        return;
+    }
+    std::wstring path;
+    { std::lock_guard<std::mutex> lock(m_requestMutex);
+      path.swap(m_requestedMovie); m_movieRequested.store(false); }
+    if (path.empty()) Stop();
+    else if (OpenMovie(path)) Play();
+}
+
 bool MoviePlayer::OpenMovie(const std::wstring& filePath)
 {
     if (!m_renderer || !m_isInitialized.load())
@@ -2881,7 +2907,7 @@ void MoviePlayer::CleanupAudio()
 void MoviePlayer::Render(const Vector2& position, const Vector2& size)
 {
     // Skip early if not playing or no texture or no new frame
-    if (!m_isPlaying.load() || m_videoTextureIndex < 0)
+    if ((!m_isPlaying.load() && !(gameplayPlaybackActive && IsPaused())) || m_videoTextureIndex < 0)
         return;
 
     #if defined(__USE_DIRECTX_12__)

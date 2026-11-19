@@ -7092,8 +7092,14 @@ bool SceneManager::LoadCache(const std::string& filepath)
 
     if (magic != CACHE_MAGIC || version != CACHE_VERSION || vertSz != sizeof(Vertex))
     {
-        debug.logLevelMessage(LogLevel::LOG_ERROR,
-            L"[SceneManager] LoadCache: cache header mismatch (stale or corrupt) - ignoring file.");
+        // A stale cache is an EXPECTED, recoverable condition: it is written by an older build (or by a
+        // different renderer's Vertex layout) and the caller simply falls back to a full model reload,
+        // after which SaveCache() rewrites it in the current format.  Log it as a non-fatal warning
+        // (logDiagLevelMessage never raises the modal "application will now close" dialog), exactly like
+        // the "cache not found" case above.  Real corruption further down still uses LOG_ERROR.
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
+            L"[SceneManager] LoadCache: cache header mismatch (found version " + std::to_wstring(version) +
+            L", expected " + std::to_wstring(CACHE_VERSION) + L") - stale cache ignored, a full model reload is required.");
         return false;
     }
 

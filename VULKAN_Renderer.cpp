@@ -8,6 +8,7 @@
 //   #if defined(PLATFORM_WINDOWS)  /  #elif defined(PLATFORM_LINUX)  /  #elif defined(PLATFORM_ANDROID)
 // ---------------------------------------------------------------------------------------------------------------
 #include "Includes.h"
+#include "VectorAA.h"
 
 #if defined(__USE_VULKAN__)
 
@@ -4202,6 +4203,94 @@ void VulkanRenderer::DrawCircle(const Vector2& center, float radius, const MyCol
 #endif
 }
 
+// Native filled convex polygon through the Direct2D overlay (the same surface DrawRectangle uses).
+void VulkanRenderer::DrawFilledPolygon(const Vector2* points, int count, const MyColor& color) {
+#if defined(PLATFORM_WINDOWS)
+    if (!points || count < 3 || !m_d2dFactory) return;
+    if (count > 32) count = 32;
+    ID2D1RenderTarget* target = (m_drawToBackground && m_bgD2dRenderTarget)
+                                    ? m_bgD2dRenderTarget.Get()
+                                    : m_d2dRenderTarget.Get();
+    if (!target) return;
+
+    ComPtr<ID2D1PathGeometry> pathGeometry;
+    if (FAILED(m_d2dFactory->CreatePathGeometry(&pathGeometry)) || !pathGeometry) return;
+    ComPtr<ID2D1GeometrySink> sink;
+    if (FAILED(pathGeometry->Open(&sink)) || !sink) return;
+
+    D2D1_POINT_2F pts[32];
+    for (int i = 0; i < count; ++i) pts[i] = D2D1::Point2F(points[i].x, points[i].y);
+    sink->BeginFigure(pts[0], D2D1_FIGURE_BEGIN_FILLED);
+    sink->AddLines(pts + 1, static_cast<UINT32>(count - 1));
+    sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+    if (FAILED(sink->Close())) return;
+
+    ComPtr<ID2D1SolidColorBrush> brush;
+    D2D1_COLOR_F dc = { color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, color.a / 255.0f };
+    target->CreateSolidColorBrush(dc, &brush);
+    if (!brush) return;
+
+    const D2D1_ANTIALIAS_MODE previousAA = target->GetAntialiasMode();
+    target->SetAntialiasMode(VectorAAEnabled() ? D2D1_ANTIALIAS_MODE_PER_PRIMITIVE : D2D1_ANTIALIAS_MODE_ALIASED);       // the Video settings' Anti-Aliasing (see VectorAA.h)
+    target->FillGeometry(pathGeometry.Get(), brush.Get());
+    if (const float seam = VectorSeamStroke()) target->DrawGeometry(pathGeometry.Get(), brush.Get(), seam);              // MSAA level: a same-colour hairline covers the seams between faces
+    target->SetAntialiasMode(previousAA);
+    m_overlayDirty = true;                                                    // overlay must be composited this frame
+#else
+    // Non-Windows Vulkan has no 2D overlay surface yet: defer to the portable scanline fallback.
+    Renderer::DrawFilledPolygon(points, count, color);
+#endif
+}
+
+// Batched fill (see DX11Renderer::DrawFilledPolygonBatch).
+void VulkanRenderer::DrawFilledPolygonBatch(const Vector2* const* polys, const int* counts, int n, const MyColor& color) {
+#if defined(PLATFORM_WINDOWS)
+    if (!polys || !counts || n <= 0 || !m_d2dFactory) return;
+    ID2D1RenderTarget* target = (m_drawToBackground && m_bgD2dRenderTarget) ? m_bgD2dRenderTarget.Get() : m_d2dRenderTarget.Get();
+    if (!target) return;
+    ComPtr<ID2D1PathGeometry> pathGeometry;
+    if (FAILED(m_d2dFactory->CreatePathGeometry(&pathGeometry)) || !pathGeometry) return;
+    ComPtr<ID2D1GeometrySink> sink;
+    if (FAILED(pathGeometry->Open(&sink)) || !sink) return;
+    sink->SetFillMode(D2D1_FILL_MODE_WINDING);                               // overlapping figures of equal winding are UNIONED
+    D2D1_POINT_2F pts[32];
+    int figures = 0;
+    for (int i = 0; i < n; ++i)
+    {
+        int c = counts[i];
+        const Vector2* p = polys[i];
+        if (c < 3 || !p) continue;
+        if (c > 32) c = 32;
+        float area = 0.0f;                                                   // signed area: normalise every figure to one winding,
+        for (int k = 0; k < c; ++k) { const Vector2& a = p[k]; const Vector2& b = p[(k + 1) % c]; area += a.x * b.y - b.x * a.y; }
+        for (int k = 0; k < c; ++k)                                          // otherwise a figure and its mirror image would cancel
+        {
+            const Vector2& q = (area >= 0.0f) ? p[k] : p[c - 1 - k];
+            pts[k] = D2D1::Point2F(q.x, q.y);
+        }
+        sink->BeginFigure(pts[0], D2D1_FIGURE_BEGIN_FILLED);
+        sink->AddLines(pts + 1, static_cast<UINT32>(c - 1));
+        sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+        ++figures;
+    }
+    if (FAILED(sink->Close()) || figures == 0) return;
+
+    ComPtr<ID2D1SolidColorBrush> brush;
+    D2D1_COLOR_F dc = { color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, color.a / 255.0f };
+    target->CreateSolidColorBrush(dc, &brush);
+    if (!brush) return;
+
+    const D2D1_ANTIALIAS_MODE previousAA = target->GetAntialiasMode();
+    target->SetAntialiasMode(VectorAAEnabled() ? D2D1_ANTIALIAS_MODE_PER_PRIMITIVE : D2D1_ANTIALIAS_MODE_ALIASED);       // the Video settings' Anti-Aliasing (see VectorAA.h)
+    target->FillGeometry(pathGeometry.Get(), brush.Get());
+    if (const float seam = VectorSeamStroke()) target->DrawGeometry(pathGeometry.Get(), brush.Get(), seam);              // MSAA level: a same-colour hairline covers the seams between faces
+    target->SetAntialiasMode(previousAA);
+    m_overlayDirty = true;
+#else
+    for (int i = 0; i < n; ++i) DrawFilledPolygon(polys[i], counts[i], color);
+#endif
+}
+
 void VulkanRenderer::DrawCurve(float startX, float startY, float ctrlX, float ctrlY, float endX, float endY,
                                 const MyColor& color, float thickness, bool is2D) {
 #if defined(PLATFORM_WINDOWS)
@@ -4496,7 +4585,7 @@ void VulkanRenderer::DrawMyTextCentered(const std::wstring& text, const Vector2&
 
     m_d2dRenderTarget->DrawText(
         text.c_str(), static_cast<UINT32>(text.size()), textFormat.Get(),
-        D2D1::RectF(centredX, centredY, centredX + metrics.width, centredY + metrics.height),
+        D2D1::RectF(centredX, centredY, centredX + metrics.width + 4.0f, centredY + metrics.height),
         brush.Get());
     m_overlayDirty = true;
 #elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)

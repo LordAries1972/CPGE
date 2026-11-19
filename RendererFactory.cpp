@@ -72,6 +72,70 @@ static void ShowUnsupportedRendererMessage(const wchar_t* rendererName)
 
 #endif // PLATFORM_WINDOWS
 
+// -----------------------------------------------------------------------
+// Renderer::DrawFilledPolygon - portable scanline fallback
+// Fills a CONVEX polygon with 1-pixel-high spans drawn through DrawRectangle, which every
+// backend implements.  For each pixel row we intersect the row centre with every edge and keep
+// the left-most / right-most crossing; convexity guarantees one span per row.  Backends should
+// override this with native geometry - it is only the safety net.
+// -----------------------------------------------------------------------
+void Renderer::DrawFilledPolygon(const Vector2* points, int count, const MyColor& color)
+{
+    if (!points || count < 3) return;
+
+    // Vertical extent of the polygon, clipped to non-negative rows.
+    float minY = points[0].y, maxY = points[0].y;
+    for (int i = 1; i < count; ++i)
+    {
+        if (points[i].y < minY) minY = points[i].y;
+        if (points[i].y > maxY) maxY = points[i].y;
+    }
+    int rowStart = static_cast<int>(std::ceil(minY - 0.5f));
+    const int rowEnd = static_cast<int>(std::floor(maxY - 0.5f));
+    if (rowStart < 0) rowStart = 0;
+
+    for (int row = rowStart; row <= rowEnd; ++row)
+    {
+        const float cy = static_cast<float>(row) + 0.5f;                  // sample at the pixel-row centre
+        float left = 1e30f, right = -1e30f;
+        for (int i = 0; i < count; ++i)
+        {
+            const Vector2& a = points[i];
+            const Vector2& b = points[(i + 1) % count];
+            // Edge straddles the sample line (half-open so shared vertices are counted once).
+            if ((a.y <= cy && b.y > cy) || (b.y <= cy && a.y > cy))
+            {
+                const float x = a.x + (cy - a.y) * (b.x - a.x) / (b.y - a.y);
+                if (x < left)  left = x;
+                if (x > right) right = x;
+            }
+        }
+        if (right > left)
+            DrawRectangle(Vector2(left, static_cast<float>(row)), Vector2(right - left, 1.0f), color, true);
+    }
+}
+
+// Portable batch fallback: one DrawFilledPolygon per polygon.
+void Renderer::DrawFilledPolygonBatch(const Vector2* const* polys, const int* counts, int n, const MyColor& color)
+{
+    for (int i = 0; i < n; ++i) DrawFilledPolygon(polys[i], counts[i], color);
+}
+
+// Portable ellipse fallback: a regular polygon, rotated about the centre (identical to the polygon the callers used to build themselves).
+void Renderer::DrawFilledEllipse(float cx, float cy, float rx, float ry, float rotRad, const MyColor& color, int segments)
+{
+    if (segments < 3) segments = 3;
+    if (segments > 48) segments = 48;
+    Vector2 pts[48];
+    const float cr = std::cos(rotRad), sr = std::sin(rotRad);
+    for (int i = 0; i < segments; ++i)
+    {
+        const float a = 6.2831853f * static_cast<float>(i) / static_cast<float>(segments), px = rx * std::cos(a), py = ry * std::sin(a);
+        pts[i] = Vector2(cx + px * cr - py * sr, cy + px * sr + py * cr);
+    }
+    DrawFilledPolygon(pts, segments, color);
+}
+
 int CreateRendererInstance()
 {
     const int rendererType = Configuration::ValidateRendererForPlatform(config.myConfig.rendererType);

@@ -109,6 +109,10 @@ set(SOURCES
     SoundManager.cpp
     ThreadManager.cpp
     TTSManager.cpp
+    Vectors.cpp
+    VectorShapes.cpp
+    VectorRadar.cpp
+    VectorRender.cpp
     WinMediaPlayer.cpp
     WinSystem.cpp
     XMLParser.cpp

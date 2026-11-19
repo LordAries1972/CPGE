@@ -32,6 +32,10 @@ The detailed vector module and API inventory, the 27 game titles, and game-speci
 
 Some demonstrations are inspired by existing games. Credit belongs to the original creators, developers, publishers, and other applicable rights holders. Third-party game names, artwork, audio, trademarks, and other materials remain the property of their respective owners. Attribution does not grant permission to use or redistribute third-party material.
 
+> I built these demos to show CPGE's vector system running in playable games. Any third-party material is included solely for these demonstrations. I respect the original creators' ownership, and any future use would require separate permission from the relevant rights holders.
+>
+> Judge the demos by what they show about the engine in play. Rendering benchmarks and comparisons are outside their scope. Graphics modellers and game teams are responsible for creating their assets, shaping the visual style, and polishing the final presentation for their own projects.
+
 CPGE was originally co-founded and designed by Daniel J. Hobson of Ultimanium Designs. Thanks to the contributors, testers, and players who help develop and test the engine.
 
 ## Important Links

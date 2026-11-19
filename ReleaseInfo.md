@@ -3,7 +3,7 @@
 **Cross Platform Gaming Engine by Daniel J. Hobson**  
 *Melbourne, Australia 2023-2026*
 
-*Current Build Version: v0.1.1956*
+*Current Build Version: v0.1.1958*
 
 ---
 
@@ -4403,6 +4403,39 @@ Excluded / preserved by design, same as July 07: TSOO's identity constants (`MY_
 **Known open items:** the pre-existing `_PROJECT_ONLY_CODE_` typo still dead-codes `SCENE_LEVEL_SETUP` in `IOLoaderThread.cpp`; the July 08 `FadeToImage` / `StopAllFX()` race is unresolved; the live-capture cube-face orientation (per API) and the oblique planar clip maths are derived on paper only.
 
 *See: [`Lights.h`](Lights.h), [`Lights.cpp`](Lights.cpp), [`Models.h`](Models.h), [`Configuration.h`](Configuration.h), [`DX11Renderer.cpp`](DX11Renderer.cpp), [`DXRenderFrame.cpp`](DXRenderFrame.cpp), [`DX12Renderer.cpp`](DX12Renderer.cpp), [`DX12RenderFrame.cpp`](DX12RenderFrame.cpp), [`DX12Models.cpp`](DX12Models.cpp), [`DX12TitlePipeline.cpp`](DX12TitlePipeline.cpp), [`DX12TitlePipeline.h`](DX12TitlePipeline.h), [`OpenGLRenderer.cpp`](OpenGLRenderer.cpp), [`OpenGLRenderFrame.cpp`](OpenGLRenderFrame.cpp), [`OpenGLModels.cpp`](OpenGLModels.cpp), [`VULKAN_Renderer.cpp`](VULKAN_Renderer.cpp), [`VULKAN_RenderFrame.cpp`](VULKAN_RenderFrame.cpp), [`FXManager.cpp`](FXManager.cpp), [`FXManager.h`](FXManager.h), [`GUIManager.cpp`](GUIManager.cpp), [`GUIConfigWindow.cpp`](GUIConfigWindow.cpp), [`SceneManager.cpp`](SceneManager.cpp), [`Debug.cpp`](Debug.cpp), [`WinMediaPlayer.cpp`](WinMediaPlayer.cpp), [`IOLoaderThread.cpp`](IOLoaderThread.cpp), [`main.cpp`](main.cpp), [`Includes.h`](Includes.h), [`Renderer.h`](Renderer.h), [`ShaderManager.cpp`](ShaderManager.cpp)*
+
+
+### November 2026 - Vector system merged into the base engine
+
+#### November 11, 2026
+
+The vector system, the new Vector options and the engine-level fixes from the vector project were merged into the base engine. No game code, game assets or demo hooks were brought across (CPGE stays a base engine). Written without a build: expect a first-compile fix pass.
+
+**Vector system:**
+
+- **New:** `Vectors.cpp`, `VectorShapes.h/.cpp`, `VectorRadar.h/.cpp` and the much larger `Vectors.h` (`MyVector`, `MyQuaternion`, `MyMath`, `MyGeom`, `MyCubeExplosion`, `MyExplosionFX`, `MyBlastStyles`, `MyHighScores`). `MathPrecalculation` gains `FastACosAccurate`, `FastSinCosDeg`, unit-circle / unit-sphere tables, power curves and `FastInvInt`.
+- **`VectorRender.h/.cpp` (new):** the reusable render pipeline lifted out of the demo code: `MyVR::MyVectorRender` (camera, lit and culled mesh submit, LOD, shadows, floor, explosions, quality governor, far-to-near sort with batched fill) and `MyVectorText` (vector-stroke glyphs, animated banner, 7-segment numbers).
+- **Renderer:** `Renderer::DrawFilledPolygon` / `DrawFilledPolygonBatch` (native on DX11, DX12, Vulkan, OpenGL; scanline fallback in the base class) and the `g_Overlay2DCallback` per-frame 2D hook called by every backend. D2D text rectangles widened (no clipping of long text).
+
+**Configuration:** six Vector rows on the Video tab (quality, auto target FPS, detail distance, shadows, explosion particles, effects), applied live and saved in `GameConfig.cfg`. TTS volume is limited to 0 - 1.
+
+**Joystick:** thread-safe (recursive mutex, atomic controller count, list swapped in whole on re-scan) and a new `ReadRawPad`.
+
+**Audio:** `SoundManager` sound bank (`RegisterBankSound`, `PlayBankSound`, `PlayBankLoop`, ...), ambient volume, and a correct linear-to-DirectSound dB volume curve. `WinMediaPlayer` playlist thread (`startPlaylistThread`), thread-safe `currentFile`, `PlayNext` skips unplayable files, and the new asset scan `FindFiles` / `AddFolderToPlaylist` that builds a (shuffled) playlist from the `.mp3` files under a folder. `TTSManager` remembers the requested volume. `main.cpp`: the system master volume now works from any thread, and the ambient and TTS volumes are always applied.
+
+**Other:** `FXManager` 2D starfield wraps instead of respawning on the edge; `SceneManager` treats a stale cache as a warning; `Includes.h` guards Windows-only headers and supplies `ARRAYSIZE`; `cmake-build.bat` gets a `-clean` switch; `dobuild.ps1` is path-independent; the new files are in `CMakeLists.txt` and the Visual Studio project.
+
+**Documentation updated in the same task:** new `Docs/Vectors-Example-Usage.md`; `Docs/SoundManager-Example-Usage.md` (bank, ambient, playlist thread, asset scan), `Docs/Joystick-Example-Usage.md`, `Docs/MathPrecalculation-Example-Usage.md`, `Docs/TTSManager-Example-Usage.md`, `Docs/FXManager-Example-Usage.md`.
+
+**Background bank loading:** `SoundManager::RegisterBankSoundsAsync(defs)` registers a whole sound bank on one worker thread and returns at once (`IsBankLoadingDone`, `WaitForBankLoad`; `CleanUp` stops and joins the worker). Loading ~100 wavs on the game thread froze a frame for about 1.5 s and swallowed the first shots; slots that are not loaded yet are simply silent until they are.
+
+**Shadow flicker:** `TerrainShadowCtx::depth` (explicit painter's depth for terrain shadows, for a land pinned to the back) and hysteresis on the Vector Shadows switch (off below detail 0.25, on above 0.35) in `MyVectorRender::UpdateQuality`.
+
+**Explosion face budget:** `MyVectorRender::SubmitFx` / `SubmitCubeBooms` stop at `kFxPolyBudget` (75 % of `kMaxPolys`, a little more for debris cubes), so a big blast can no longer push ships and shots past the face cap, where the overflow was silently dropped (flicker, vanishing objects).
+
+**Excluded by design:** every game and its assets, the vector demo hooks in `main.cpp`, `KBHandlersCode.cpp` demo key changes, `GameConfig.cfg`, `.gitignore`, `Version.id`, `BuildInfo.h`.
+
+*See: [`VectorRender.h`](VectorRender.h), [`Vectors.h`](Vectors.h), [`VectorShapes.h`](VectorShapes.h), [`Configuration.h`](Configuration.h), [`Joystick.h`](Joystick.h), [`SoundManager.h`](SoundManager.h), [`WinMediaPlayer.h`](WinMediaPlayer.h), [`Docs/Vectors-Example-Usage.md`](Docs/Vectors-Example-Usage.md)*
 
 ---
 

@@ -1,6 +1,7 @@
 #define NOMINMAX
 
 #include "Includes.h"
+#include "VectorAA.h"
 
 // DirectX 12 Required Headers & Linking
 #include "Renderer.h"
@@ -5278,7 +5279,7 @@ void DX12Renderer::DrawMyText(const std::wstring& text, const Vector2& position,
             return;
         }
 
-        D2D1_RECT_F destRect = D2D1::RectF(position.x, position.y, position.x + 1000.0f, position.y + 200.0f);
+        D2D1_RECT_F destRect = D2D1::RectF(position.x, position.y, position.x + 10000.0f, position.y + 1000.0f);
 
         m_d2dContext->DrawText(
             text.c_str(), static_cast<UINT32>(text.size()),
@@ -5384,7 +5385,7 @@ void DX12Renderer::DrawMyTextWithFont(const std::wstring& text, const Vector2& p
             return;
         }
 
-        D2D1_RECT_F destRect = D2D1::RectF(position.x, position.y, position.x + 1000.0f, position.y + 200.0f);
+        D2D1_RECT_F destRect = D2D1::RectF(position.x, position.y, position.x + 10000.0f, position.y + 1000.0f);
 
         m_d2dContext->DrawText(
             text.c_str(), static_cast<UINT32>(text.size()),
@@ -5410,6 +5411,73 @@ void DX12Renderer::DrawCircle(const Vector2& center, float radius, const MyColor
     D2D1_ELLIPSE ellipse = D2D1::Ellipse(D2D1::Point2F(center.x, center.y), radius, radius);
     if (filled) m_d2dContext->FillEllipse(ellipse, brush.Get());
     else        m_d2dContext->DrawEllipse(ellipse, brush.Get());
+}
+
+// Native filled convex polygon on the D2D-over-D3D12 context (see DX11Renderer::DrawFilledPolygon).
+void DX12Renderer::DrawFilledPolygon(const Vector2* points, int count, const MyColor& color) {
+    if (!points || count < 3 || !IsDX11CompatibilityAvailable() || !m_d2dContext || !m_d2dFactory) return;
+    if (count > 32) count = 32;
+
+    ComPtr<ID2D1PathGeometry> pathGeometry;
+    if (FAILED(m_d2dFactory->CreatePathGeometry(&pathGeometry)) || !pathGeometry) return;
+    ComPtr<ID2D1GeometrySink> sink;
+    if (FAILED(pathGeometry->Open(&sink)) || !sink) return;
+
+    D2D1_POINT_2F pts[32];
+    for (int i = 0; i < count; ++i) pts[i] = D2D1::Point2F(points[i].x, points[i].y);
+    sink->BeginFigure(pts[0], D2D1_FIGURE_BEGIN_FILLED);
+    sink->AddLines(pts + 1, static_cast<UINT32>(count - 1));
+    sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+    if (FAILED(sink->Close())) return;
+
+    DirectX::XMFLOAT4 convColor = ConvertColor(color.r, color.g, color.b, color.a);
+    if (!SetGeneralBrushColor(convColor.x, convColor.y, convColor.z, convColor.w)) return;
+
+    const D2D1_ANTIALIAS_MODE previousAA = m_d2dContext->GetAntialiasMode();
+    m_d2dContext->SetAntialiasMode(VectorAAEnabled() ? D2D1_ANTIALIAS_MODE_PER_PRIMITIVE : D2D1_ANTIALIAS_MODE_ALIASED);              // the Video settings' Anti-Aliasing (see VectorAA.h)
+    m_d2dContext->FillGeometry(pathGeometry.Get(), m_generalBrush.Get());
+    if (const float seam = VectorSeamStroke()) m_d2dContext->DrawGeometry(pathGeometry.Get(), m_generalBrush.Get(), seam);              // MSAA level: a same-colour hairline covers the seams between faces
+    m_d2dContext->SetAntialiasMode(previousAA);
+}
+
+// Batched fill (see DX11Renderer::DrawFilledPolygonBatch).
+void DX12Renderer::DrawFilledPolygonBatch(const Vector2* const* polys, const int* counts, int n, const MyColor& color) {
+    if (!polys || !counts || n <= 0 || !IsDX11CompatibilityAvailable() || !m_d2dContext || !m_d2dFactory) return;
+    ComPtr<ID2D1PathGeometry> pathGeometry;
+    if (FAILED(m_d2dFactory->CreatePathGeometry(&pathGeometry)) || !pathGeometry) return;
+    ComPtr<ID2D1GeometrySink> sink;
+    if (FAILED(pathGeometry->Open(&sink)) || !sink) return;
+    sink->SetFillMode(D2D1_FILL_MODE_WINDING);                               // overlapping figures of equal winding are UNIONED
+    D2D1_POINT_2F pts[32];
+    int figures = 0;
+    for (int i = 0; i < n; ++i)
+    {
+        int c = counts[i];
+        const Vector2* p = polys[i];
+        if (c < 3 || !p) continue;
+        if (c > 32) c = 32;
+        float area = 0.0f;                                                   // signed area: normalise every figure to one winding,
+        for (int k = 0; k < c; ++k) { const Vector2& a = p[k]; const Vector2& b = p[(k + 1) % c]; area += a.x * b.y - b.x * a.y; }
+        for (int k = 0; k < c; ++k)                                          // otherwise a figure and its mirror image would cancel
+        {
+            const Vector2& q = (area >= 0.0f) ? p[k] : p[c - 1 - k];
+            pts[k] = D2D1::Point2F(q.x, q.y);
+        }
+        sink->BeginFigure(pts[0], D2D1_FIGURE_BEGIN_FILLED);
+        sink->AddLines(pts + 1, static_cast<UINT32>(c - 1));
+        sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+        ++figures;
+    }
+    if (FAILED(sink->Close()) || figures == 0) return;
+
+    DirectX::XMFLOAT4 convColor = ConvertColor(color.r, color.g, color.b, color.a);
+    if (!SetGeneralBrushColor(convColor.x, convColor.y, convColor.z, convColor.w)) return;
+
+    const D2D1_ANTIALIAS_MODE previousAA = m_d2dContext->GetAntialiasMode();
+    m_d2dContext->SetAntialiasMode(VectorAAEnabled() ? D2D1_ANTIALIAS_MODE_PER_PRIMITIVE : D2D1_ANTIALIAS_MODE_ALIASED);              // the Video settings' Anti-Aliasing (see VectorAA.h)
+    m_d2dContext->FillGeometry(pathGeometry.Get(), m_generalBrush.Get());
+    if (const float seam = VectorSeamStroke()) m_d2dContext->DrawGeometry(pathGeometry.Get(), m_generalBrush.Get(), seam);              // MSAA level: a same-colour hairline covers the seams between faces
+    m_d2dContext->SetAntialiasMode(previousAA);
 }
 
 void DX12Renderer::DrawCurve(float startX, float startY, float ctrlX, float ctrlY, float endX, float endY,
@@ -5515,7 +5583,7 @@ void DX12Renderer::DrawMyTextCentered(const std::wstring& text, const Vector2& p
         m_d2dContext->DrawText(
             text.c_str(), static_cast<UINT32>(text.size()),
             textFormat,
-            D2D1::RectF(centredX, centredY, centredX + metrics.width, centredY + metrics.height),
+            D2D1::RectF(centredX, centredY, centredX + metrics.width + 4.0f, centredY + metrics.height),
             m_generalBrush.Get());
 
 #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG)

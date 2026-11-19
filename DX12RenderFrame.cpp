@@ -27,12 +27,15 @@
 // 11) Closer list (only when needed): GPU timestamp resolve (debug capture) and/or the
 //     RENDER_TARGET -> PRESENT transition if the D2D overlay was unavailable this frame
 // 12) Present (non-blocking with the waitable).  MoveToNextFrame() signals the frame fence.
-//     (VSync=on: paced to the display by STEP 0; VSync=off: uncapped)
+//     (selected FPS cap for all qualities; VSync additionally follows the display)
 
 /* ----------------------------------------------------------------
    DO NOT INCLUDE THIS FILE!!! THE PROJECT ITSELF SCOPES THIS FILE!
 /* ---------------------------------------------------------------- */
 #include "Includes.h"
+#include "KeyboardHandler.h"
+#include "FramePacer.h"
+#include "VectorAA.h"
 
 #if defined(__USE_DIRECTX_12__)
 #include "DX12Renderer.h"
@@ -86,6 +89,7 @@ extern ScriptManager scriptManager;
 // ===========================================================================================
 void DX12Renderer::RenderFrame()
 {
+    moviePlayer.ProcessMovieRequest();
     // ENHANCED SAFE-GUARDS — Check all critical conditions before proceeding
     if (bHasCleanedUp || !m_d3d12Device || !m_commandQueue || !m_constantBuffer)
     {
@@ -192,6 +196,12 @@ void DX12Renderer::RenderFrame()
                 }
             }
 
+            // One shared pacing policy on every backend, independent of quality and VSync.
+            // This waits only for unused time since the preceding frame, never another
+            // full interval after rendering. Native present/fence waits remain authoritative.
+            static FramePacer framePacer;
+            framePacer.Wait(config.myConfig.vectorTargetFps);
+
             // STEP 1: Viewport dimensions from the renderer's actual back-buffer size.
             // iOrigWidth/iOrigHeight are set by Resize() and always match the swap-chain back buffer,
             // whether in windowed or fullscreen exclusive mode.
@@ -216,7 +226,7 @@ void DX12Renderer::RenderFrame()
             // (MaxFrameLatency = BufferCount - 1).  Waiting on it at the TOP of the frame - rather than
             // after Present - means input, camera and delta time are sampled after the display has
             // released a slot, i.e. as late as possible, instead of a whole frame early.
-            // Gated on VSync so VSync-off / ALLOW_TEARING stays genuinely uncapped.
+            // The display wait is gated on VSync; the selected FPS cap applies in both modes.
             #if defined(_DEBUG)
                 const auto paceStart = std::chrono::steady_clock::now();
             #endif
@@ -235,7 +245,7 @@ void DX12Renderer::RenderFrame()
 
             auto now         = std::chrono::steady_clock::now();
             float rawDelta   = std::chrono::duration<float>(now - lastFrameTime).count();
-            float deltaTime  = deltaTimeSmoothing.ProcessDelta(rawDelta, 60.0f);
+            float deltaTime  = deltaTimeSmoothing.ProcessDelta(rawDelta, static_cast<float>((std::clamp)(config.myConfig.vectorTargetFps, 20, 240)));
             deltaTime        = std::clamp(deltaTime, 0.001f, 0.1f);
             lastFrameTime    = now;
 
@@ -487,6 +497,7 @@ void DX12Renderer::RenderFrame()
                     bIsInitialized.load())
                 {
                     m_d2dContext->BeginDraw();
+                    VectorApplyD2DAA(m_d2dContext.Get());                                // Video settings: Anti-Aliasing for every 2D shape and the text (VectorAA.h)
 
                     switch (scene.stSceneType)
                     {
@@ -507,7 +518,7 @@ void DX12Renderer::RenderFrame()
                                         Blit2DObjectToSize(BlitObj2DIndexType::IMG_GAMEINTRO1, 0, 0, iOrigWidth, iOrigHeight);
                                 }
 
-                                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]) {
+                                if (!gameplayPlaybackActive && m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]) {
                                     D2D1_SIZE_F sz = m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]->GetSize();
                                     int fbW = static_cast<int>(sz.width * 0.5f);
                                     int fbH = static_cast<int>(sz.height * 0.5f);
@@ -625,6 +636,10 @@ void DX12Renderer::RenderFrame()
                             default:
                                 break;
                         }
+
+                    // Optional app-supplied 2D overlay (e.g. a game drawing its vector graphics with MyVectorRender, see VectorRender.h); no-op when unset.
+                    if (gameplayPlaybackActive) RenderIntroMovie();
+                    if (g_Overlay2DCallback) g_Overlay2DCallback(*this, iOrigWidth, iOrigHeight);
 
                     // FPS display + debug info overlay
                     if (USE_FPS_DISPLAY && config.myConfig.showDebugInfo)
@@ -907,8 +922,10 @@ void DX12Renderer::RenderFrame()
                 // Capture the fully-composed back-buffer BEFORE Present.
                 // ReleaseWrappedResources above transitions it to PRESENT state,
                 // which is the state CaptureFrame expects to transition from.
-                if (screenRecorder.IsRecording())
+                if (screenRecorder.IsRecording() || gameplayRecorder.IsRecording())
                     screenRecorder.CaptureFrame(m_d3d12Device.Get(), m_commandQueue.Get(),
+                                                m_swapChain.Get(), m_frameIndex);
+                if (gameplayRecorder.IsRecording()) gameplayRecorder.CaptureFrame(m_d3d12Device.Get(), m_commandQueue.Get(),
                                                 m_swapChain.Get(), m_frameIndex);
 
                 PresentFrame();
@@ -1419,15 +1436,15 @@ inline void DX12Renderer::RenderGamePlay(float deltaTime)
 
     // Debug pixel shader mode switching (debug builds only)
     #if defined(_DEBUG_DX12RENDERER_) && defined(_DEBUG) && defined(_DEBUG_PIXSHADER_)
-        if (GetAsyncKeyState('1') & 0x8000) SetDebugMode(0); // Production view mode
-        if (GetAsyncKeyState('2') & 0x8000) SetDebugMode(1); // Normals only mode
-        if (GetAsyncKeyState('3') & 0x8000) SetDebugMode(2); // Texture only mode
-        if (GetAsyncKeyState('4') & 0x8000) SetDebugMode(3); // Lighting only mode
-        if (GetAsyncKeyState('5') & 0x8000) SetDebugMode(4); // Specular only mode
-        if (GetAsyncKeyState('6') & 0x8000) SetDebugMode(5); // Attenuation/normals mode
-        if (GetAsyncKeyState('7') & 0x8000) SetDebugMode(6); // Shadows only mode
-        if (GetAsyncKeyState('8') & 0x8000) SetDebugMode(7); // Reflection only mode
-        if (GetAsyncKeyState('9') & 0x8000) SetDebugMode(8); // Metallic only mode
+        if (KeyboardHandler::GetInstance().IsPlatformKeyPressed('1')) SetDebugMode(0); // Production view mode
+        if (KeyboardHandler::GetInstance().IsPlatformKeyPressed('2')) SetDebugMode(1); // Normals only mode
+        if (KeyboardHandler::GetInstance().IsPlatformKeyPressed('3')) SetDebugMode(2); // Texture only mode
+        if (KeyboardHandler::GetInstance().IsPlatformKeyPressed('4')) SetDebugMode(3); // Lighting only mode
+        if (KeyboardHandler::GetInstance().IsPlatformKeyPressed('5')) SetDebugMode(4); // Specular only mode
+        if (KeyboardHandler::GetInstance().IsPlatformKeyPressed('6')) SetDebugMode(5); // Attenuation/normals mode
+        if (KeyboardHandler::GetInstance().IsPlatformKeyPressed('7')) SetDebugMode(6); // Shadows only mode
+        if (KeyboardHandler::GetInstance().IsPlatformKeyPressed('8')) SetDebugMode(7); // Reflection only mode
+        if (KeyboardHandler::GetInstance().IsPlatformKeyPressed('9')) SetDebugMode(8); // Metallic only mode
     #endif
 
     // Render all loaded scene models when loading is complete
@@ -1508,14 +1525,14 @@ inline void DX12Renderer::RenderIntroMovie()
         debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[DX12 RENDERFRAME] Rendering movie intro 2D elements");
     #endif
 
-    if (!moviePlayer.IsPlaying())
+    if (!moviePlayer.IsPlaying() && !(gameplayPlaybackActive && moviePlayer.IsPaused()))
         return;
 
     moviePlayer.UpdateFrame();
     moviePlayer.Render(Vector2(0, 0), Vector2(iOrigWidth, iOrigHeight));
 
     // Company logo overlay at half size, bottom-left corner
-    if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)])
+    if (!gameplayPlaybackActive && m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)])
     {
         D2D1_SIZE_F logoSz = m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]->GetSize();
         int halfW = static_cast<int>(logoSz.width  * 0.5f);
@@ -1531,7 +1548,7 @@ inline void DX12Renderer::RenderIntroMovie()
     // FadeOutThenCallback's own completion callback fires, so the fade duration
     // (1.0s) is the single source of truth instead of an immediate hard cut.
     // Only in SCENE_INTRO_MOVIE, not splash SCENE_INTRO.
-    if (scene.stSceneType == SceneType::SCENE_INTRO_MOVIE && (GetAsyncKeyState(' ') & 0x8000) && !scene.bSceneSwitching)
+    if (scene.stSceneType == SceneType::SCENE_INTRO_MOVIE && KeyboardHandler::GetInstance().IsPlatformKeyPressed(' ') && !scene.bSceneSwitching)
     {
         scene.bSceneSwitching = true;
         fxManager.FadeOutThenCallback(XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f), 1.0f, 0.06f, []() {
@@ -1556,6 +1573,7 @@ void DX12Renderer::RenderBackgroundImage()
     if (false)
     {
     m_d2dContext->BeginDraw();
+    VectorApplyD2DAA(m_d2dContext.Get());                                // Video settings: Anti-Aliasing for every 2D shape and the text (VectorAA.h)
 
     switch (scene.stSceneType)
     {
@@ -1572,7 +1590,7 @@ void DX12Renderer::RenderBackgroundImage()
                 }
 
                 // Company logo overlay at half size, bottom-left corner
-                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)])
+                if (!gameplayPlaybackActive && m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)])
                 {
                     D2D1_SIZE_F logoSz = m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]->GetSize();
                     int halfW = static_cast<int>(logoSz.width  * 0.5f);

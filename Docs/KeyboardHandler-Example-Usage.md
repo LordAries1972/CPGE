@@ -2349,3 +2349,39 @@ The KeyboardHandler class provides a comprehensive, cross-platform solution for 
 - Examine platform-specific documentation for advanced features
 
 The KeyboardHandler class is designed to grow with your application's needs while maintaining optimal performance and reliability across all supported platforms.
+
+---
+
+## Using the handler with native (Windows VK_*) key codes
+
+Code written in virtual-key codes (the Vector demo, the engine's debug keys) does not have to translate them by hand: the handler accepts native codes directly.
+
+```cpp
+KeyboardHandler& kb = KeyboardHandler::GetInstance();
+
+kb.UpdateKeyStates();                              // ONCE at the start of every frame, before any "just pressed" query
+
+if (kb.IsPlatformKeyPressed(VK_LEFT))        { /* held now */ }
+if (kb.IsPlatformKeyJustPressed(VK_RETURN))  { /* a press arrived since the last UpdateKeyStates() */ }
+if (kb.IsPlatformKeyPressed(VK_CONTROL))     { /* either Ctrl; VK_SHIFT and VK_MENU (Alt) work the same way */ }
+```
+
+* `IsPlatformKeyPressed` / `IsPlatformKeyJustPressed` resolve the native code through `PlatformKeyToKeyCode` once per key and cache the result, so a query costs a table lookup plus an atomic load. Keys the handler does not map (mouse buttons, ...) simply report `false`.
+* **Press edges are counted, not compared.** Every fresh press (OS auto-repeat is not counted) increments a per-key counter; `UpdateKeyStates()` snapshots it, and `IsKeyJustPressed()` is true for the whole frame in which the counter moved. A tap that is released before the game polls is therefore never lost, and one press is never reported twice. `IsKeyJustPressed()` needs `UpdateKeyStates()` to be called once per frame (start of the frame, before the queries).
+* `IsKeyJustReleased()` is still level based (`!pressed && wasPressed`).
+* `KEY_PAUSE` (now `0x113`) and `KEY_NUMPAD_ENTER` (now `0x10E`) used to share a state slot with `KEY_S` and `KEY_N`; pressing Pause made S look held. They have their own slots now.
+
+### How the Vector demo uses it
+
+`main.cpp` never calls `GetAsyncKeyState` for keyboard keys. `VectorDemo::KeyDown(vk)` / `KeyEdge(vk)` (and `Racing`'s `RcEdge`, `Dungeon Crawl`'s `CrEdge`, the name-entry screen, the gallery scroll keys) all call `IsPlatformKeyPressed` / `IsPlatformKeyJustPressed`, and the demo calls `SyncWithOS()` once at the top of its per-frame overlay. The demo's `KeyEdge` does NOT use `IsKeyJustPressed`: the engine's main loop already calls `UpdateKeyStates()` on every loop iteration (thousands of times a second, far more often than the overlay runs), which would clear a per-frame edge before the overlay could see it. `KeyEdge` instead remembers `GetPlatformKeyPressCount(vk)` per key and reports a press whenever the count has moved, which is exact and independent of who calls `UpdateKeyStates()`. The renderers' debug keys (`1`-`9`, Space to skip the intro movie) and the console's Ctrl+F8 check use the handler too. Mouse buttons are not keyboard keys and still read the mouse directly.
+
+### Hook dropouts and `UpdateKeyStates()` (Windows)
+
+The low-level hook is the fast path, but Windows silently drops hook events, and can remove a low-level hook altogether, when the thread that installed it does not service its message queue within about 300 ms (long start-up loading, a level load, a debugger pause). So `UpdateKeyStates()` also reconciles every mapped key with the OS once per frame: a press or release the hook missed is corrected (state and press count only; the key handlers are not called from there). Call `UpdateKeyStates()` once per frame and the demo's key reads keep working even if the hook has gone quiet. Key *handlers* (`SetKeyUpHandler`, ...) still depend on the hook, so keep the installing thread pumping messages.
+
+
+### Press edges: which API to use
+
+* Called **once per rendered frame by one owner** (a classic game loop): `UpdateKeyStates()` + `IsKeyJustPressed()` / `IsPlatformKeyJustPressed()`.
+* `UpdateKeyStates()` called from a **free-running main loop**, or edges needed by several consumers/threads: keep your own last-seen value of `GetPlatformKeyPressCount(vk)` (or `GetPressCount`-style per key) and compare. Never loses a tap, never double-reports.
+* `SyncWithOS()` is throttled to once per 2 ms, so calling it from a tight loop or from several places is cheap.

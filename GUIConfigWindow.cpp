@@ -258,7 +258,7 @@ void GUIManager::CreateConfigWindow()
     const std::array<float, 5> tabContentH = {
         10.0f + 1.0f  * 32.0f,   // Tab 0: debug (1)
         10.0f + 8.0f  * 32.0f,   // Tab 1: 4 vols + music + TTS + TTSvol + mic (8)
-        10.0f + 36.0f * 32.0f,   // Tab 2 (36 incl. emission toggle + intensity + MSAA samples): fov/renderer/disp/res/hz/aspect/vsync/aa/msaa/msaasmp/mip/shadows/shq/shspot/shpoint/shdist/refl/reflq/reflstr/reflblur/refllive/reflupd/planar/planarq/planarstr/planardist/planarmax/planarupd/bright/contrast/cull/tripbuf/near/far (33)
+        10.0f + 42.0f * 32.0f,   // Tab 2 (42 = 36 + the six Vector rows: quality / auto target fps / detail distance / shadows / particles / effects; the 36 incl. emission toggle + intensity + MSAA samples): fov/renderer/disp/res/hz/aspect/vsync/aa/msaa/msaasmp/mip/shadows/shq/shspot/shpoint/shdist/refl/reflq/reflstr/reflblur/refllive/reflupd/planar/planarq/planarstr/planardist/planarmax/planarupd/bright/contrast/cull/tripbuf/near/far (33)
         10.0f + 6.0f  * 32.0f,   // Tab 3: zoom/move/maxP/minP/joystick/joystick-rot (6)
         10.0f + 6.0f  * 32.0f,   // Tab 4: placeholder
     };
@@ -636,6 +636,20 @@ void GUIManager::CreateConfigWindow()
 
         addTogSlider("t0_dbg", y, L"Show Debug Info:", config.myConfig.showDebugInfo, true, 0,
             [](bool on) { config.myConfig.showDebugInfo = on; });
+        y += ROW;
+        config.myConfig.aiRecordSessions = true;
+        addLabel("t0_airec_lbl", CX, y, LBL_W + SLR_VAL_W, ROW_H,
+            L"AI Session History: REQUIRED (human + demo)", LBL_FS, false);
+        y += ROW;
+        addTogSlider("t0_airecall", y, L"Recall Last 3 Days at Startup:", config.myConfig.aiRecallRecent, false, 0,
+            [](bool on) { config.myConfig.aiRecallRecent = on; });
+        y += ROW;
+        addTogSlider("t0_aiadapt", y, L"Learn and Adapt Strategies:", config.myConfig.aiAdaptiveStrategies, false, 0,
+            [](bool on) { config.myConfig.aiAdaptiveStrategies = on; });
+        y += ROW;
+        addTogSlider("t0_airun", y, L"15 Second Restart Countdown:", config.myConfig.aiRestartCountdown, false, 0,
+            [](bool on) { config.myConfig.aiRestartCountdown = on; });
+
     }
 
     // ===================================================================
@@ -696,11 +710,13 @@ void GUIManager::CreateConfigWindow()
             });
         y += ROW;
 
+        // 0.0 - 1.0, the range the speech engine actually has (SAPI volume is 0 - 100 % and cannot amplify).  The slider used to run 0 - 5, so everything above 1.0 - four fifths of
+        // its travel - was the same maximum volume and the setting looked as if it was not being applied.
         addSliderRow("t1_ttsvol", y, L"TTS Volume:", false, 1,
-            0.0f, 5.0f, (float)config.myConfig.TTSVolume,
+            0.0f, 1.0f, std::clamp((float)config.myConfig.TTSVolume, 0.0f, 1.0f),
             [](float v) { return CfgFmtFloat((long double)v, 2); },
             [](float v) {
-                config.myConfig.TTSVolume = (long double)std::clamp(v, 0.0f, 5.0f);
+                config.myConfig.TTSVolume = (long double)std::clamp(v, 0.0f, 1.0f);
                 config.applyLive();
             });
         y += ROW;
@@ -1089,6 +1105,52 @@ void GUIManager::CreateConfigWindow()
             [](float v) { config.myConfig.emissionIntensity = (long double)std::clamp(v, 0.0f, 3.0f); });
         y += ROW;
 
+        // --- Vector system quality (ALL of these apply live - the vector demo reads them every frame - and persist in GameConfig.cfg) ---
+        // Auto adapts the detail to hold the target frame rate; Low / Medium / High are fixed levels.  See VecQualityUpdate in main.cpp.
+        addSliderRow("t2_vq", y, L"Vector Quality:", false, 2,
+            0.0f, 3.0f, (float)std::clamp(config.myConfig.vectorQuality, 0, 3),
+            [](float v) -> std::wstring {
+                static const wchar_t* kVectorQualityNames[4] = { L"Auto", L"Low", L"Medium", L"High" };
+                return kVectorQualityNames[std::clamp((int)std::round(v), 0, 3)];
+            },
+            [refreshVideoLocks](float v) {
+                config.myConfig.vectorQuality = std::clamp((int)std::round(v), 0, 3);
+                refreshVideoLocks();                                   // refresh the live Video dependencies
+            });
+        y += ROW;
+
+        // Overall frame-rate target; Auto additionally fits detail to this budget.
+        static const int kVectorTargetFps[4] = { 30, 60, 90, 120 };
+        int vecFpsIdx = 1;
+        for (int i = 0; i < 4; ++i)                                    // nearest offered rate to the saved value
+            if (std::abs(kVectorTargetFps[i] - config.myConfig.vectorTargetFps) < std::abs(kVectorTargetFps[vecFpsIdx] - config.myConfig.vectorTargetFps))
+                vecFpsIdx = i;
+        addSliderRow("t2_vqfps", y, L"Target FPS:", false, 2,
+            0.0f, 3.0f, (float)vecFpsIdx,
+            [](float v) { return CfgFmtInt(kVectorTargetFps[std::clamp((int)std::round(v), 0, 3)]); },
+            [](float v) { config.myConfig.vectorTargetFps = kVectorTargetFps[std::clamp((int)std::round(v), 0, 3)]; });
+        y += ROW;
+
+        addSliderRow("t2_vqlod", y, L"Detail Distance:", false, 2,
+            0.5f, 2.0f, (float)std::clamp(config.myConfig.vectorDetailDist, 0.5L, 2.0L),
+            [](float v) { return CfgFmtFloat((long double)v, 2); },
+            [](float v) { config.myConfig.vectorDetailDist = (long double)std::clamp(v, 0.5f, 2.0f); });
+        y += ROW;
+
+        addTogSlider("t2_vqshadow", y, L"Vector Shadows:", config.myConfig.vectorShadows, false, 2,
+            [](bool on) { config.myConfig.vectorShadows = on; });
+        y += ROW;
+
+        addSliderRow("t2_vqpart", y, L"Explosion Particles:", false, 2,
+            0.25f, 1.0f, (float)std::clamp(config.myConfig.vectorParticles, 0.25L, 1.0L),
+            [](float v) { return CfgFmtFloat((long double)v, 2); },
+            [](float v) { config.myConfig.vectorParticles = (long double)std::clamp(v, 0.25f, 1.0f); });
+        y += ROW;
+
+        addTogSlider("t2_vqfx", y, L"Vector Effects:", config.myConfig.vectorEffects, false, 2,
+            [](bool on) { config.myConfig.vectorEffects = on; });
+        y += ROW;
+
         addTogSlider("t2_cull", y, L"Back Face Culling:", config.myConfig.BackCulling, false, 2,
             [needsVideoRestart](bool on) {
                 config.myConfig.BackCulling = on;
@@ -1138,6 +1200,9 @@ void GUIManager::CreateConfigWindow()
 
             // Emission
             setRowEnabled("t2_emisint", c.emissionEnabled);
+
+            // Target FPS controls frame pacing for every quality level; Auto also adapts detail.
+            setRowEnabled("t2_vqfps", true);
         };
         (*videoLocks)();
     }

@@ -7,8 +7,16 @@
 #include "GamingAI.h"
 #include "ThreadLockHelper.h"
 #include "MathPrecalculation.h"
+#include "BuildInfo.h"
 
-#include <intrin.h>
+#if defined(_MSC_VER)
+    #include <intrin.h>
+#endif
+#include <nlohmann/json.hpp>
+#include <cmath>
+#include <cstring>
+#include <algorithm>
+#include <stdexcept>
 
 // External references required by the GamingAI system
 extern Debug debug;
@@ -30,6 +38,1192 @@ extern GamePlayer gamePlayer;
 //==============================================================================
 
 // Constructor - Initialize GamingAI system with default values
+// Shared session recorder and CPGE-AI-LISTENER implementation. The render thread
+// submits fixed-size events; only the existing AI worker touches files or learns.
+// A full queue reports a recording fault; commands are rejected unless their
+// acceptance can be journalled. No disk IO or model traversal is on a game path.
+class GamingAI::GameHistory {
+public:
+    enum Kind : uint8_t { EngineStart, Begin, Update, End, Reset, Request, Command, Result, EngineStop, BossDefeat, Decision, BoardRequest, BoardSuggestion, BoardMove, Playback, InventoryDirective, InventoryResult, RecoveryRequest, RecoveryResult };
+    struct Event {
+        Kind kind = Update;
+        AIGameEnd reason = AIGameEnd::Reset;
+        AIGameFrame frame;
+        uint64_t session = 0, sequence = 0, area = 0, order = 0;
+        char playerName[96] = {};
+        AIBoardStatus board;
+        int64_t utc = 0;
+        AIGameCommand command = AIGameCommand::None;
+        float value = 0;
+        bool accepted = false, direct = false;
+        std::array<float, 4> policy{};
+        uint32_t learnedSessions = 0;
+        uint64_t drops = 0;
+    };
+    struct Session {
+        uint64_t id = 0;
+        int scene = -1, player = 1, score = 0, wave = 1;
+        int64_t start = 0, end = 0;
+        double seconds = 0, moving = 0, firing = 0, mx = 0, my = 0, turns = 0;
+        uint64_t frames = 0;
+        float previousX = 0, previousY = 0;
+        bool demo = false, havePosition = false;
+        double stuckSeconds = 0; float px = 0, py = 0;
+        uint32_t boardMoves = 0, boardCaptures = 0, boardCentres = 0;
+        uint32_t bossDefeats = 0, livesLost = 0; int previousLives = -1;
+        std::string playerName;
+        uint64_t observations = 0, playback = 0, firstOrder = 0, lastOrder = 0, startDrops = 0, writer = 0;
+        double idleSeconds = 0, healthLost = 0;
+        float previousHealth = -1;
+        double dangerSeconds = 0, evasionSeconds = 0;
+        std::array<int,3> build {CURRENT_BUILD_VERSION,CURRENT_BUILD_SUBVERSION,CURRENT_BUILD};
+        float cursorX=0,cursorY=0,carryMass=-1;
+        AIReplayContext replay;               // newest presentation context seen in this session (worker-owned)
+        int inventoryCount=-1; bool haveCursor=false,inventoryOpen=false;
+        bool traceComplete = true, finished = false;
+        // Worker-owned starting facts survive checkpoint/reload for quick review.
+        nlohmann::json initialState;
+    };
+    struct Pending { int scene = -1, player = 1; AIGameCommand command = AIGameCommand::None; float value = 0; uint64_t sequence = 0; };
+    static constexpr int64_t Retention = 21LL * 24 * 60 * 60 * 1000;
+    static constexpr size_t Capacity = 16384;
+    std::array<Event, Capacity> queue;
+    size_t head = 0, size = 0;
+    std::mutex queueMutex, cacheMutex, lifecycleMutex;
+    std::array<Event,256> retryBatch; size_t retryCount = 0, retryOffset = 0;
+    uint64_t lastForwarded = 0, lastAppliedEvent = 0;
+    std::array<Pending, 64> commands{};
+    size_t commandHead = 0, commandSize = 0, awaitingAudit = 0;
+    std::atomic<bool> healthy{ true }, ready{ false }, adapt{ true };
+    std::atomic<uint64_t> dropped{ 0 }, nextSequence{ 1 }, nextEvent{ 1 };
+    const int64_t bootUtc = Now();
+    const uint64_t writer = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+    uint64_t unverifiedRecordings = 0;
+    uint64_t lastExternal = 0;
+    bool record = true, recall = true, restartEnabled = true, active = false, wasOver = false;
+    bool skipRecall = false, currentDemo = true, resetExpected = false, confirmArmed = false;
+    int scene = -1, player = 1, stage = 0;
+    float countdown = 0;
+    uint64_t session = 0;
+    AIGameFrame last;
+    std::filesystem::path directory = AssetsDir / "AIHistory";
+    std::ofstream journal;
+    int64_t journalHour = -1, lastPrune = 0, lastCheckpoint = 0;
+    Session working;
+    std::vector<Session> sessions;
+    std::unordered_map<uint64_t, AIGameStrategy> strategies, demoStrategies;
+    // One outstanding recovery job bounds both work and memory. The render
+    // thread uses try-locks; it keeps its safe local planner while waiting.
+    std::mutex recoveryMutex;
+    AIRecoveryJob recoveryJob;
+    AIRecoveryPlan recoveryReply;
+    bool recoveryBusy = false, recoveryQueued = false, recoveryReady = false;
+
+    static AIRecoveryPlan SolveRecovery(const AIRecoveryJob& job) {
+        AIRecoveryPlan result=job.plan;
+        float minimum=1.0e30f;
+        for (int i=0;i<job.count;++i) {
+            const auto& c=job.candidates[i];
+            if (c.clear) minimum=(std::min)(minimum,c.danger);
+        }
+        float best=-1.0e30f;
+        for (int i=0;i<job.count;++i) {
+            const auto& c=job.candidates[i];
+            if (!c.clear || c.danger>minimum+0.001f) continue;
+            const float distance=std::hypot(c.x-result.startX,c.y-result.startY);
+            if (distance<0.25f) continue;
+            // Escape available space first; a failed direct goal must not keep
+            // winning over a clear detour. Danger has already been minimized.
+            const float score=distance-.15f*std::hypot(job.goalX-c.x,job.goalY-c.y);
+            if (score>best) { best=score; result.x=c.x; result.y=c.y; result.found=true; }
+        }
+        return result;
+    }
+    void ProcessRecovery() {
+        AIRecoveryJob job;
+        {
+            std::lock_guard<std::mutex> lock(recoveryMutex);
+            if (!recoveryQueued) return;
+            job=recoveryJob; recoveryQueued=false;
+        }
+        const auto plan=SolveRecovery(job);
+        Event event; event.kind=RecoveryResult; event.sequence=plan.request; event.session=plan.session;
+        event.frame.scene=plan.scene; event.frame.player=plan.player; event.frame.demo=true; event.area=plan.revision;
+        event.policy={plan.startX,plan.startY,plan.x,plan.y}; event.accepted=plan.found;
+        if (!Push(event)) {
+            std::lock_guard<std::mutex> lock(recoveryMutex);
+            if (recoveryJob.plan.request==plan.request) recoveryBusy=false;
+            return;
+        }
+        std::lock_guard<std::mutex> lock(recoveryMutex);
+        if (recoveryBusy && recoveryJob.plan.request==plan.request) { recoveryReply=plan; recoveryReady=true; }
+    }
+    std::array<AIBoardStatus,3> boardStatus;
+    // 2048 fixed slots exceed the 800 boss encounters possible in a 1000-wave run.
+    // Open addressing avoids a heap allocation on every boss death.
+    std::array<uint64_t,2048> defeated{};
+    bool encounterOverflow = false;
+    void ClearDefeats() { defeated.fill(0); encounterOverflow=false; }
+    int FindDefeat(uint64_t key, bool insert)
+    {
+        const uint64_t encoded=key+1; if (!encoded) return -1;
+        size_t slot=static_cast<size_t>((key^(key>>29))*0x9E3779B97F4A7C15ull)&(defeated.size()-1);
+        for (size_t n=0;n<defeated.size();++n)
+        {
+            if (defeated[slot]==encoded) return 1;
+            if (!defeated[slot]) { if (insert) defeated[slot]=encoded; return insert ? 2 : 0; }
+            slot=(slot+1)&(defeated.size()-1);
+        }
+        if (insert) { encounterOverflow=true; healthy.store(false); }
+        return -1;
+    }
+
+    static int64_t Now() { return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count(); }
+    static uint64_t Key(int s, int p) { return (static_cast<uint64_t>(static_cast<uint32_t>(p)) << 32) | static_cast<uint32_t>(s); }
+    static bool Valid(int s, int p) { return s >= 0 && s < 64 && p >= 0 && p < 256; }
+    static std::string Name(const Session& s) { return "game-" + std::to_string(s.scene) + "-player-" + std::to_string(s.player) + "-" + std::to_string(s.id); }
+
+    static const char* GameId(int scene) {
+        static constexpr const char* ids[] = {"asteroids","guardian","scoptiliptic","scramble","chomper","planet-assault",
+            "neon-arena","trench-run","voxel-guard","chomper-3d","marble-madness","jumpman","gyrospace","dungeon",
+            "spiral-tunnel","morpheous","dominion","project-x","space-spartans","incoming","stix","tempest","battle-zone",
+            "tutankham","decention","burger-master","dungeon-crawl","racing","chess","chess-3d","xiangqi","soldier-on"};
+        return scene >= 5 && scene <= 36 ? ids[scene-5] : "engine";
+    }
+    static nlohmann::json FrameLayout() {
+        return {"dt","score","lives","wave","mode","x","y","moveX","moveY","aimX","aimY","buttons","playing",
+            "hasPosition","over","complete","floor","area","height","health","armour","weapon","ammo","hostiles","cursorX","cursorY","actions","playback",
+            "danger","carryMass","carryCapacity","inventoryCount","inventoryOpen"};
+    }
+    static nlohmann::json Identity(const char* type, int scene, int player, bool demo) {
+        return {{"schema",2},{"format","CPGE.GamingAI"},{"systemId","CPGE2026-Vectors"},{"recordType",type},
+            {"gameId",GameId(scene)},{"scene",scene},{"player",player},{"demo",demo},{"source",demo?"demo":"human"},
+            {"build",{CURRENT_BUILD_VERSION,CURRENT_BUILD_SUBVERSION,CURRENT_BUILD}},{"coordinateSystem","game-adapter"}};
+    }
+    static uint64_t Checksum(nlohmann::json value) {
+        value.erase("checksum");
+        const std::string canonical = value.dump(); uint64_t hash = 14695981039346656037ull;
+        for (unsigned char ch : canonical) { hash ^= ch; hash *= 1099511628211ull; }
+        return hash; // Corruption detection, not a cryptographic authenticity claim.
+    }
+    static void Seal(nlohmann::json& value) { value["checksum"] = Checksum(value); }
+    static bool Compatible(const nlohmann::json& value, int expectedScene = -1) {
+        try {
+            const int scene = value.at("scene").get<int>(), player = value.at("player").get<int>();
+            if (value.at("schema") != 2 || value.at("format") != "CPGE.GamingAI" || value.at("systemId") != "CPGE2026-Vectors"
+                || (expectedScene >= 0 && scene != expectedScene) || value.at("gameId") != GameId(scene)
+                || value.at("source") != (value.at("demo").get<bool>() ? "demo" : "human")
+                || !value.at("build").is_array() || value.at("build").size() != 3) return false;
+            const std::string type = value.at("recordType").get<std::string>();
+            const bool engineEvent = type == "event" && scene == -1 && (value.at("kind") == EngineStart || value.at("kind") == EngineStop);
+            if (type != "journal-header" && !engineEvent && !Valid(scene,player)) return false;
+            if (!value.at("writerId").get<uint64_t>()) return false;
+            if ((type == "session" || type == "journal-header") && value.at("frameLayout") != FrameLayout()) return false;
+            if (type == "session") {
+                const double seconds = value.at("seconds").get<double>();
+                if (scene < 5 || scene > 36 || !value.at("id").get<uint64_t>() || value.at("endUtcMs").get<int64_t>() < value.at("startUtcMs").get<int64_t>()
+                    || !std::isfinite(seconds) || seconds < 0) return false;
+            } else if (type == "event") {
+                if (!value.at("eventOrder").get<uint64_t>()) return false;
+                if (value.contains("frame") && (!value.at("frame").is_array() || value.at("frame").size() != FrameLayout().size())) return false;
+                if (value.contains("frame")) for (const auto& field : value.at("frame"))
+                    if ((!field.is_number() && !field.is_boolean()) || (field.is_number_float() && !std::isfinite(field.get<double>()))) return false;
+            } else if (type != "journal-header" && type != "playback-manifest") return false;
+            return value.at("checksum").get<uint64_t>() == Checksum(value);
+        } catch (...) { return false; }
+    }
+
+    bool Push(Event event) {
+        event.utc = Now();
+        event.drops = dropped.load();
+        std::lock_guard<std::mutex> lock(queueMutex);
+        if (size == Capacity) { healthy.store(false); dropped.fetch_add(1); return false; }
+        event.order = nextEvent.fetch_add(1);
+        if (!event.sequence) event.sequence = nextSequence.fetch_add(1);
+        queue[(head + size) % Capacity] = event; ++size;
+        return true;
+    }
+    Event Make(Kind kind) const { Event e; e.kind = kind; e.session = session; e.frame = last; return e; }
+    void Finish(AIGameEnd reason) {
+        if (active) { Event e = Make(End); e.reason = reason; Push(e); active = false; }
+    }
+    void Start(int s, int p, bool demo) {
+        Finish(AIGameEnd::Reset);
+        scene = s; player = p; currentDemo = demo; wasOver = false;
+        { std::lock_guard<std::mutex> lock(recoveryMutex); recoveryBusy=recoveryQueued=recoveryReady=false; }
+        last = AIGameFrame(); last.scene = s; last.player = p; last.demo = demo;
+        // UTC microseconds plus monotonic local sequence gives named sessions across
+        // process restarts without using the platform's locale/time-zone formatting.
+        session = (std::max)(session + 1, static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count()));
+        ClearDefeats();
+        confirmArmed = false; active = record; stage = !demo && recall && !skipRecall ? 1 : 0; countdown = 15.0f; skipRecall = false;
+        if (active) {
+            Event e=Make(Begin);
+            const PlayerInfo* info=gamePlayer.GetPlayerInfo(p);
+            if (info) {
+                size_t bytes=(std::min)(info->playerName.size(),sizeof(e.playerName)-1);
+                if (bytes<info->playerName.size()) while (bytes && (static_cast<unsigned char>(info->playerName[bytes])&0xC0)==0x80) --bytes;
+                std::memcpy(e.playerName,info->playerName.data(),bytes);
+            }
+            Push(e);
+        }
+    }
+    AIGameStrategy Strategy(int s, int p, bool demo) {
+        AIGameStrategy result; result.ready = ready.load();
+        std::lock_guard<std::mutex> lock(cacheMutex);
+        const auto& table = demo ? demoStrategies : strategies;
+        const auto it = table.find(Key(s,p));
+        if (it != table.end()) result = it->second;
+        // Autonomous demos always consume core advice. The adaptation setting
+        // controls human challenge adjustment, not the selected demo controller.
+        if (!demo && !adapt.load()) {
+            AIGameStrategy neutral; neutral.ready=result.ready; neutral.sessions=result.sessions;
+            neutral.recentSessions=result.recentSessions; neutral.recentScore=result.recentScore; result=neutral;
+        }
+        return result;
+    }
+    AIGameFlow Advance(int s, bool demo, bool reset, float dt, bool confirm, bool cancel, bool allow, int p) {
+        if (!Valid(s,p)) { Finish(AIGameEnd::SceneChange); stage = 0; scene = -1; return {}; }
+        if (s != scene) Finish(AIGameEnd::SceneChange);
+        resetExpected = s != scene || demo != currentDemo || reset;
+        if (resetExpected) Start(s,p,demo);
+        AIGameFlow out; out.stage = stage; out.seconds = countdown; out.hold = stage != 0;
+        if (!stage) return out;
+        if (!allow) { confirmArmed=false; return out; }
+        if (!confirm) confirmArmed=true;
+        countdown = (std::max)(0.0f, countdown - (std::clamp)(dt,0.0f,0.25f));
+        if (cancel || (confirm && confirmArmed) || countdown <= 0) {
+            Event decision=Make(Decision); decision.value=static_cast<float>(stage); decision.accepted=!cancel;
+            decision.reason=cancel ? AIGameEnd::Abort : AIGameEnd::Reset; Push(decision);
+        }
+        if (cancel && stage == 2) { Finish(AIGameEnd::Abort); stage = 0; out.cancel = true; out.hold = false; }
+        else if (cancel || (confirm && confirmArmed) || countdown <= 0) {
+            const int previous = stage; stage = 0; out.hold = false;
+            if (previous == 2) { out.restart = true; skipRecall = true; }
+        }
+        out.seconds = countdown; return out;
+    }
+    // Newest presentation context per scene (index 0 human, 1 demo). `live` is touched on the game thread under lifecycleMutex; `persisted` is filled by the worker from the
+    // replay-context.json file (cacheMutex) so a context survives a restart.
+    std::array<std::array<AIReplayContext,2>,64> live{}, persisted{};
+    nlohmann::json replayFile = nlohmann::json::object();
+    static bool SameReplay(const AIReplayContext& a, const AIReplayContext& b) {
+        return a.valid==b.valid && a.mode==b.mode && a.view==b.view && a.weather==b.weather && a.seed==b.seed && std::strncmp(a.track,b.track,sizeof(a.track))==0
+            && std::fabs(a.yaw-b.yaw)<5.0f && std::fabs(a.pitch-b.pitch)<5.0f && std::fabs(a.distance-b.distance)<1.0f && std::fabs(a.timeOfDay-b.timeOfDay)<0.05f
+            && std::fabs(a.musicSeconds-b.musicSeconds)<10.0f;
+    }
+    static nlohmann::json ReplayJson(const AIReplayContext& c) {
+        char track[sizeof(c.track)+1]={}; std::memcpy(track,c.track,sizeof(c.track));
+        return {{"mode",c.mode},{"view",c.view},{"weather",c.weather},{"yaw",c.yaw},{"pitch",c.pitch},{"distance",c.distance},{"timeOfDay",c.timeOfDay},
+            {"musicSeconds",c.musicSeconds},{"seed",c.seed},{"track",std::string(track)}};
+    }
+    static AIReplayContext ReplayFromJson(const nlohmann::json& j) {
+        AIReplayContext c; if (!j.is_object()) return c;
+        c.mode=j.value("mode",0); c.view=j.value("view",0); c.weather=j.value("weather",0); c.yaw=j.value("yaw",0.0f); c.pitch=j.value("pitch",0.0f); c.distance=j.value("distance",0.0f);
+        c.timeOfDay=j.value("timeOfDay",0.0f); c.musicSeconds=j.value("musicSeconds",0.0f); c.seed=j.value("seed",0u);
+        const std::string t=j.value("track",std::string()); const size_t n=(std::min)(t.size(),sizeof(c.track)-1); std::memcpy(c.track,t.c_str(),n); c.track[n]=0; c.valid=true; return c;
+    }
+    void Observe(AIGameFrame frame) {
+        last = frame;
+        if (frame.replay.valid && frame.scene>=0 && frame.scene<64) live[frame.scene][frame.demo?1:0]=frame.replay;
+        if (record && session && active) { Event e = Make(Update); Push(e); }
+        if (frame.complete) Finish(AIGameEnd::Complete);
+        if (frame.over && !wasOver) {
+            Finish(AIGameEnd::GameOver);
+            if (!frame.demo && restartEnabled) { stage = 2; countdown = 15.0f; confirmArmed=false; }
+        }
+        wasOver = frame.over;
+    }
+    bool Submit(int s, AIGameCommand command, float value, uint64_t sequence, int p) {
+        Event e; e.kind = Command; e.frame.scene = s; e.frame.player = p; e.command = command; e.value = value; e.sequence = sequence; e.direct = true;
+        const bool valid = Valid(s,p) && std::isfinite(value) && command >= AIGameCommand::Pause && command <= AIGameCommand::Aggression;
+        std::lock_guard<std::mutex> lock(queueMutex);
+        #if defined(DEFINE_EXT_CMD_SEQUENCE)
+            e.accepted = ready.load() && valid && sequence > lastExternal && commandSize + awaitingAudit < commands.size();
+        #else
+            (void)valid;
+            e.accepted = false;
+        #endif
+        e.utc = Now(); e.order = nextEvent.fetch_add(1);
+        if (size == Capacity) { healthy.store(false); dropped.fetch_add(1); return false; }
+        queue[(head+size)%Capacity] = e; ++size;
+        if (e.accepted) {
+            lastExternal = sequence;
+            ++awaitingAudit;
+        }
+        return e.accepted;
+    }
+    static nlohmann::json Summary(const Session& s, bool completed, int reason) {
+        nlohmann::json value = { {"schema",2},{"analysis","unique-analysis"},{"playerName",s.playerName},{"name",Name(s)},{"id",s.id},{"scene",s.scene},{"player",s.player},{"startUtcMs",s.start},{"endUtcMs",s.end},
+            {"demo",s.demo},{"finished",completed},{"reason",reason},{"score",s.score},{"wave",s.wave},{"seconds",s.seconds},{"frames",s.frames},
+            {"movingSeconds",s.moving},{"firingSeconds",s.firing},{"moveX",s.mx},{"moveY",s.my},{"turns",s.turns},{"bossDefeats",s.bossDefeats},{"stuckSeconds",s.stuckSeconds},{"livesLost",s.livesLost},{"boardMoves",s.boardMoves},{"boardCaptures",s.boardCaptures},{"boardCentres",s.boardCentres} };
+        value.update(Identity("session",s.scene,s.player,s.demo));
+        value["frameLayout"]=FrameLayout(); value["observations"]=s.observations; value["playback"]=s.playback;
+        value["writerId"]=s.writer;
+        value["build"]=s.build; value["dangerSeconds"]=s.dangerSeconds; value["evasionSeconds"]=s.evasionSeconds;
+        value["firstEventOrder"]=s.firstOrder; value["lastEventOrder"]=s.lastOrder;
+        value["idleSeconds"]=s.idleSeconds; value["healthLost"]=s.healthLost;
+        value["traceComplete"]=s.traceComplete; value["eligibleForLearning"]=completed && s.traceComplete && s.frames>0;
+        value["initialState"]=s.initialState;
+        if (s.replay.valid) value["replayContext"]=ReplayJson(s.replay);          // how the session was being presented (mode, camera, world, music + time index)
+        Seal(value); return value;
+    }
+    static Session Decode(const nlohmann::json& j) {
+        if (!Compatible(j) || j.at("recordType")!="session") throw std::runtime_error("Incompatible AI recording");
+        Session s; s.playerName=j.value("playerName",std::string()); s.id=j.at("id").get<uint64_t>(); s.scene=j.at("scene").get<int>(); s.player=j.value("player",1);
+        s.start=j.at("startUtcMs").get<int64_t>(); s.end=j.value("endUtcMs",s.start); s.demo=j.value("demo",false);
+        s.score=j.value("score",0); s.wave=j.value("wave",1); s.seconds=j.value("seconds",0.0); s.frames=j.value("frames",uint64_t(0));
+        s.moving=j.value("movingSeconds",0.0); s.firing=j.value("firingSeconds",0.0); s.mx=j.value("moveX",0.0); s.my=j.value("moveY",0.0); s.turns=j.value("turns",0.0); s.bossDefeats=j.value("bossDefeats",0u); s.stuckSeconds=j.value("stuckSeconds",0.0); s.livesLost=j.value("livesLost",0u); s.boardMoves=j.value("boardMoves",0u); s.boardCaptures=j.value("boardCaptures",0u); s.boardCentres=j.value("boardCentres",0u);
+        s.observations=j.value("observations",uint64_t(0)); s.playback=j.value("playback",uint64_t(0));
+        s.firstOrder=j.value("firstEventOrder",uint64_t(0)); s.lastOrder=j.value("lastEventOrder",uint64_t(0));
+        s.idleSeconds=j.value("idleSeconds",0.0); s.healthLost=j.value("healthLost",0.0); s.traceComplete=j.value("traceComplete",false); s.writer=j.at("writerId").get<uint64_t>();
+        s.build=j.at("build").get<std::array<int,3>>(); s.dangerSeconds=j.value("dangerSeconds",0.0); s.evasionSeconds=j.value("evasionSeconds",0.0);
+        s.finished=j.value("finished",false);
+        s.initialState=j.value("initialState",nlohmann::json());
+        if (j.contains("replayContext")) s.replay=ReplayFromJson(j["replayContext"]);
+        return s;
+    }
+    void WriteJson(const std::filesystem::path& path, const nlohmann::json& value) {
+        // Write a sibling first; preserve the previous snapshot until it is complete.
+        auto temp = path; temp += ".tmp";
+        { std::ofstream out(temp,std::ios::binary|std::ios::trunc); out << value.dump(2); out.flush(); if (!out) throw std::runtime_error("AI history write failed"); }
+        std::error_code ec; auto old=path; old += ".previous";
+        if (std::filesystem::exists(path)) { std::filesystem::remove(old,ec); std::filesystem::rename(path,old); }
+        std::filesystem::rename(temp,path); std::filesystem::remove(old,ec);
+    }
+    void Rebuild() {
+        const int64_t now=Now();
+        std::unordered_map<uint64_t,AIGameStrategy> result, demoResult;
+        // Newest fifteen human games per scene/player; demos cannot train the
+        // player's challenge profile. Three-day recall is calculated independently.
+        std::sort(sessions.begin(),sessions.end(),[](const Session& a,const Session& b){return a.end>b.end;});
+        for (const Session& s:sessions) {
+            if (!Valid(s.scene,s.player) || s.end < now-Retention || s.frames == 0 || !s.traceComplete || !s.finished) continue;
+            auto& r=(s.demo ? demoResult : result)[Key(s.scene,s.player)]; r.ready=true;
+            if (s.end >= now-3LL*24*60*60*1000) { ++r.recentSessions; r.recentScore=(std::max)(r.recentScore,s.score); }
+            if (r.sessions >= 15 || s.seconds < 1.0) continue;
+            const float n=static_cast<float>(r.sessions), inv=1.0f/(n+1.0f);
+            const float stuck=(std::clamp)(static_cast<float>(s.stuckSeconds/s.seconds),0.0f,1.0f);
+            const float moving=static_cast<float>(s.moving/s.seconds), firing=static_cast<float>(s.firing/s.seconds);
+            const float consistency=(std::clamp)(1.0f-static_cast<float>(s.turns/(s.frames+1)),0.0f,1.0f);
+            const float startingHealth=s.initialState.is_object() ? s.initialState.value("health",-1.0f) : -1.0f;
+            // Health pools differ across games. Starting facts put losses on a
+            // percentage basis before they influence avoidance and aggression.
+            const float healthScale=startingHealth>0.0f ? 100.0f/startingHealth : 1.0f;
+            const float hurtRate=(std::min)(.25f,static_cast<float>(s.healthLost/(s.seconds+1.0))*healthScale*.02f);
+            const float lossPressure=(std::min)(.12f,static_cast<float>(60.0*s.livesLost/(s.seconds+1.0))*.04f);
+            const float target=(std::clamp)(0.35f+moving*.12f+firing*.18f+(std::min)(.04f,s.bossDefeats*.01f)-lossPressure-hurtRate*.2f,0.3f,0.7f);
+            r.aggression=(r.aggression*n+target)*inv;
+            r.movementX=(r.movementX*n+static_cast<float>(s.mx/s.seconds))*inv;
+            r.movementY=(r.movementY*n+static_cast<float>(s.my/s.seconds))*inv;
+            r.predictionSeconds=(r.predictionSeconds*n+consistency*.20f)*inv;
+            r.preferredRange=(r.preferredRange*n+12.0f+firing*6.0f+stuck*4.0f)*inv;
+            if (s.boardMoves) { r.boardCaptureRate=(r.boardCaptureRate*n+static_cast<float>(s.boardCaptures)/s.boardMoves)*inv; r.boardCentreRate=(r.boardCentreRate*n+static_cast<float>(s.boardCentres)/s.boardMoves)*inv; }
+            r.avoidance=(std::clamp)((r.avoidance*n+.45f+moving*.3f+stuck*.2f+hurtRate)*inv,.3f,.98f); ++r.sessions;
+        }
+        nlohmann::json lookup={{"schema",1},{"listener","CPGE-AI-LISTENER"},{"retentionHours",504},{"recallHours",72},{"lastGames",15},{"bossStartStrength",0.15},{"bossFullStrengthWave",175},{"jumpmanDefaultThreatPressure",0.15},
+            {"routes",{{"strategy","RequestGameStrategy(scene,player)"},{"recovery","RequestGameRecovery / PollGameRecovery"},{"initialReview","initial-state.json / lookup.json quickReview"},{"direct","SubmitExternalGameCommand(scene,command,value,sequence,player)"},
+                       {"result","RecordGameCommandResult(sequence,applied)"},{"reset","NotifyGameReset()"},{"boardStrategy","RequestBoardStrategy"},{"boardOrder","OrderBoardMoves"},
+                       {"boardSuggestion","AcknowledgeBoardSuggestion"},{"boardCommit","RecordBoardMove"},{"boardStatus","GetBoardStatus"},
+                       {"planning","PlanNavigationStep"},{"demoGoal","PlanDemoGoal"},{"demoSeparation","PlanDemoSeparation"},{"demoView","DemoViewMode"},{"demoPerformance","ObserveDemoPerformance"},{"demoTimeLimit","DemoTimeLimit"},{"boundary","NavigationStepAllowed"},{"encounter","RecordEncounterDefeat"},{"threatBudget","SelectThreatBudget"}}},
+            {"commands",{"pause","resume","restart","aggression"}},{"capabilities",{"session-history","startup-recall","restart-countdown","movement-planning","demo-contact-separation","demo-goal-outcome-feedback","demo-camera-choice","bounded-prediction","blast-falloff","boss-area-no-respawn","1000-floor-campaigns","jumpman-threat-budget","slow-tracked-tanks","supply-map-markers","outdoor-border-keepaway","lava-shore-avoidance","input-and-pointer-telemetry","chess-strategy-exchange","board-suggestion-acknowledgement","legal-move-commit-trace"}},
+            {"recordingSchema",2},{"requiredHumanAndDemoRecording",true},{"skippedUnverifiedRecordings",unverifiedRecordings},{"profiles",nlohmann::json::array()},{"demoProfiles",nlohmann::json::array()}};
+        for (const auto& entry:result) { const auto& r=entry.second; lookup["profiles"].push_back({{"scene",static_cast<uint32_t>(entry.first)},{"player",entry.first>>32},{"games",r.sessions},{"last72hGames",r.recentSessions},
+            {"bestRecentScore",r.recentScore},{"aggression",r.aggression},{"leadSeconds",r.predictionSeconds},{"preferredRange",r.preferredRange},{"avoidance",r.avoidance},{"boardCaptureRate",r.boardCaptureRate},{"boardCentreRate",r.boardCentreRate}}); }
+        for (const auto& entry:demoResult) { const auto& r=entry.second; lookup["demoProfiles"].push_back({{"scene",static_cast<uint32_t>(entry.first)},{"player",entry.first>>32},{"practiceGames",r.sessions},{"avoidance",r.avoidance},{"preferredRange",r.preferredRange}}); }
+        // The most recent verified run per game/player/source supplies context
+        // without making the game thread read journals or traverse old sessions.
+        lookup["quickReview"]=nlohmann::json::array();
+        std::unordered_set<uint64_t> reviewedHuman, reviewedDemo;
+        for (const Session& s:sessions) {
+            if (!Valid(s.scene,s.player) || s.end<now-Retention || !s.finished || !s.traceComplete || s.frames==0) continue;
+            auto& seen=s.demo ? reviewedDemo : reviewedHuman;
+            if (!seen.insert(Key(s.scene,s.player)).second) continue;
+            const double duration=(std::max)(s.seconds,0.001);
+            lookup["quickReview"].push_back({{"scene",s.scene},{"gameId",GameId(s.scene)},{"player",s.player},{"source",s.demo?"demo":"human"},
+                {"session",s.id},{"initialState",s.initialState},{"score",s.score},{"seconds",s.seconds},
+                {"movingFraction",s.moving/duration},{"firingFraction",s.firing/duration},{"idleFraction",s.idleSeconds/duration},
+                {"healthLost",s.healthLost},{"evasionFraction",s.dangerSeconds>0?s.evasionSeconds/s.dangerSeconds:0.0}});
+        }
+        lookup["initialStateReview"]=true;
+        lookup["demoCoreStrategyRequired"]=true;
+        WriteJson(directory/"lookup.json",lookup);
+        { std::lock_guard<std::mutex> lock(cacheMutex); strategies.swap(result); demoStrategies.swap(demoResult); }
+        ready.store(true);
+    }
+    void Load() {
+        std::filesystem::create_directories(directory/"sessions");
+        auto recover = [](const std::filesystem::path& folder) {
+            for (const auto& f:std::filesystem::directory_iterator(folder))
+            {
+                std::string name=f.path().filename().string();
+                if (f.path().extension()!=".previous") continue;
+                if (name.rfind("game-",0)!=0 && name.rfind("updates-",0)!=0 && name.rfind("active.json",0)!=0
+                    && name.rfind("listener-state.json",0)!=0 && name.rfind("lookup.json",0)!=0 && name.rfind("acknowledgement.json",0)!=0 && name.rfind("board-advice.json",0)!=0 && name.rfind("replay-context.json",0)!=0) continue;
+                auto target=f.path(); target.replace_extension(); std::error_code ec;
+                if (std::filesystem::exists(target)) std::filesystem::remove(f.path(),ec);
+                else std::filesystem::rename(f.path(),target,ec);
+            }
+        };
+        recover(directory); recover(directory/"sessions");
+
+        for (const auto& file:std::filesystem::directory_iterator(directory/"sessions")) {
+            if (file.path().extension()!=".json" || file.path().filename().string().rfind("game-",0)!=0) continue;
+            try { std::ifstream in(file.path()); nlohmann::json j; in>>j; if (!Compatible(j)) { ++unverifiedRecordings; continue; } Session s=Decode(j); if (s.end >= Now()-Retention) sessions.push_back(s); }
+            catch (...) { healthy.store(false); }
+        }
+        // An interrupted process has no end event. Recover its last checkpoint as
+        // an aborted session instead of silently treating it as a successful run.
+        auto checkpoint=directory/"active.json";
+        if (std::filesystem::exists(checkpoint)) {
+            try { std::ifstream in(checkpoint); nlohmann::json j; in>>j; auto s=Decode(j); s.traceComplete=false; s.end=(std::max)(s.start,s.end);
+                if (s.end>=Now()-Retention) { WriteJson(directory/"sessions"/(Name(s)+".json"),Summary(s,true,static_cast<int>(AIGameEnd::Abort))); sessions.push_back(s); } }
+            catch (...) { healthy.store(false); }
+            std::error_code ec; std::filesystem::remove(checkpoint,ec);
+        }
+        // The newest presentation context per scene/source from earlier runs. Read here on the worker; the game thread only ever copies it out under cacheMutex.
+        try {
+            std::ifstream in(directory/"replay-context.json"); nlohmann::json j; if (in) in>>j;
+            if (Compatible(j) && j.contains("contexts") && j["contexts"].is_object()) {
+                replayFile=j["contexts"]; std::lock_guard<std::mutex> lock(cacheMutex);
+                for (int sc=0; sc<64; ++sc) for (int src=0; src<2; ++src) {
+                    const std::string key=std::to_string(sc)+(src?"-demo":"-human");
+                    if (replayFile.contains(key)) persisted[sc][src]=ReplayFromJson(replayFile[key]);
+                }
+            }
+        } catch (...) { replayFile=nlohmann::json::object(); }
+        auto state=directory/"listener-state.json";
+        if (std::filesystem::exists(state)) { try { std::ifstream in(state); nlohmann::json j; in>>j; lastExternal=j.value("lastSequence",uint64_t(0)); } catch (...) { healthy.store(false); } }
+        Rebuild(); Event e; e.kind=EngineStart; Push(e);
+    }
+    void Prune() {
+        const int64_t cutoff=Now()-Retention;
+        std::error_code ec;
+        for (const auto& file:std::filesystem::directory_iterator(directory)) {
+            const std::string name=file.path().filename().string();
+            if (name.rfind("updates-",0)!=0 || file.path().extension()!=".jsonl") continue;
+            int64_t hour=0; try { hour=std::stoll(name.substr(8)); } catch (...) { continue; }
+            if ((hour+1)*3600000LL <= cutoff) std::filesystem::remove(file.path(),ec);
+            else if (hour*3600000LL < cutoff) {
+                // Trim the boundary hour to the exact rolling 21 x 24-hour cutoff.
+                auto temp=file.path(); temp += ".tmp"; std::ifstream in(file.path()); std::ofstream out(temp); std::string line;
+                while (std::getline(in,line)) { try { auto j=nlohmann::json::parse(line); if (j.at("utcMs").get<int64_t>() >= cutoff) out<<line<<'\n'; } catch (...) { healthy.store(false); } }
+                in.close(); out.close(); if (!out) throw std::runtime_error("AI retention write failed");
+                auto old=file.path(); old += ".previous"; std::filesystem::rename(file.path(),old); std::filesystem::rename(temp,file.path()); std::filesystem::remove(old,ec);
+            }
+        }
+        sessions.erase(std::remove_if(sessions.begin(),sessions.end(),[&](const Session& s){
+            if (s.end >= cutoff) return false; std::filesystem::remove(directory/"sessions"/(Name(s)+".json"),ec); return true;
+        }),sessions.end());
+        // Also remove expired summaries that were excluded during startup loading.
+        for (const auto& file:std::filesystem::directory_iterator(directory/"sessions")) {
+            if (file.path().extension()!=".json" || file.path().filename().string().rfind("game-",0)!=0) continue;
+            try { std::ifstream in(file.path()); nlohmann::json j; in>>j; in.close(); if (j.at("endUtcMs").get<int64_t>() < cutoff) std::filesystem::remove(file.path(),ec); } catch (...) { healthy.store(false); }
+        }
+        Rebuild(); lastPrune=Now();
+    }
+    void Process(const Event& e) {
+        const int64_t hour=e.utc/3600000LL;
+        if (hour != journalHour) {
+            journal.close(); journal.open(directory/("updates-"+std::to_string(hour)+"-v2.jsonl"),std::ios::app|std::ios::binary); journalHour=hour;
+            auto header=Identity("journal-header",-1,0,false);
+            header["bootUtcMs"]=bootUtc; header["utcMs"]=e.utc; header["writerId"]=writer; header["frameLayout"]=FrameLayout();
+            header["buttonBits"]={{"fire",1},{"alternate",2},{"start",4},{"next",8},{"previous",16},{"padConnected",32},{"X",64},{"Y",128}};
+            header["actionKeys"]={"R","G","V","B","I","H","Z","X","M","TAB","UP","DOWN","LEFT","RIGHT","W","A","S","D","SHIFT","CONTROL","1","2","3","4","5","6","7","8","9","0","Q","E","U","N","L","F","T","K","P","HOME","END","PAGE_UP","PAGE_DOWN","BACKSPACE","[","]"};
+            Seal(header); journal<<header.dump()<<'\n';
+        }
+        const auto& f=e.frame;
+        auto row=Identity("event",f.scene,f.player,f.demo);
+        row["writerId"]=writer;
+        row.update({{"bootUtcMs",bootUtc},{"eventOrder",e.order},{"recordingDrops",e.drops},{"utcMs",e.utc},{"sequence",e.sequence},{"session",e.session},{"kind",static_cast<int>(e.kind)}});
+        if (e.kind==Update) row["frame"]={f.dt,f.score,f.lives,f.wave,f.mode,f.x,f.y,f.moveX,f.moveY,f.aimX,f.aimY,f.buttons,f.playing,f.hasPosition,f.over,f.complete,f.floor,f.area,f.height,f.health,f.armour,f.weapon,f.ammo,f.hostiles,f.cursorX,f.cursorY,f.actions,f.playback,f.danger,f.carryMass,f.carryCapacity,f.inventoryCount,f.inventoryOpen};
+        // Presentation context is journalled only when it changed (camera/music drift is thresholded), so ordinary ticks stay compact. The newest copy per scene/source is also
+        // kept in replay-context.json for the next run.
+        bool replayChanged=false;
+        if (e.kind==Update && f.replay.valid && working.id==e.session && !SameReplay(working.replay,f.replay)) {
+            replayChanged=true; working.replay=f.replay; row["replay"]=ReplayJson(f.replay);
+        }
+        if (e.kind==Update) row["idleInput"]=f.moveX*f.moveX+f.moveY*f.moveY<0.0001f && f.aimX*f.aimX+f.aimY*f.aimY<0.0001f && (f.buttons&~32u)==0 && f.actions==0;
+        if (e.kind==Request) row["strategy"]={{"aggression",e.policy[0]},{"avoidance",e.policy[1]},{"predictionSeconds",e.policy[2]},{"preferredRange",e.policy[3]},{"learnedSessions",e.learnedSessions}};
+        if (e.kind==Update && working.id==e.session) {
+            if (working.haveCursor && std::abs(f.cursorX-working.cursorX)+std::abs(f.cursorY-working.cursorY)>0.0001f) row["idleInput"]=false;
+            if (working.inventoryCount>=0 && f.inventoryCount>=0 && (working.inventoryCount!=f.inventoryCount
+                || std::abs(working.carryMass-f.carryMass)>0.001f || working.inventoryOpen!=f.inventoryOpen))
+                row["inventoryChange"]={{"beforeCount",working.inventoryCount},{"count",f.inventoryCount},{"beforeMass",working.carryMass},{"mass",f.carryMass},{"capacity",f.carryCapacity},{"open",f.inventoryOpen},{"playback",f.playback}};
+        }
+        if (e.kind==BossDefeat) { row["area"]=e.area; row["enemyKind"]=static_cast<int>(e.value); row["noRespawnThisRun"]=true; }
+        if (e.kind==Decision) { row["stage"]=e.value; row["continue"]=e.accepted; }
+        if (e.kind==End || e.kind==Decision) row["reason"]=static_cast<int>(e.reason);
+        if (e.kind==Request && e.area) row["nativeCommand"]=e.area;
+        if (e.kind==Request || e.kind==Command || e.kind==Result) { row["command"]=static_cast<int>(e.command); row["value"]=e.value; row["accepted"]=e.accepted; row["direct"]=e.direct; }
+        if (e.kind==BoardRequest || e.kind==BoardSuggestion || e.kind==BoardMove)
+        {
+            const auto& b=e.board;
+            row["board"]={{"request",b.plan.request},{"position",b.plan.position},{"observedPosition",b.observedPosition},{"resultingPosition",b.resultingPosition},{"iq",b.plan.iq},
+                {"moveNumber",b.plan.moveNumber},{"purpose",b.plan.purpose},{"goal",static_cast<int>(b.plan.goal)},{"acknowledged",b.plan.acknowledged},
+                {"from",b.move.from},{"to",b.move.to},{"promotion",b.move.promotion},{"piece",b.move.piece},{"flags",b.move.flags},
+                {"score",b.score},{"completedDepth",b.depth},{"suggestionReady",b.ready},{"accepted",b.accepted},{"applied",b.applied},{"human",b.human}};
+        }
+        if (e.kind==Playback) row["playback"]={{"id",e.area},{"seconds",e.value}};
+        if (e.kind==InventoryDirective) row["directive"]={{"operation",static_cast<int>(e.value)},{"item",static_cast<int64_t>(e.area)-1},{"automatic",e.direct}};
+        if (e.kind==InventoryResult) row["inventoryResult"]={{"applied",e.accepted},{"mass",e.policy[0]},{"health",e.policy[1]}};
+        if (e.kind==RecoveryRequest || e.kind==RecoveryResult)
+            row["recovery"]={{"revision",e.area},{"startX",e.policy[0]},{"startY",e.policy[1]},{"x",e.policy[2]},{"y",e.policy[3]},{"found",e.accepted}};
+        Seal(row);
+        journal<<row.dump()<<'\n'; if (!journal) throw std::runtime_error("AI journal write failed");
+        // A failed batch flush is rewritten with the same event identity. Apply
+        // counters and command side effects once, even if its journal row repeats.
+        if (e.order<=lastAppliedEvent) return;
+        if (e.kind==InventoryDirective) WriteJson(directory/"action-directive.json",row);
+        if (e.kind==InventoryResult) WriteJson(directory/"action-result.json",row);
+        if (e.kind==RecoveryRequest || e.kind==RecoveryResult) WriteJson(directory/"recovery-state.json",row);
+        if (replayChanged && Valid(f.scene,f.player)) {
+            auto entry=ReplayJson(f.replay); entry["scene"]=f.scene; entry["source"]=f.demo?"demo":"human"; entry["session"]=e.session; entry["utcMs"]=e.utc;
+            replayFile[std::to_string(f.scene)+(f.demo?"-demo":"-human")]=entry;
+            auto doc=Identity("replay-context",f.scene,f.player,f.demo); doc["writerId"]=writer; doc["contexts"]=replayFile; Seal(doc);
+            WriteJson(directory/"replay-context.json",doc);
+        }
+        if (row.contains("inventoryChange")) WriteJson(directory/"inventory-state.json",row);
+        if (e.kind==BoardRequest || e.kind==BoardSuggestion || e.kind==BoardMove) WriteJson(directory/"board-advice.json",row);
+        if (e.kind==BoardMove && working.id==e.session && e.board.applied && e.board.move.from>=0 && (e.board.human || e.frame.demo))
+        { ++working.boardMoves; if (e.board.move.flags&1u) ++working.boardCaptures; if (e.board.move.centre>.6f) ++working.boardCentres; }
+        if (e.kind==BossDefeat && working.id==e.session) ++working.bossDefeats;
+        if (e.kind==Begin) { working=Session(); working.id=e.session; working.scene=f.scene; working.player=f.player; working.demo=f.demo; working.start=e.utc; working.playerName=e.playerName; working.firstOrder=working.lastOrder=e.order; working.startDrops=e.drops; working.writer=writer; }
+        if (e.kind==Update && working.id==e.session) {
+            working.score=f.score; working.wave=f.wave; working.end=e.utc; ++working.observations; working.lastOrder=e.order;
+            if (f.playback) working.playback=f.playback;
+            working.traceComplete=working.traceComplete && e.drops==working.startDrops;
+            working.cursorX=f.cursorX; working.cursorY=f.cursorY; working.haveCursor=true;
+            working.inventoryCount=f.inventoryCount; working.carryMass=f.carryMass; working.inventoryOpen=f.inventoryOpen;
+            if (f.health>=0) { if (working.previousHealth>=0) working.healthLost+=(std::max)(0.0f,working.previousHealth-f.health); working.previousHealth=f.health; }
+            if (working.previousLives >= 0 && f.lives < working.previousLives) working.livesLost+=static_cast<uint32_t>(working.previousLives-f.lives);
+            working.previousLives=f.lives;
+            if (f.playing && f.dt>0 && !f.over && !f.complete) {
+                if (working.initialState.is_null()) {
+                    // Capture actual starting gameplay facts, not Begin's empty
+                    // placeholder. File work stays on the existing AI worker.
+                    working.initialState={{"eventOrder",e.order},{"utcMs",e.utc},{"mode",f.mode},{"wave",f.wave},{"floor",f.floor},{"area",f.area},
+                        {"hasPosition",f.hasPosition},{"x",f.x},{"y",f.y},{"height",f.height},{"score",f.score},{"lives",f.lives},
+                        {"health",f.health},{"armour",f.armour},{"weapon",f.weapon},{"ammo",f.ammo},{"hostiles",f.hostiles},
+                        {"carryMass",f.carryMass},{"carryCapacity",f.carryCapacity},{"inventoryCount",f.inventoryCount}};
+                    auto initial=Identity("initial-state",f.scene,f.player,f.demo);
+                    initial["session"]=e.session; initial["writerId"]=writer; initial["state"]=working.initialState;
+                    Seal(initial); WriteJson(directory/"initial-state.json",initial);
+                }
+                const double dt=(std::clamp)(f.dt,0.0f,0.25f); ++working.frames; working.seconds+=dt;
+                if (row["idleInput"].get<bool>()) working.idleSeconds+=dt;
+                const float observedX=f.x-working.px, observedY=f.y-working.py;
+                const bool moving=f.moveX*f.moveX+f.moveY*f.moveY>.04f || (f.hasPosition && working.havePosition && observedX*observedX+observedY*observedY>.0001f);
+                if (moving) working.moving+=dt;
+                if (f.danger>0.0f) { working.dangerSeconds+=dt; if (moving) working.evasionSeconds+=dt; }
+                if (f.buttons&1u) working.firing+=dt;
+                working.mx+=f.moveX*dt; working.my+=f.moveY*dt;
+                if (f.hasPosition)
+                {
+                    const float dx=f.x-working.px,dy=f.y-working.py;
+                    if (working.havePosition && f.moveX*f.moveX+f.moveY*f.moveY>.04f && dx*dx+dy*dy<.0001f) working.stuckSeconds+=dt;
+                    working.px=f.x; working.py=f.y; working.havePosition=true;
+                }
+
+                if (working.previousX*f.moveX+working.previousY*f.moveY < -.1f) ++working.turns;
+                working.previousX=f.moveX; working.previousY=f.moveY;
+            }
+        }
+        if (e.kind==End && working.id==e.session) {
+            working.finished=true;
+            working.end=e.utc; working.lastOrder=e.order; working.traceComplete=working.traceComplete && dropped.load()==working.startDrops; WriteJson(directory/"sessions"/(Name(working)+".json"),Summary(working,true,static_cast<int>(e.reason)));
+            sessions.push_back(working); working=Session(); std::error_code ec; std::filesystem::remove(directory/"active.json",ec); Rebuild();
+        }
+        if (e.kind==Playback && e.area && e.session) {
+            const auto video=directory.parent_path()/"Playbacks"/(std::to_string(e.area)+".mp4");
+            std::error_code error;
+            const auto bytes=std::filesystem::file_size(video,error);
+            // A result may have been evicted before this worker batch. Never
+            // recreate a sidecar for a discarded or failed video capture.
+            if (!error && bytes>0) {
+                auto manifest=Identity("playback-manifest",f.scene,f.player,f.demo);
+                manifest["writerId"]=writer; manifest["session"]=e.session; manifest["id"]=e.area;
+                manifest["video"]=video.filename().string(); manifest["videoBytes"]=bytes;
+                manifest["seconds"]=e.value; manifest["score"]=f.score; manifest["wave"]=f.wave; manifest["fps"]=30;
+                Seal(manifest); auto sidecar=video; sidecar.replace_extension(".json"); WriteJson(sidecar,manifest);
+                if (!std::filesystem::exists(video,error)) std::filesystem::remove(sidecar,error);
+            }
+        }
+        if (e.kind==Command && e.accepted && e.sequence>lastForwarded)
+        {
+            // Do not expose a direct command to the engine before its acceptance
+            // has actually reached the journal. The render thread never waits for IO.
+            journal.flush(); if (!journal) throw std::runtime_error("AI command audit failed");
+            WriteJson(directory/"listener-state.json",{{"lastSequence",e.sequence}});
+            std::lock_guard<std::mutex> lock(queueMutex);
+            commands[(commandHead+commandSize)%commands.size()] = {f.scene,f.player,e.command,(std::clamp)(e.value,0.0f,1.0f),e.sequence};
+            ++commandSize; lastForwarded=e.sequence; if (awaitingAudit) --awaitingAudit;
+        }
+        if (e.kind==Command || e.kind==Result) WriteJson(directory/"acknowledgement.json",row);
+        lastAppliedEvent=e.order;
+    }
+    void Pump() {
+        // One bounded batch, then return to the pre-existing model/command worker.
+        if (!retryCount)
+        {
+            std::lock_guard<std::mutex> lock(queueMutex);
+            retryCount=(std::min)(size,retryBatch.size()); retryOffset=0;
+            for(size_t i=0;i<retryCount;++i) retryBatch[i]=queue[(head+i)%Capacity];
+            head=(head+retryCount)%Capacity; size-=retryCount;
+        }
+        for (;retryOffset<retryCount;++retryOffset) Process(retryBatch[retryOffset]);
+        if (journal.is_open()) {
+            journal.flush();
+            if (!journal) { retryOffset=0; throw std::runtime_error("AI journal flush failed"); }
+        }
+        retryCount=retryOffset=0;
+        ProcessRecovery();
+        if (working.id && Now()-lastCheckpoint>=1000) { working.traceComplete=working.traceComplete && dropped.load()==working.startDrops; WriteJson(directory/"active.json",Summary(working,false,0)); lastCheckpoint=Now(); }
+        if (Now()-lastPrune>=60000) Prune();
+        #if defined(DEFINE_EXT_CMD_SEQUENCE)
+            const auto inbox=directory/"command.json";
+            if (std::filesystem::exists(inbox)) {
+                try { std::ifstream in(inbox); nlohmann::json j; in>>j;
+                    const int command=j.at("command").get<int>();
+                    const int64_t expiry=j.at("expiresUtcMs").get<int64_t>();
+                    const auto type=expiry>=Now() && expiry<=Now()+60000 ? (command>=1 && command<=4 ? static_cast<AIGameCommand>(command) : AIGameCommand::None) : AIGameCommand::None;
+                    Submit(j.at("scene").get<int>(),type,j.value("value",0.0f),j.at("sequence").get<uint64_t>(),j.value("player",1));
+                } catch (...) { Event e; e.kind=Command; Push(e); }
+                std::error_code ec; std::filesystem::remove(inbox,ec);
+            }
+        #endif
+    }
+};
+
+uint64_t GamingAI::RecordInventoryDirective(int scene,AIInventoryOperation operation,int item,bool automatic) {
+    if (!m_isInitialized.load() || m_shouldShutdown.load() || operation==AIInventoryOperation::None) return 0;
+    auto& history=*m_gameHistory; std::lock_guard<std::mutex> lock(history.lifecycleMutex);
+    auto event=history.Make(GameHistory::InventoryDirective); event.frame.scene=scene;
+    event.sequence=history.nextSequence.fetch_add(1); event.value=static_cast<float>(operation);
+    event.area=static_cast<uint64_t>(static_cast<int64_t>(item)+1); event.direct=automatic;
+    return history.Push(event) ? event.sequence : 0;
+}
+void GamingAI::RecordInventoryResult(uint64_t sequence,bool applied,float mass,float health) {
+    if (!sequence || !m_isInitialized.load() || m_shouldShutdown.load()) return;
+    auto& history=*m_gameHistory; std::lock_guard<std::mutex> lock(history.lifecycleMutex);
+    auto event=history.Make(GameHistory::InventoryResult); event.sequence=sequence;
+    event.accepted=applied; event.policy={mass,health,0,0}; history.Push(event);
+}
+AIInventoryDecision GamingAI::PlanInventory(AIInventoryMemory& memory,const AIInventoryState& state,const AIInventoryItem* items,int count,float dt) {
+    AIInventoryDecision result;
+    memory.wait=(std::max)(0.0f,memory.wait-(std::clamp)(dt,0.0f,0.25f));
+    if (!state.safe) {
+        // Instant recovery in games without an inventory window can save a
+        // critically hurt actor while movement continues. Never discard here.
+        if(state.autonomous && !state.hasWindow && memory.wait<=0) for(int i=0;i<count && i<64;++i)
+            if(items[i].kind==AIInventoryKind::Recovery && items[i].usable && items[i].count>0 && items[i].need>=0.5f) {
+                result.operation=AIInventoryOperation::Use; result.item=items[i].id; memory.wait=0.55f; return result;
+            }
+        if (state.open && state.autonomous) result.operation=AIInventoryOperation::Close; return result;
+    }
+    if (memory.wait>0) return result;
+    const bool pressure=state.full || (state.capacity>0 && state.mass+state.requiredSpace>state.capacity);
+    if (!pressure) memory.prompted=false;
+    if (!state.autonomous) {
+        if (pressure && !state.open && state.hasWindow && !memory.prompted) {
+            result.operation=AIInventoryOperation::Open; memory.prompted=true; memory.wait=1.0f;
+        }
+        return result;
+    }
+    if (pressure && !state.open && state.hasWindow) { memory.wait=0.8f; result.operation=AIInventoryOperation::Open; return result; }
+    if (!pressure && !state.open && state.hasWindow) return result;
+    float benefit=0; int best=-1;
+    for (int i=0;i<count && i<64;++i) {
+        const auto& item=items[i]; if (item.count<=0 || !item.usable) continue;
+        float score=0;
+        if (item.kind==AIInventoryKind::Equipment && item.quality>item.equippedQuality) score=10.0f+(item.quality-item.equippedQuality)*3.0f;
+        if (item.kind==AIInventoryKind::Recovery && (item.need>=(state.hasWindow?0.2f:0.5f) || (pressure && item.need>0.01f))) score=item.need*30.0f;
+        if (score>benefit) { benefit=score; best=i; }
+    }
+    if (best>=0) {
+        result.operation=items[best].kind==AIInventoryKind::Equipment ? AIInventoryOperation::Equip : AIInventoryOperation::Use;
+        result.item=items[best].id; memory.wait=0.55f; return result;
+    }
+    float discard=1.0e30f; best=-1;
+    int weapons=0; for (int i=0;i<count && i<64;++i) if (items[i].kind==AIInventoryKind::Weapon && items[i].count>0) ++weapons;
+    if (pressure) for (int i=0;i<count && i<64;++i) {
+        const auto& item=items[i];
+        if (item.count<=0 || item.weight<=0 || item.essential || item.kind==AIInventoryKind::Key) continue;
+        if ((item.kind==AIInventoryKind::Recovery && item.count<=1) || (item.kind==AIInventoryKind::Resource && item.count<=2)
+            || (item.kind==AIInventoryKind::Ammo && item.count<=10) || (item.kind==AIInventoryKind::Weapon && weapons<=2)) continue;
+        const float value=(item.quality+1.0f)/item.weight;
+        if (value<discard) { discard=value; best=i; }
+    }
+    if (best>=0) {
+        const auto& item=items[best]; result.operation=AIInventoryOperation::Drop; result.item=item.id;
+        const int keep=item.kind==AIInventoryKind::Ammo ? 10 : (item.kind==AIInventoryKind::Recovery ? 1 : (item.kind==AIInventoryKind::Resource ? 2 : 0));
+        const float space=(std::max)(0.5f,state.mass+state.requiredSpace-state.capacity+0.25f);
+        result.amount=(std::max)(1,(std::min)({128,item.count-keep,static_cast<int>(std::ceil(space/item.weight))}));
+        memory.wait=0.55f; return result;
+    }
+    if (state.open) result.operation=AIInventoryOperation::Close;
+    memory.wait=pressure ? 8.0f : 1.0f; return result;
+}
+
+bool GamingAI::ValidateGameRecording(const std::filesystem::path& path, int expectedScene) {
+    try {
+        std::ifstream in(path,std::ios::binary); if (!in) return false;
+        if (path.extension()==".jsonl") {
+            std::string line; bool header=false;
+            while (std::getline(in,line)) {
+                if (line.empty()) continue;
+                auto row=nlohmann::json::parse(line);
+                const bool isHeader=row.value("recordType",std::string())=="journal-header";
+                if (!GameHistory::Compatible(row,isHeader ? -1 : expectedScene)) return false;
+                if (isHeader) header=true; else if (!header) return false;
+            }
+            return header && !in.bad();
+        }
+        if (std::filesystem::file_size(path)>1024*1024) return false;
+        nlohmann::json value; in>>value;
+        if (!GameHistory::Compatible(value,expectedScene)) return false;
+        if (value.at("recordType")=="playback-manifest") {
+            const auto id=value.at("id").get<uint64_t>();
+            if (!id || !value.at("session").get<uint64_t>() || value.at("video")!=std::to_string(id)+".mp4") return false;
+            const auto video=path.parent_path()/(std::to_string(id)+".mp4");
+            return value.at("videoBytes").get<uint64_t>()>0 && std::filesystem::file_size(video)==value.at("videoBytes").get<uint64_t>();
+        }
+        return value.at("recordType")=="session";
+    } catch (...) { return false; }
+}
+uint64_t GamingAI::CurrentGameSession() const {
+    std::lock_guard<std::mutex> lock(m_gameHistory->lifecycleMutex); return m_gameHistory->session;
+}
+void GamingAI::RecordPlayback(uint64_t session,uint64_t playback,const AIGameFrame& result,float seconds) {
+    if (!session || !playback || !m_isInitialized.load() || m_shouldShutdown.load()) return;
+    GameHistory::Event event; event.kind=GameHistory::Playback; event.session=session; event.area=playback;
+    event.frame=result; event.frame.playback=playback; event.value=seconds; m_gameHistory->Push(event);
+}
+
+void GamingAI::ConfigureGameLearning(bool record, bool recall, bool adapt, bool restart) {
+    // Recording human and autonomous play is a required engine service. The
+    // legacy setting remains readable for configuration compatibility.
+    (void)record; record = true;
+    auto& h=*m_gameHistory; std::lock_guard<std::mutex> lifecycle(h.lifecycleMutex);
+    const bool wasRecording=h.record;
+    if (wasRecording && !record) h.Finish(AIGameEnd::Abort);
+    h.record=record; h.recall=recall; h.adapt.store(adapt); h.restartEnabled=restart;
+    if (!wasRecording && record && h.scene>=0) { const int keepStage=h.stage; h.Start(h.scene,h.player,h.currentDemo); h.stage=keepStage; }
+    if (!restart && h.stage==2) h.stage=0;
+}
+AIGameFlow GamingAI::AdvanceGameLifecycle(int scene,bool demo,bool reset,float dt,bool confirm,bool cancel,bool allow,int player) {
+    if (!m_isInitialized.load() || m_shouldShutdown.load()) return {};
+    std::lock_guard<std::mutex> lifecycle(m_gameHistory->lifecycleMutex);
+    return m_gameHistory->Advance(scene,demo,reset,dt,confirm,cancel,allow,player);
+}
+bool GamingAI::GetReplayContext(int scene, bool demo, AIReplayContext& out) const {
+    if (scene<0 || scene>=64 || !m_gameHistory) return false;
+    auto& h=*m_gameHistory; const int src=demo?1:0;
+    { std::lock_guard<std::mutex> lock(h.lifecycleMutex); if (h.live[scene][src].valid) { out=h.live[scene][src]; return true; } }
+    std::lock_guard<std::mutex> lock(h.cacheMutex);
+    if (!h.persisted[scene][src].valid) return false;
+    out=h.persisted[scene][src]; return true;
+}
+// The core's answer to "the demo has not progressed". Escalation is time based and bounded; the adapter only executes it (cache refresh, a short held input pulse). The probe directions
+// walk round a 16-point circle with a stride that is coprime to 16, so successive pulses go to different headings instead of repeating one blocked move.
+AIDemoUnstick GamingAI::ObserveDemoStall(AIDemoWatchdog& w, float dt, bool playing, bool hasPosition, float x, float y,
+    int score, int lives, int wave, float& dirX, float& dirY) {
+    dirX=dirY=0.0f;
+    if (!playing || !hasPosition || !(dt>0.0f) || !std::isfinite(x) || !std::isfinite(y)) { w.idle=0.0f; w.hold=0.0f; return AIDemoUnstick::None; }
+    dt=(std::min)(dt,0.25f);
+    const bool scored=score!=w.score || lives!=w.lives || wave!=w.wave;
+    const float moved=std::hypot(x-w.anchorX,y-w.anchorY);
+    if (!w.anchored || scored || moved>0.75f) {             // real progress: a new anchor and a clean slate
+        w.anchored=true; w.score=score; w.lives=lives; w.wave=wave; w.anchorX=x; w.anchorY=y; w.idle=0.0f; w.hold=0.0f; w.strikes=0;
+        return AIDemoUnstick::None;
+    }
+    if (w.hold>0.0f) { w.hold-=dt; dirX=w.dirX; dirY=w.dirY; return AIDemoUnstick::Probe; }
+    w.idle+=dt;
+    if (w.strikes==0 && w.idle>=4.0f) { w.strikes=1; return AIDemoUnstick::Refresh; }
+    if (w.strikes>=1 && w.idle>=(w.strikes==1 ? 8.0f : 6.0f)) {
+        const int index=static_cast<int>((w.strikes*5u+3u)%16u); const float angle=static_cast<float>(index)*0.39269908f;       // 2*pi/16
+        w.dirX=std::sin(angle); w.dirY=std::cos(angle); w.hold=0.8f; w.idle=0.0f; ++w.strikes; dirX=w.dirX; dirY=w.dirY;
+        return AIDemoUnstick::Probe;
+    }
+    return AIDemoUnstick::None;
+}
+float GamingAI::BoardSearchDeadline(int timeLimitSeconds, bool demo, float unlimitedSeconds) {
+    // Configured searches keep their limit plus slack. The attract demo must never sit visibly undecided: unlimited searches end after at most 8 s and the adapter plays a legal fallback.
+    const float configured=timeLimitSeconds>0 ? static_cast<float>(timeLimitSeconds)+3.0f : unlimitedSeconds;
+    return (demo && timeLimitSeconds<=0) ? (std::min)(configured,8.0f) : configured;
+}
+void GamingAI::RecordGameUpdate(const AIGameFrame& frame) { if (!m_isInitialized.load() || m_shouldShutdown.load()) return; std::lock_guard<std::mutex> lock(m_gameHistory->lifecycleMutex); m_gameHistory->Observe(frame); }
+void GamingAI::NotifyGameReset() { auto& h=*m_gameHistory; std::lock_guard<std::mutex> lock(h.lifecycleMutex); if (h.scene>=0) { if (!h.resetExpected) h.Start(h.scene,h.player,h.currentDemo); h.resetExpected=false; h.ClearDefeats(); h.Push(h.Make(GameHistory::Reset)); } }
+void GamingAI::EndGameSession(AIGameEnd reason) { std::lock_guard<std::mutex> lock(m_gameHistory->lifecycleMutex); m_gameHistory->Finish(reason); }
+AIListenerReply GamingAI::RequestGameStrategy(int scene,int player,bool demo) {
+    AIListenerReply reply; if (!m_isInitialized.load() || m_shouldShutdown.load()) return reply; reply.strategy=m_gameHistory->Strategy(scene,player,demo);
+    GameHistory::Event e; e.kind=GameHistory::Request; e.frame.scene=scene; e.frame.player=player; e.frame.demo=demo;
+    reply.sequence=m_gameHistory->nextSequence.fetch_add(1); e.sequence=reply.sequence; e.accepted=true; e.direct=reply.strategy.sessions==0;
+    e.policy={reply.strategy.aggression,reply.strategy.avoidance,reply.strategy.predictionSeconds,reply.strategy.preferredRange}; e.learnedSessions=reply.strategy.sessions;
+    reply.acknowledged=m_gameHistory->Push(e); reply.direct=reply.strategy.sessions==0;
+    return reply;
+}
+bool GamingAI::SubmitExternalGameCommand(int scene,AIGameCommand command,float value,uint64_t sequence,int player) { return m_gameHistory->Submit(scene,command,value,sequence,player); }
+uint64_t GamingAI::RequestGameRecovery(int scene,uint64_t revision,float x,float y,float goalX,float goalY,const AINavigationCandidate* candidates,int count) {
+    if (!m_isInitialized.load() || m_shouldShutdown.load() || !candidates || count<=0 || count>16
+        || !std::isfinite(x) || !std::isfinite(y) || !std::isfinite(goalX) || !std::isfinite(goalY)) return 0;
+    auto& h=*m_gameHistory;
+    std::unique_lock<std::mutex> lifecycle(h.lifecycleMutex,std::try_to_lock);
+    if (!lifecycle || !h.active || !h.currentDemo || h.scene!=scene) return 0;
+    std::unique_lock<std::mutex> lock(h.recoveryMutex,std::try_to_lock);
+    if (!lock || h.recoveryBusy) return 0;
+    AIRecoveryJob job; job.plan.scene=scene; job.plan.player=h.player; job.plan.session=h.session; job.plan.revision=revision;
+    job.plan.request=h.nextSequence.fetch_add(1); job.plan.startX=x; job.plan.startY=y;
+    job.goalX=goalX; job.goalY=goalY; job.count=count;
+    for (int i=0;i<count;++i) {
+        const auto& c=candidates[i];
+        if (!std::isfinite(c.x) || !std::isfinite(c.y) || !std::isfinite(c.danger) || c.danger<0) return 0;
+        job.candidates[i]=c;
+    }
+    auto event=h.Make(GameHistory::RecoveryRequest); event.sequence=job.plan.request;
+    event.area=revision; event.policy={x,y,goalX,goalY};
+    if (!h.Push(event)) return 0;
+    h.recoveryJob=job; h.recoveryBusy=h.recoveryQueued=true; h.recoveryReady=false;
+    return job.plan.request;
+}
+bool GamingAI::PollGameRecovery(int scene,uint64_t revision,AIRecoveryPlan& plan) {
+    auto& h=*m_gameHistory;
+    std::unique_lock<std::mutex> lifecycle(h.lifecycleMutex,std::try_to_lock);
+    if (!lifecycle) return false;
+    std::unique_lock<std::mutex> lock(h.recoveryMutex,std::try_to_lock);
+    if (!lock || !h.recoveryBusy) return false;
+    if (!h.active || !h.currentDemo || h.scene!=scene || h.recoveryJob.plan.session!=h.session || h.recoveryJob.plan.revision!=revision) {
+        h.recoveryBusy=h.recoveryQueued=h.recoveryReady=false; return false;
+    }
+    if (!h.recoveryReady) return false;
+    plan=h.recoveryReply; h.recoveryBusy=h.recoveryReady=false; return true;
+}
+bool GamingAI::PollGameCommand(int scene,AIGameCommand& command,float& value,uint64_t& sequence) {
+    auto& h=*m_gameHistory; std::lock_guard<std::mutex> lock(h.queueMutex);
+    if (!h.commandSize) return false; auto p=h.commands[h.commandHead]; h.commandHead=(h.commandHead+1)%h.commands.size(); --h.commandSize;
+    command=p.command; value=p.value; sequence=p.sequence;
+    // A command for a different scene is acknowledged as unapplied, not forwarded.
+    if (p.scene!=scene || p.player!=h.player) command=AIGameCommand::None;
+    return true;
+}
+void GamingAI::RecordGameCommandResult(uint64_t sequence,bool applied) { GameHistory::Event e; e.kind=GameHistory::Result; e.sequence=sequence; e.accepted=applied; e.direct=true; m_gameHistory->Push(e); }
+bool GamingAI::GameHistoryHealthy() const { return m_gameHistory->healthy.load(); }
+float GamingAI::InitialBossStrength(int wave) { return (std::clamp)(0.15f+0.005f*static_cast<float>((std::max)(0,wave-5)),0.15f,1.0f); }
+float GamingAI::BossCombatRange(float weaponRange, float bodyRadius, float healthFraction) {
+    const float desired = bodyRadius + (healthFraction < 0.45f ? 26.0f : 20.0f);
+    return (std::min)(weaponRange * 0.75f, desired);
+}
+float GamingAI::GroundVehicleSpeed(float baseSpeed, int level) {
+    // Heavy hulls stay slow; progression never exceeds their configured speed.
+    const float ramp = (std::clamp)(static_cast<float>(level - 1) / 39.0f, 0.0f, 1.0f);
+    return (std::max)(0.0f, baseSpeed) * (0.35f + 0.65f * ramp);
+}
+bool GamingAI::AllowCanyonStep(bool canyon, bool bridge, bool fallback) { return !canyon || bridge || fallback; }
+int GamingAI::FindTerrainRoute(int width, int height, int start, int goal, uint64_t revision,
+    AITerrainReader reader, const void* context, int* path, int capacity, bool& reached, bool& usedCanyon, float border) {
+    constexpr int MaxCells = 512 * 512;
+    struct Scratch {
+        std::array<int, MaxCells> parent{}, queue{};
+        std::array<uint32_t, MaxCells> visited{};
+        uint32_t stamp = 0; uint64_t revision = 0;
+        int width = 0, height = 0, goal = -1, start = -1, routeN = 0, cursor = 0;
+        bool reached = false, canyon = false;
+        float border = 4.0f;
+        AITerrainReader reader = nullptr;
+    };
+    // One bounded scratch block per calling thread, with no allocation in the search.
+    // The BFS queue becomes the cached route after reconstruction.
+    static thread_local Scratch scratch;
+    reached = usedCanyon = false;
+    if (width <= 0 || height <= 0 || width > 512 || height > 512 || !reader || !path || capacity <= 0
+        || start < 0 || goal < 0 || start >= width * height || goal >= width * height) return 0;
+    auto emit = [&](int cursor) {
+        const int n = (std::min)(capacity, scratch.routeN - cursor);
+        for (int i = 0; i < n; ++i) path[i] = scratch.queue[cursor + i];
+        reached = scratch.reached; usedCanyon = scratch.canyon; return n;
+    };
+    if (scratch.revision == revision && scratch.width == width && scratch.height == height && scratch.goal == goal && scratch.border == border && scratch.reader == reader) {
+        if (scratch.start == start) return emit(scratch.cursor);
+        for (int i = scratch.cursor; i < (std::min)(scratch.routeN, scratch.cursor + 32); ++i)
+            if (scratch.queue[i] == start) { scratch.start = start; scratch.cursor = i + 1; return emit(i + 1); }
+    }
+    int best = start; bool found = false; const bool exactGoal = reader(context, goal).clear;
+    for (int pass = 0; pass < 2 && !found; ++pass) {
+        if (++scratch.stamp == 0) { scratch.visited.fill(0); scratch.stamp = 1; }
+        int head = 0, tail = 0, bestDistance = 0x7fffffff;
+        scratch.queue[tail++] = start; scratch.parent[start] = -1; scratch.visited[start] = scratch.stamp;
+        while (head < tail) {
+            const int cell = scratch.queue[head++], x = cell % width, y = cell / width;
+            const int dx = x - goal % width, dy = y - goal / width, distance = dx * dx + dy * dy;
+            if (distance < bestDistance) { bestDistance = distance; best = cell; }
+            if (distance == 0 || (!exactGoal && distance <= 1)) { found = true; break; }
+            const auto from = reader(context, cell);
+            const int nx[4] = { x - 1, x + 1, x, x }, ny[4] = { y, y, y - 1, y + 1 };
+            for (int i = 0; i < 4; ++i) {
+                if (nx[i] < 0 || ny[i] < 0 || nx[i] >= width || ny[i] >= height) continue;
+                const int next = ny[i] * width + nx[i]; if (scratch.visited[next] == scratch.stamp) continue;
+                if (!NavigationStepAllowed(x + 0.5f, y + 0.5f, nx[i] + 0.5f, ny[i] + 0.5f, static_cast<float>(width), static_cast<float>(height), border)) continue;
+                const auto to = reader(context, next); const float rise = to.height - from.height;
+                if (!to.clear || !AllowCanyonStep(to.canyon, to.bridge, pass != 0) || rise > 1.8f || rise < -4.0f) continue;
+                scratch.visited[next] = scratch.stamp; scratch.parent[next] = cell; scratch.queue[tail++] = next;
+            }
+        }
+        usedCanyon = pass != 0;
+    }
+    scratch.routeN = 0;
+    for (int cell = best; cell != start && cell >= 0 && scratch.routeN < MaxCells; cell = scratch.parent[cell])
+        scratch.queue[scratch.routeN++] = cell;
+    std::reverse(scratch.queue.begin(), scratch.queue.begin() + scratch.routeN);
+    scratch.revision = revision; scratch.width = width; scratch.height = height; scratch.goal = goal;
+    scratch.start = start; scratch.cursor = 0; scratch.reached = found; scratch.canyon = usedCanyon;
+    scratch.border = border; scratch.reader = reader;
+    return emit(0);
+}
+void GamingAI::RejectDemoGoal(AIDemoPlan& plan) {
+    if (!plan.goal) return;
+    const int slot = plan.nextRejected;
+    plan.rejected[slot] = plan.goal; plan.retryAt[slot] = plan.time + 8.0f;
+    plan.nextRejected = (slot + 1) % static_cast<int>(plan.rejected.size());
+    plan.goal = 0; plan.progressTime = 0; plan.bestDistance = 1.0e30f; ++plan.recoveries;
+}
+bool GamingAI::CanFireFacing(float error) { return std::isfinite(error) && std::fabs(error) <= 8.0f; }
+void GamingAI::ObserveDemoPerformance(AIDemoPerformance& state, int score, int wave, int lives, float elapsed)
+{
+    if (score > state.score || wave > state.wave) state.lastProgress = elapsed;
+    if (state.lives >= 0 && lives < state.lives) state.lastLoss = elapsed;
+    state.score = score; state.wave = wave; state.lives = lives;
+}
+
+float GamingAI::DemoTimeLimit(const AIDemoPerformance& state, float elapsed, float normalLimit)
+{
+    // Recent progress and survival justify a longer demonstration. A stalled
+    // run reverts to the existing limit; no demo can extend beyond five minutes.
+    const bool performing = (state.score > 0 || state.wave > 1)
+        && elapsed - state.lastProgress <= 30.0f && elapsed - state.lastLoss >= 12.0f;
+    return performing ? 300.0f : (std::min)(normalLimit, 300.0f);
+}
+
+int GamingAI::DemoViewMode(float elapsed, const AIGameStrategy& strategy)
+{
+    // Give the viewer a sustained demonstration in each perspective. Strategy
+    // changes dwell time modestly; camera choices never change control axes.
+    const float dwell = 20.0f + (std::clamp)(strategy.avoidance, 0.0f, 1.0f) * 8.0f;
+    return static_cast<int>((std::max)(0.0f, elapsed) / dwell) % 2;
+}
+int GamingAI::PlanDemoSeparation(AIDemoEscapeMemory& m, const AIDemoContact* contacts,
+    int count, const AIDemoEscapeCandidate* candidates, int candidateCount, float dt)
+{
+    m.hold = (std::max)(0.0f, m.hold - (std::clamp)(dt, 0.0f, 0.1f));
+    bool contactNear = false;
+    for (int i = 0; contacts && i < count && i < 512; ++i) {
+        const auto& c = contacts[i]; const float distance = std::sqrt(c.x*c.x + c.y*c.y + c.z*c.z);
+        const float margin = (std::max)(0.35f, c.radius * 0.45f);
+        if (distance < c.radius + margin * (m.active ? 1.6f : 1.0f)) { contactNear = true; break; }
+    }
+    if (!contactNear && (!m.active || m.hold <= 0)) { m.active = false; return -1; }
+    if (contactNear && !m.active) m.hold = 0.35f;
+    m.active = true;
+    int selected = -1; float best = -1.0e30f;
+    for (int i = 0; candidates && i < candidateCount && i < 16; ++i) {
+        const auto& p = candidates[i]; if (!p.clear) continue;
+        const float length2 = p.x*p.x + p.y*p.y + p.z*p.z; if (length2 < 0.0001f) continue;
+        float clearance = 1.0e20f, improvement = 1.0e20f;
+        for (int j = 0; contacts && j < count && j < 512; ++j) {
+            const auto& c = contacts[j]; const float start = std::sqrt(c.x*c.x + c.y*c.y + c.z*c.z);
+            const float t = (std::clamp)((c.x*p.x + c.y*p.y + c.z*p.z) / length2, 0.0f, 1.0f);
+            const float dx = c.x - p.x*t, dy = c.y - p.y*t, dz = c.z - p.z*t;
+            clearance = (std::min)(clearance, std::sqrt(dx*dx + dy*dy + dz*dz) - c.radius);
+            if (start < c.radius * 2.5f + 1.0f) {
+                const float ex = c.x-p.x, ey = c.y-p.y, ez = c.z-p.z;
+                improvement = (std::min)(improvement, std::sqrt(ex*ex + ey*ey + ez*ez) - start);
+            }
+        }
+        // Existing overlaps must shrink first. Do not cross a second enemy's
+        // body merely because the chosen endpoint is farther from the first.
+        const float score = (std::min)(improvement, 10.0f) * 8.0f + (std::min)(clearance, 10.0f) * 3.0f
+            + (p.x*m.x + p.y*m.y + p.z*m.z) * 0.15f;
+        if (score > best) { best = score; selected = i; }
+    }
+    if (selected >= 0) { const auto& p = candidates[selected]; m.x = p.x; m.y = p.y; m.z = p.z; }
+    return selected;
+}
+float GamingAI::GunnerPositionScore(float distance, int cover, int lanes) {
+    return lanes * 8.0f + (std::min)(cover, 2) * 4.0f - std::fabs(distance - 28.0f) * 0.2f - (distance < 10.0f ? 60.0f : 0.0f);
+}
+bool GamingAI::GunnerShouldAdvance(bool visible, float distance, float range, float contactAge) {
+    return (visible && distance > range * 0.85f) || (!visible && contactAge > 1.5f);
+}
+void GamingAI::BuildReachability(int width, int height, int start, AITerrainReader reader,
+    const void* context, uint8_t* reachable, int capacity) {
+    // Bounded building-floor connectivity shared by placement adapters.
+    if (!reachable || !reader || width <= 0 || height <= 0 || width > 64 || height > 64
+        || capacity < width * height) return;
+    const int cells = width * height; std::fill(reachable, reachable + cells, uint8_t(0));
+    if (start < 0 || start >= cells || !reader(context, start).clear) return;
+    std::array<int, 4096> queue; int head = 0, tail = 0; queue[tail++] = start; reachable[start] = 1;
+    while (head < tail) {
+        const int c = queue[head++], x = c % width, y = c / width;
+        const int nx[4] = {x - 1, x + 1, x, x}, ny[4] = {y, y, y - 1, y + 1};
+        for (int i = 0; i < 4; ++i) {
+            if (nx[i] < 0 || ny[i] < 0 || nx[i] >= width || ny[i] >= height) continue;
+            const int n = ny[i] * width + nx[i];
+            if (!reachable[n] && reader(context, n).clear) { reachable[n] = 1; queue[tail++] = n; }
+        }
+    }
+}
+int GamingAI::PlanDemoGoal(AIDemoPlan& plan, const AIDemoGoal* goals, int count,
+    float x, float y, float health, bool needsAmmo, float dt, const AIGameStrategy& strategy) {
+    dt = (std::max)(0.0f, (std::min)(dt, 0.25f)); plan.time += dt;
+    // Measure the outcome of the preceding action, including lost health. This
+    // short-lived pressure changes the next decision without inventing progress.
+    plan.damagePressure = (std::max)(0.0f, plan.damagePressure - dt * 0.1f)
+        + (std::max)(0.0f, plan.lastHealth - health);
+    plan.lastHealth = health;
+    for (int i = 0; goals && i < count && i < 2048; ++i) if (goals[i].id == plan.goal) {
+        const float distance = std::hypot(goals[i].x - x, goals[i].y - y);
+        if (distance < plan.bestDistance - 0.5f) { plan.bestDistance = distance; plan.progressTime = 0; }
+        else if (!(goals[i].kind == AIDemoGoalKind::Enemy && goals[i].visible && goals[i].sameArea)
+            && !(goals[i].kind == AIDemoGoalKind::Heal && distance < 2.5f)) plan.progressTime += dt;
+        if (plan.progressTime >= 6.0f) RejectDemoGoal(plan);
+        break;
+    }
+    int selected = -1; float best = -1.0e30f;
+    for (int i = 0; goals && i < count && i < 2048; ++i) {
+        const auto& g = goals[i]; if (!g.available || !g.id) continue;
+        bool banned = false;
+        for (size_t j = 0; j < plan.rejected.size(); ++j)
+            if (plan.rejected[j] == g.id && plan.retryAt[j] > plan.time && !g.visible) { banned = true; break; }
+        if (banned) continue;
+        const float distance = std::hypot(g.x - x, g.y - y);
+        float score = -distance * 0.6f;
+        switch (g.kind) {
+        case AIDemoGoalKind::Enemy: score += g.visible && g.sameArea ? 130.0f : 25.0f; break;
+        case AIDemoGoalKind::Supply: score += needsAmmo ? 180.0f : 35.0f; break;
+        case AIDemoGoalKind::Heal: score += health < 0.42f ? 220.0f + plan.damagePressure * 50.0f : -250.0f; break;
+        case AIDemoGoalKind::Collect: score += needsAmmo ? -200.0f : 40.0f; break;
+        case AIDemoGoalKind::Explore: score -= 100.0f; if (distance < 3.0f) score -= 1000.0f; break;
+        }
+        if (!g.sameArea) score -= 15.0f;
+        if (g.id == plan.goal) score += 12.0f + strategy.aggression * 5.0f;
+        if (score > best) { best = score; selected = i; }
+    }
+    if (selected >= 0 && plan.goal != goals[selected].id) {
+        plan.goal = goals[selected].id; plan.progressTime = 0;
+        plan.bestDistance = std::hypot(goals[selected].x - x, goals[selected].y - y); ++plan.decisions;
+    }
+    return selected;
+}
+void GamingAI::PlanGroundVehicle(AIGroundVehicleMemory& memory, const AIGroundVehicleState& state,
+    const AINavigationCandidate* candidates, int count, const AICombatThreat* threats, int threatCount) {
+    memory.replan = 0.2f; memory.speed = GroundVehicleSpeed(state.baseSpeed, state.level);
+    float gx = state.targetX - state.x, gy = state.targetY - state.y;
+    const float distance = std::hypot(gx, gy);
+    if (distance > 0.001f) { gx /= distance; gy /= distance; }
+    const float standOff = state.range * (state.artillery ? 0.65f : 0.40f);
+    if (state.visible && distance < standOff * 0.55f) { gx = -gx; gy = -gy; }
+    else if (state.visible && distance < standOff) { const float tmp = gx; gx = -gy; gy = tmp; }
+    float best = -1.0e30f, leastDanger = 1.0e30f; int selected = -1;
+    for (int i = 0; i < count && i < 16; ++i) {
+        const auto& c = candidates[i]; if (!c.clear) continue;
+        float dx = c.x - state.x, dy = c.y - state.y; const float length = std::hypot(dx, dy);
+        if (length > 0.001f) { dx /= length; dy /= length; }
+        const float risk = CombatMoveDanger(threats, threatCount, state.x, state.y,
+            dx * memory.speed, dy * memory.speed, 1.4f);
+        const float score = dx * gx + dy * gy;
+        if (risk < leastDanger - 0.001f || (risk <= leastDanger + 0.001f && score > best)) {
+            selected = i; leastDanger = risk; best = score;
+        }
+    }
+    memory.targetX = selected >= 0 ? candidates[selected].x : state.x;
+    memory.targetY = selected >= 0 ? candidates[selected].y : state.y;
+    if (selected < 0) memory.speed = 0.0f;
+    if (!state.visible && distance < 1.0f) memory.speed = 0.0f;  // hold the search point until fresh contact
+    // Brace only when staying put is safe; avoiding fire outranks a firing stance.
+    const float stationaryRisk = CombatMoveDanger(threats, threatCount, state.x, state.y, 0, 0, 1.4f);
+    if (state.tracked && state.visible && distance < state.range && state.shotCooldown <= 0.35f
+        && stationaryRisk <= 0.001f) memory.speed = 0.0f;
+}
+bool GamingAI::ShouldUseCombatMedkit(float healthFraction, int medkits) {
+    return healthFraction < 0.45f && medkits > 0;
+}
+float GamingAI::DemoPlanningInterval(const AIGameStrategy& strategy, bool heavyThreat) {
+    return (std::clamp)((heavyThreat ? 0.12f : 0.22f) - strategy.avoidance * 0.05f - strategy.predictionSeconds * 0.05f, 0.07f, 0.22f);
+}
+float GamingAI::DemoPredictionHorizon(const AIGameStrategy& strategy) {
+    return (std::clamp)(0.6f + strategy.avoidance * 0.25f + strategy.predictionSeconds, 0.6f, 1.0f);
+}
+float GamingAI::CombatMoveDanger(const AICombatThreat* threats, int count, float x, float y, float vx, float vy, float horizon) {
+    float danger = 0.0f;
+    // Fixed actor pools bound this sweep. Relative motion catches crossing shots,
+    // not just bullets near the destination; timed blasts use the arrival time.
+    for (int i = 0; i < count; ++i) {
+        const auto& t = threats[i];
+        const float radius = t.radius + (t.boss ? 10.0f : (t.crushing ? 2.5f : 1.6f));
+        float time = 0.0f;
+        const float rx = t.x - x, ry = t.y - y, dx = t.vx - vx, dy = t.vy - vy;
+        if (t.impactTime >= 0.0f) {
+            if (t.impactTime > horizon) continue;
+            time = t.impactTime;
+        } else {
+            const float speed2 = dx * dx + dy * dy;
+            if (speed2 > 0.001f) time = (std::clamp)(-(rx * dx + ry * dy) / speed2, 0.0f, horizon);
+        }
+        const float cx = rx + dx * time, cy = ry + dy * time;
+        const float overlap = radius * radius - cx * cx - cy * cy;
+        if (overlap > 0.0f) danger += (t.boss ? 2.0f : 8.0f) * overlap / (radius * radius);
+        // When already inside a danger circle, favour movement that exits it.
+        const float ex = rx + dx * horizon, ey = ry + dy * horizon;
+        const float endOverlap = radius * radius - ex * ex - ey * ey;
+        if (endOverlap > 0.0f && t.impactTime < 0.0f) danger += endOverlap / (radius * radius);
+    }
+    return danger;
+}
+int GamingAI::PlanNavigationStep(AINavigationMemory& m,float x,float y,float gx,float gy,float dt,const AINavigationCandidate* candidates,int count,const AIGameStrategy& strategy,bool safetyFirst,bool exploreIfIdle) {
+    m.sampleTime+=dt;
+    if (m.sampleTime>=.4f) {
+        const float dx=x-m.lastX,dy=y-m.lastY;
+        if (dx*dx+dy*dy<.16f) { m.stalled+=m.sampleTime; ++m.failures; } else { m.stalled=0; m.failures=0; }
+        m.visited[m.next]={x,y}; m.next=(m.next+1)%static_cast<int>(m.visited.size()); m.count=(std::min)(m.count+1,static_cast<int>(m.visited.size()));
+        m.lastX=x; m.lastY=y; m.sampleTime=0;
+    }
+    float best=-1.0e30f; int selected=-1;
+    float leastDanger = 1.0e30f;
+    for (int i = 0; i < count && i < 32; ++i)
+        if (candidates[i].clear && candidates[i].danger > 0.0f) safetyFirst = true;
+    if (safetyFirst) for (int i = 0; i < count && i < 32; ++i)
+        if (candidates[i].clear) leastDanger = (std::min)(leastDanger, candidates[i].danger);
+    bool safeMovement = false;
+    for (int i = 0; i < count && i < 32; ++i) {
+        const auto& c = candidates[i];
+        if (c.clear && (!safetyFirst || c.danger <= leastDanger + 0.001f)
+            && std::hypot(c.x - x, c.y - y) > 0.1f) safeMovement = true;
+    }
+    const float distance=std::hypot(gx-x,gy-y);
+    for (int i=0;i<count && i<32;++i) {
+        const auto& c=candidates[i]; if (!c.clear) continue;
+        // Survival outranks route progress, even when learning/adaptation is disabled.
+        if (safetyFirst && c.danger > leastDanger + 0.001f) continue;
+        if (exploreIfIdle && safeMovement && std::hypot(c.x-x,c.y-y) <= 0.1f) continue;
+        float revisit=0;
+        for (int j=0;j<m.count;++j) { const float dx=c.x-m.visited[j][0],dy=c.y-m.visited[j][1]; if(dx*dx+dy*dy<4.0f) revisit+=1.0f; }
+        // A stalled route values unexplored, clear space more than a direct heading.
+        const float progress=exploreIfIdle ? 0.0f : distance-std::hypot(gx-c.x,gy-c.y);
+        const float score=progress*(m.stalled>.8f?.25f:1.0f)-revisit*(m.stalled>.8f?2.5f:.12f)-c.danger*(2.0f+strategy.avoidance*4.0f);
+        if(score>best) {best=score;selected=i;}
+    }
+    return selected;
+}
+
+void GamingAI::ResetGameEncounters() { std::lock_guard<std::mutex> lock(m_gameHistory->lifecycleMutex); m_gameHistory->ClearDefeats(); }
+bool GamingAI::EncounterDefeated(uint64_t area,int kind) const {
+    std::lock_guard<std::mutex> lock(m_gameHistory->lifecycleMutex);
+    return m_gameHistory->encounterOverflow || m_gameHistory->FindDefeat((area<<8)|static_cast<uint8_t>(kind),false)!=0;
+}
+void GamingAI::RecordEncounterDefeat(uint64_t area,int kind) {
+    auto& h=*m_gameHistory; std::lock_guard<std::mutex> lock(h.lifecycleMutex); const uint64_t key=(area<<8)|static_cast<uint8_t>(kind);
+    if (h.FindDefeat(key,true)==2) { auto e=h.Make(GameHistory::BossDefeat); e.area=area; e.value=static_cast<float>(kind); if (h.record) h.Push(e); }
+}
+
 GamingAI::GamingAI() :
     m_isInitialized(false),                                             // System not initialized by default
     m_isMonitoring(false),                                              // Not monitoring by default
@@ -54,6 +1248,7 @@ GamingAI::GamingAI() :
     m_sessionInputEvents.reserve(5000);                                // Reserve space for 5K input events
     m_analysisTimings.reserve(1000);                                   // Reserve space for 1K timing samples
 
+    m_gameHistory = std::make_unique<GameHistory>();
     // Initialize player analysis data container for maximum players
     m_playerAnalysisData.reserve(gamePlayer.GetActivePlayerCount());   // Reserve space based on active players
 
@@ -106,7 +1301,8 @@ bool GamingAI::Initialize(const AIModelConfiguration& config) {
 
     try {
         // Store configuration settings
-        m_configuration = config;                                       // Save AI configuration
+        m_configuration = config;
+        m_configuration.dataRetentionDays = (std::clamp)(m_configuration.dataRetentionDays, 1.0f, 21.0f);                                       // Save AI configuration
 
         // Validate configuration parameters
         if (m_configuration.maxModelSizeBytes < 1024 * 1024) {          // Minimum 1MB model size
@@ -126,7 +1322,7 @@ bool GamingAI::Initialize(const AIModelConfiguration& config) {
             debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Failed to create Windows performance timer");
             return false;                                               // Failed to create timer
         }
-        #elif defined(PLATFORM_LINUX) || defined(PLATFORM_MACOS)
+        #elif defined(PLATFORM_LINUX) || defined(PLATFORM_MACOS) || defined(PLATFORM_ANDROID) || defined(PLATFORM_IOS)
             clock_gettime(CLOCK_MONOTONIC, &m_performanceTimer);       // Initialize POSIX timer
         #endif
 
@@ -154,6 +1350,7 @@ bool GamingAI::Initialize(const AIModelConfiguration& config) {
             ResetAIModel();                                             // Create new AI model
         }
 
+        m_shouldShutdown.store(false);
         // Create and start AI processing thread using ThreadManager
         threadManager.SetThread(THREAD_AI_PROCESSING, [this]() {
             AIThreadTasking();                                          // Main AI thread function
@@ -190,12 +1387,9 @@ void GamingAI::Cleanup() {
 
     try {
         // Signal AI thread to shutdown
+        EndGameSession(AIGameEnd::Quit);
+        { std::lock_guard<std::mutex> lock(m_gameHistory->lifecycleMutex); m_gameHistory->Push(m_gameHistory->Make(GameHistory::EngineStop)); }
         m_shouldShutdown.store(true);                                   // Set shutdown flag
-
-        // Stop monitoring if currently active
-        if (m_isMonitoring.load()) {
-            EndMonitoring();                                            // Stop monitoring and save session data
-        }
 
         // Clear command queue and notify waiting threads
         {
@@ -207,16 +1401,26 @@ void GamingAI::Cleanup() {
         }
 
         // Save current AI model to disk before shutdown
+        // Stop AI processing thread using ThreadManager
+        if (threadManager.DoesThreadExist(THREAD_AI_PROCESSING)) {
+            threadManager.TerminateThread(THREAD_AI_PROCESSING);
+            try {
+                for (;;) { size_t pending; { std::lock_guard<std::mutex> lock(m_gameHistory->queueMutex); pending=m_gameHistory->size; }
+                    if (!pending && !m_gameHistory->retryCount) break; m_gameHistory->Pump(); }
+                m_gameHistory->journal.close();
+            } catch (...) { m_gameHistory->healthy.store(false); }
+             // Stop AI thread gracefully
+        }
+
+        // Finalize legacy monitoring only after the worker has joined. Session
+        // containers must not be cleared while periodic analysis reads them.
+        if (m_isMonitoring.load()) EndMonitoring();
+
         if (m_isInitialized.load() && m_currentModelSize.load() > 0) {
             std::string modelPath = GetDefaultModelFilename();         // Get model save path
             if (!SaveAIModel(modelPath)) {
                 debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Failed to save AI model during cleanup");
             }
-        }
-
-        // Stop AI processing thread using ThreadManager
-        if (threadManager.DoesThreadExist(THREAD_AI_PROCESSING)) {
-            threadManager.StopThread(THREAD_AI_PROCESSING);             // Stop AI thread gracefully
         }
 
         // Clean up platform-specific resources
@@ -576,6 +1780,7 @@ bool GamingAI::InjectAICommand(AICommandType commandType, AICommandPriority prio
         return false;                                                   // Failed to acquire lock
     }
 
+    std::lock_guard<std::mutex> queueGuard(m_commandQueueMutex);
     try {
         // Create AI command structure with provided parameters
         AICommand newCommand(commandType, priority, playerID, commandData);
@@ -591,35 +1796,10 @@ bool GamingAI::InjectAICommand(AICommandType commandType, AICommandPriority prio
         }
 
         // Check command queue size to prevent memory exhaustion
-        if (m_commandQueue.size() >= 1000) {                           // Maximum 1000 pending commands
-            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"AI command queue full - removing oldest low priority commands");
-
-            // Remove low priority commands to make space for new command
-            std::priority_queue<AICommand> tempQueue;                  // Temporary queue for rebuilding
-            int removedCount = 0;
-
-            // Keep only high priority and critical commands
-            while (!m_commandQueue.empty()) {
-                AICommand cmd = m_commandQueue.top();
-                m_commandQueue.pop();
-
-                if (cmd.priority >= AICommandPriority::PRIORITY_HIGH || tempQueue.size() < 800) {
-                    tempQueue.push(cmd);                                // Keep high priority or make space
-                }
-                else {
-                    removedCount++;                                     // Count removed commands
-                }
-            }
-
-            // Restore filtered commands to main queue
-            m_commandQueue = std::move(tempQueue);
-
-#if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
-            debug.logDebugMessage(LogLevel::LOG_DEBUG, L"Removed %d low priority commands from queue", removedCount);
-#endif
-        }
-
-        // Add command to priority queue
+        if (m_commandQueue.size() >= 1000) return false;   // hard bound, including high-priority producers
+        GameHistory::Event audit; audit.kind=GameHistory::Request; audit.area=static_cast<uint32_t>(commandType);
+        audit.frame.player=static_cast<int>(playerID); audit.accepted=true;
+        if (!m_gameHistory->Push(audit) && commandType!=AICommandType::CMD_EMERGENCY_SHUTDOWN) return false;
         m_commandQueue.push(newCommand);                                // Insert command with priority ordering
 
         // Handle emergency commands immediately
@@ -650,6 +1830,7 @@ bool GamingAI::InjectAICommand(AICommandType commandType, AICommandPriority prio
 
 // Get current command queue size for monitoring
 size_t GamingAI::GetCommandQueueSize() const {
+    std::lock_guard<std::mutex> queueGuard(m_commandQueueMutex);
     // Use ThreadLockHelper for thread-safe queue size access
     ThreadLockHelper queueLock(threadManager, "gamingai_queue_size", 500, true); // Silent with short timeout
     if (!queueLock.IsLocked()) {
@@ -674,6 +1855,7 @@ size_t GamingAI::GetCommandQueueSize() const {
 
 // Clear all pending commands from queue
 void GamingAI::ClearCommandQueue() {
+    std::lock_guard<std::mutex> queueGuard(m_commandQueueMutex);
 #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
     debug.logLevelMessage(LogLevel::LOG_INFO, L"GamingAI::ClearCommandQueue() called - clearing all pending commands");
 #endif
@@ -1435,9 +2617,9 @@ bool GamingAI::UpdateConfiguration(const AIModelConfiguration& config) {
             debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Data retention too short, adjusting to minimum 1 day");
             validatedConfig.dataRetentionDays = 1.0f;                  // Set minimum 1 day
         }
-        else if (validatedConfig.dataRetentionDays > 365.0f) {
+        else if (validatedConfig.dataRetentionDays > 21.0f) {
             debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"Data retention too long, adjusting to maximum 365 days");
-            validatedConfig.dataRetentionDays = 365.0f;                // Set maximum 1 year
+            validatedConfig.dataRetentionDays = 21.0f;                // Set maximum 21 days
         }
 
         // Validate learning rate (must be between 0.01 and 1.0)
@@ -1701,7 +2883,7 @@ bool GamingAI::UpdateConfigurationParameter(const std::string& parameterName, co
         }
         else if (parameterName == "dataRetentionDays") {
             float newRetention = std::stof(parameterValue);
-            if (newRetention >= 1.0f && newRetention <= 365.0f) {
+            if (newRetention >= 1.0f && newRetention <= 21.0f) {
                 m_configuration.dataRetentionDays = newRetention;
 #if defined(_DEBUG_GAMINGAI_) && defined(_DEBUG)
                 debug.logDebugMessage(LogLevel::LOG_INFO, L"Data retention updated to %.1f days", newRetention);
@@ -2376,40 +3558,32 @@ void GamingAI::AIThreadTasking() {
 #endif
 
         // Main AI processing loop - continues until shutdown requested
+        try { m_gameHistory->Load(); } catch (...) { m_gameHistory->healthy.store(false); }
         while (!m_shouldShutdown.load()) {
             try {
                 // Record loop iteration start time for performance monitoring
                 auto loopStartTime = std::chrono::steady_clock::now();
                 bool processedCommands = false;
+                try { m_gameHistory->Pump(); }
+                catch (...) {
+                    if (m_gameHistory->healthy.exchange(false)) debug.logLevelMessage(LogLevel::LOG_ERROR, L"[CPGE-AI-LISTENER] History IO failed; batch retained for retry.");
+                    // Replay the whole unflushed batch; event IDs suppress repeated side effects.
+                    m_gameHistory->retryOffset=0;
+                    m_gameHistory->journal.close(); m_gameHistory->journalHour=-1;
+                }
 
-                // Process all available commands in the queue
+                // A bounded command batch cannot starve session recording. Dispatch
+                // outside the queue mutex because commands may enqueue more work.
+                for (int budget=0; budget<64 && !m_shouldShutdown.load(); ++budget)
                 {
-                    ThreadLockHelper queueLock(threadManager, "gamingai_thread_queue", 1000, true); // Silent lock
-                    if (queueLock.IsLocked()) {
-                        // Process commands while queue is not empty
-                        while (!m_commandQueue.empty() && !m_shouldShutdown.load()) {
-                            // Get highest priority command from queue
-                            AICommand currentCommand = m_commandQueue.top();
-                            m_commandQueue.pop();
-
-                            // Process the command
-                            ProcessAICommand(currentCommand);
-                            totalCommandsProcessed++;
-                            processedCommands = true;
-
-                            // Check for emergency shutdown command
-                            if (currentCommand.commandType == AICommandType::CMD_EMERGENCY_SHUTDOWN) {
-                                debug.logDiagLevelMessage(LogLevel::LOG_CRITICAL, L"Emergency shutdown command processed - terminating AI thread");
-                                m_shouldShutdown.store(true);
-                                break;                                  // Exit command processing loop
-                            }
-
-                            // Yield CPU if we've processed many commands continuously
-                            if (totalCommandsProcessed % 50 == 0) {
-                                std::this_thread::yield();             // Allow other threads to run
-                            }
-                        }
+                    AICommand currentCommand;
+                    {
+                        std::lock_guard<std::mutex> lock(m_commandQueueMutex);
+                        if (m_commandQueue.empty()) break;
+                        currentCommand=m_commandQueue.top(); m_commandQueue.pop();
                     }
+                    ProcessAICommand(currentCommand); ++totalCommandsProcessed; processedCommands=true;
+                    if (currentCommand.commandType==AICommandType::CMD_EMERGENCY_SHUTDOWN) { m_shouldShutdown.store(true); break; }
                 }
 
                 // Perform periodic analysis if interval has elapsed
@@ -3893,7 +5067,13 @@ void GamingAI::FastMemoryCopy(void* dest, const void* src, size_t size) const {
         // Use optimized intrinsics for large copies (>1KB)
         if (size > 1024) {
             // Use MSVC intrinsics instead of inline assembly for x64 compatibility
-#include <intrin.h>
+#if defined(_MSC_VER)
+    #include <intrin.h>
+#endif
+#include <nlohmann/json.hpp>
+#include <unordered_set>
+#include <cmath>
+#include <stdexcept>
 
 // Ensure 16-byte alignment for optimal SIMD performance
             const size_t SIMD_ALIGNMENT = 16;
@@ -4010,3 +5190,427 @@ uint32_t GamingAI::FastDataChecksum(const uint8_t* data, size_t size) const {
 #endif
 
 #pragma warning(pop)
+
+// Pick a combined threat budget, rather than rounding every enemy family up to
+// one (which would keep almost the entire roster after an 85% reduction).
+uint64_t GamingAI::SelectThreatBudget(int count, float pressure, uint32_t seed)
+{
+    count = (std::clamp)(count, 0, 64);
+    if (!count) return 0;
+    const int budget = (std::clamp)(static_cast<int>(std::lround(count * (std::clamp)(pressure, 0.0f, 1.0f))), 1, count);
+    std::array<int, 64> order{}; for (int i = 0; i < count; ++i) order[i] = i;
+    uint64_t selected = 0;
+    for (int i = 0; i < budget; ++i)
+    {
+        seed = seed * 1664525u + 1013904223u;
+        const int j = i + static_cast<int>(seed % static_cast<uint32_t>(count - i));
+        std::swap(order[i], order[j]); selected |= uint64_t(1) << order[i];
+    }
+    return selected;
+}
+
+// Outdoor keep-away rule: while inside the safety margin, no tangential border
+// crawl is accepted. A displaced actor may still move strictly inward to recover.
+bool GamingAI::NavigationStepAllowed(float fromX, float fromY, float toX, float toY, float width, float height, float margin)
+{
+    if (!std::isfinite(toX) || !std::isfinite(toY) || toX < 1 || toY < 1 || toX >= width - 1 || toY >= height - 1) return false;
+    const float before = (std::min)((std::min)(fromX, fromY), (std::min)(width - fromX, height - fromY));
+    const float after = (std::min)((std::min)(toX, toY), (std::min)(width - toX, height - toY));
+    return after >= margin || after > before + 0.001f;
+}
+// Board games retain their existing rule engines and private search workers.
+// GamingAI supplies strategic move ordering and acknowledges both the proposed
+// move and the move actually committed against the current position hash.
+bool GamingAI::FullBoardStrength(int iq) { return iq >= 160; }
+AIBoardPlan GamingAI::RequestBoardStrategy(int scene, uint64_t position, int iq, int moveNumber, int pieces, int purpose, bool demo)
+{
+    AIBoardPlan plan; plan.scene=scene; plan.position=position; plan.iq=iq;
+    plan.moveNumber=moveNumber; plan.purpose=purpose; plan.demo=demo;
+    if (scene<33 || scene>35 || !m_isInitialized.load()) return plan;
+    const AIGameStrategy profile=m_gameHistory->Strategy(scene,1,demo);
+    plan.goal=pieces<=12 ? AIBoardGoal::Endgame : (moveNumber<=8 ? AIBoardGoal::Develop
+        : (profile.boardCaptureRate>.30f ? AIBoardGoal::KingSafety : AIBoardGoal::Initiative));
+    plan.request=m_gameHistory->nextSequence.fetch_add(1);
+    GameHistory::Event event;
+    { std::lock_guard<std::mutex> lock(m_gameHistory->lifecycleMutex); event=m_gameHistory->Make(GameHistory::BoardRequest); }
+    event.sequence=plan.request; event.frame.scene=scene; event.frame.demo=demo; event.board.plan=plan;
+    plan.acknowledged=true; event.board.plan=plan;
+    if (!m_gameHistory->Push(event)) plan.acknowledged=false;
+    { std::lock_guard<std::mutex> lock(m_gameHistory->cacheMutex); m_gameHistory->boardStatus[scene-33]=AIBoardStatus(); m_gameHistory->boardStatus[scene-33].plan=plan; }
+    return plan;
+}
+void GamingAI::OrderBoardMoves(const AIBoardPlan& plan, const AIBoardCandidate* moves, int count, int* order)
+{
+    count=(std::clamp)(count,0,512); if (!moves || !order) return;
+    std::array<int,512> priority{};
+    for (int i=0;i<count;++i)
+    {
+        const auto& m=moves[i]; order[i]=i;
+        int value=(m.flags&2u ? 50 : 0)+(m.flags&4u ? 70 : 0)+(m.flags&1u ? 30+m.captured*2-m.piece : 0);
+        if (plan.goal==AIBoardGoal::Develop) value+=(m.development?20:0)+static_cast<int>(m.centre*12.0f);
+        else if (plan.goal==AIBoardGoal::KingSafety) value+=(m.flags&8u?30:0)+(m.flags&2u?10:0);
+        else if (plan.goal==AIBoardGoal::Initiative) value+=static_cast<int>(m.centre*18.0f)+(m.flags&1u?10:0);
+        else value+=(m.piece==1?12:0)+static_cast<int>(m.centre*8.0f);
+        priority[i]=value;
+    }
+    std::sort(order,order+count,[&](int a,int b){return priority[a]!=priority[b]?priority[a]>priority[b]:a<b;});
+}
+bool GamingAI::AcknowledgeBoardSuggestion(const AIBoardPlan& plan, const AIBoardCandidate& move, int score, int depth, bool valid)
+{
+    if (plan.scene<33 || plan.scene>35) return false;
+    AIBoardStatus status; status.plan=plan; status.move=move; status.score=score; status.depth=depth; status.ready=valid;
+    GameHistory::Event event;
+    { std::lock_guard<std::mutex> lock(m_gameHistory->lifecycleMutex); event=m_gameHistory->Make(GameHistory::BoardSuggestion); }
+    event.frame.scene=plan.scene; event.frame.demo=plan.demo; event.sequence=plan.request; event.board=status;
+    const bool acknowledged=m_gameHistory->Push(event);
+    { std::lock_guard<std::mutex> lock(m_gameHistory->cacheMutex); auto& cached=m_gameHistory->boardStatus[plan.scene-33];
+        if (cached.plan.request==plan.request) { status.plan.acknowledged=acknowledged&&plan.acknowledged; cached=status; } }
+    return acknowledged;
+}
+void GamingAI::RecordBoardMove(int scene, uint64_t before, uint64_t after, uint64_t request,
+    const AIBoardCandidate& move, bool human, bool demo, bool applied)
+{
+    if (scene<33 || scene>35) return;
+    AIBoardStatus status;
+    { std::lock_guard<std::mutex> lock(m_gameHistory->cacheMutex); auto& cached=m_gameHistory->boardStatus[scene-33];
+        status=cached;
+        if (!request && human && cached.ready && before==cached.plan.position && move.from==cached.move.from && move.to==cached.move.to && move.promotion==cached.move.promotion) request=cached.plan.request;
+        status.applied=applied; status.accepted=applied && before==status.plan.position && request!=0 && request==status.plan.request;
+        status.observedPosition=before;
+        status.move=move; status.resultingPosition=after; status.human=human;
+        if (request && cached.plan.request==request) cached=status; }
+    status.plan.scene=scene; if (!request) status.plan.position=before; status.plan.request=request; status.plan.demo=demo;
+    GameHistory::Event event;
+    { std::lock_guard<std::mutex> lock(m_gameHistory->lifecycleMutex); event=m_gameHistory->Make(GameHistory::BoardMove); }
+    event.frame.scene=scene; event.frame.demo=demo; event.board=status; event.sequence=request; m_gameHistory->Push(event);
+}
+AIBoardStatus GamingAI::GetBoardStatus(int scene) const
+{
+    if (scene<33 || scene>35) return {};
+    std::lock_guard<std::mutex> lock(m_gameHistory->cacheMutex); return m_gameHistory->boardStatus[scene-33];
+}
+void GamingAI::ResetBoardAdvisor(int scene)
+{
+    if (scene<33 || scene>35) return;
+    std::lock_guard<std::mutex> lock(m_gameHistory->cacheMutex); m_gameHistory->boardStatus[scene-33]=AIBoardStatus();
+}
+
+// ------------------------------------------------------------------------------------------------
+//  SPACE DOGFIGHT POLICY (see AIDogfightMemory in GamingAI.h).  Allocation free; one call per pilot per frame.
+// ------------------------------------------------------------------------------------------------
+static float DogRand(AIDogfightMemory& m)                                           // tiny LCG: deterministic per pilot, no global state
+{
+    m.rng = m.rng * 1664525u + 1013904223u;
+    return static_cast<float>((m.rng >> 8) & 0xFFFFu) / 65535.0f;
+}
+AIDogfightOrders GamingAI::StepDogfighter(AIDogfightMemory& m, const AIDogfightFacts& f)
+{
+    AIDogfightOrders o;
+    const float dt = (std::clamp)(f.dt, 0.0f, 0.1f);
+    const int sk = (std::clamp)(f.skill, 0, 3);
+    // Freelancer pilot-block values per skill tier (easy / medium / hard / ace): gun accuracy cone (deg), seconds between bursts, dodge interval and length, missile gap.
+    static const float kCone[4] = { 15.0f, 10.0f, 8.0f, 6.0f }, kRest[4] = { 2.0f, 1.2f, 0.8f, 0.5f }, kDodgeGap[4] = { 3.0f, 2.6f, 2.0f, 2.0f }, kDodgeLen[4] = { 2.5f, 2.0f, 2.0f, 2.0f }, kMissGap[4] = { 10.0f, 9.0f, 8.0f, 7.0f };
+    m.stateT += dt; m.dodgeT -= dt; m.burstT -= dt; m.missileT -= dt; m.mineT -= dt;
+    const float len = std::sqrt(f.lx * f.lx + f.ly * f.ly + f.lz * f.lz);
+    if (len < 1.0e-4f) return o;
+    const float ux = f.lx / len, uy = f.ly / len, uz = f.lz / len;
+    const float yawErr = std::atan2(ux, uz), pitchErr = std::atan2(uy, std::sqrt(ux * ux + uz * uz));        // radians; target right / above = positive
+    const float angDeg = std::acos((std::clamp)(uz, -1.0f, 1.0f)) * 57.29578f;                               // angle between the nose and the target
+    auto aim = [&](float gain) { o.yaw = (std::clamp)(yawErr * gain, -1.0f, 1.0f); o.pitch = (std::clamp)(pitchErr * gain, -1.0f, 1.0f); };
+    // Damage reaction: a sudden loss of hull triggers a hard break (DamageReactionBlock); a nearly dead pilot of medium skill or better runs.
+    if (m.lastHp < 0.0f) m.lastHp = f.hpFrac;
+    const float lost = m.lastHp - f.hpFrac; m.lastHp = f.hpFrac > m.lastHp ? f.hpFrac : m.lastHp - (m.lastHp - f.hpFrac) * 0.5f;
+    if (f.hpFrac < 0.18f && sk >= 1) { if (m.state != AIDogState::Flee) { m.state = AIDogState::Flee; m.stateT = 0; } }
+    else if (lost > 0.10f && m.state != AIDogState::Break && m.state != AIDogState::Flee) { m.state = AIDogState::Break; m.stateT = 0; m.rollDir = DogRand(m) < 0.5f ? -1.0f : 1.0f; }
+    // An enemy nose pointed at us inside gun range starts a dodge (EvadeDodgeBlock): slide for the easy tiers, corkscrew for hard and ace.
+    if ((m.state == AIDogState::Trail || m.state == AIDogState::Strafe || m.state == AIDogState::Buzz) && f.tgtFacingMe > 0.90f && f.dist < f.gunRange && m.dodgeT <= -kDodgeGap[sk] * (0.6f + 0.8f * DogRand(m)))
+    { m.state = AIDogState::Dodge; m.stateT = 0; m.dodgeT = kDodgeLen[sk]; m.dodgeSide = DogRand(m) < 0.5f ? -1.0f : 1.0f; m.dodgeUp = DogRand(m) < 0.5f ? -1.0f : 1.0f; }
+    switch (m.state)
+    {
+    case AIDogState::Buzz:                                                           // BuzzHeadToward: approach at 0.8 throttle, sliding left / right
+        aim(2.0f); o.throttle = 0.8f; o.slideX = std::sin(m.stateT * 2.2f) * 0.6f;
+        if (f.dist < 220.0f) { m.state = AIDogState::PassBy; m.stateT = 0; m.dodgeSide = DogRand(m) < 0.5f ? -1.0f : 1.0f; }
+        break;
+    case AIDogState::PassBy:                                                         // BuzzPassBy: break away at roughly 90 degrees for two seconds
+        o.yaw = m.dodgeSide; o.pitch = 0.25f * m.dodgeSide; o.throttle = 1.0f; o.roll = m.dodgeSide * 0.4f;
+        if (m.stateT > 2.0f) { m.state = AIDogState::Trail; m.stateT = 0; }
+        break;
+    case AIDogState::Trail:                                                          // TrailBlock: turn at up to 0.6 throttle until the lock cone (30 deg) holds on the target
+        aim(2.4f); o.throttle = f.dist > 300.0f ? 1.0f : 0.6f; o.boost = f.dist > 900.0f;
+        if (sk >= 1 && !f.tgtEngineDead && f.dist < 500.0f && m.stateT > 3.0f && DogRand(m) < 0.4f * f.dt) { m.state = AIDogState::EngineKill; m.stateT = 0; }
+        else if (angDeg < 30.0f && f.dist < 450.0f && m.stateT > 1.0f) { m.state = AIDogState::Strafe; m.stateT = 0; m.wobble = 0; }
+        else if (m.stateT > 10.0f) { m.state = AIDogState::Buzz; m.stateT = 0; }
+        break;
+    case AIDogState::Strafe:                                                         // StrafeBlock: attack at full throttle, then run away until 600 m clear
+        if (m.wobble < 0.5f) { aim(2.6f); o.throttle = 1.0f; if (f.dist < 90.0f || m.stateT > 8.0f) { m.wobble = 1.0f; m.stateT = 0; } }
+        else { o.yaw = 0.5f * m.dodgeSide; o.pitch = -0.2f; o.throttle = 1.0f; o.boost = true; if (f.dist > 600.0f || m.stateT > 6.0f) { m.state = AIDogState::Buzz; m.stateT = 0; } }
+        break;
+    case AIDogState::Dodge:                                                          // EvadeDodge: slide (easy / medium) or corkscrew (hard / ace) while still turning toward the target
+        aim(1.2f); o.throttle = 1.0f;
+        if (sk >= 2) { o.roll = m.dodgeSide; o.yaw += 0.5f * std::sin(m.stateT * 7.0f); o.pitch += 0.5f * std::cos(m.stateT * 7.0f); o.slideX = m.dodgeSide * 0.5f; }
+        else { o.slideX = m.dodgeSide; o.slideY = m.dodgeUp * 0.7f; o.roll = m.dodgeSide * 0.3f; }
+        if (m.dodgeT <= 0.0f) { m.state = AIDogState::Trail; m.stateT = 0; }
+        break;
+    case AIDogState::Break:                                                          // EvadeBreak: roll hard, pull up and outrun for about two and a half seconds
+        o.roll = m.rollDir; o.pitch = 0.8f; o.yaw = 0.4f * m.rollDir; o.throttle = 1.0f; o.boost = true; o.slideX = m.rollDir * 0.6f;
+        if (m.stateT > 2.5f) { m.state = AIDogState::Trail; m.stateT = 0; }
+        break;
+    case AIDogState::EngineKill:                                                     // EngineKillBlock: face the target for two seconds and fire the engine disruptor
+        aim(3.0f); o.throttle = 0.7f; o.disableEngine = angDeg < 12.0f && f.dist < 520.0f;
+        if (m.stateT > 2.0f || f.tgtEngineDead) { m.state = AIDogState::Trail; m.stateT = 0; }
+        break;
+    case AIDogState::Flee:                                                           // nearly dead: turn tail and burn away, come back when the hull has recovered
+        o.yaw = -(std::clamp)(yawErr * 2.0f, -1.0f, 1.0f); o.pitch = -(std::clamp)(pitchErr * 2.0f, -1.0f, 1.0f); o.throttle = 1.0f; o.boost = true; o.slideX = std::sin(m.stateT * 3.0f);
+        if (f.hpFrac > 0.30f || m.stateT > 20.0f) { m.state = AIDogState::Buzz; m.stateT = 0; }
+        break;
+    }
+    // Guns: bursts (6 s on, then a rest that shrinks with skill) fired only inside the accuracy cone and gun range.
+    if (m.burstT <= 0.0f) { m.burstOn = !m.burstOn; m.burstT = m.burstOn ? 6.0f * (0.75f + 0.5f * DogRand(m)) : kRest[sk] * (0.75f + 0.5f * DogRand(m)); }
+    o.fire = m.burstOn && uz > 0.0f && angDeg < kCone[sk] && f.dist < f.gunRange * 1.1f && m.state != AIDogState::PassBy && m.state != AIDogState::Flee;
+    // Missiles: range 1000, cone 22.5 deg, a gap of 7 - 10 s; mines when the target sits behind the pilot inside 250 m.
+    if (f.hasMissile && m.missileT <= 0.0f && f.dist < 1000.0f && f.dist > 150.0f && uz > 0.0f && angDeg < 22.5f) { o.missile = true; m.missileT = kMissGap[sk] * (0.75f + 0.5f * DogRand(m)); }
+    if (f.hasMine && m.mineT <= 0.0f && uz < 0.0f && f.dist < 250.0f) { o.mine = true; m.mineT = 5.0f; }
+    if (f.missileInbound) { o.countermeasure = true; o.slideX = m.dodgeSide; o.slideY = m.dodgeUp * 0.5f; o.boost = true; }
+    return o;
+}
+AIDogfightOrders GamingAI::FlyToward(float lx, float ly, float lz, float dist, float arriveDist, float cruiseThrottle)
+{
+    AIDogfightOrders o; const float len = std::sqrt(lx * lx + ly * ly + lz * lz); if (len < 1.0e-4f) return o;
+    const float ux = lx / len, uy = ly / len, uz = lz / len, yawErr = std::atan2(ux, uz), pitchErr = std::atan2(uy, std::sqrt(ux * ux + uz * uz));
+    o.yaw = (std::clamp)(yawErr * 2.0f, -1.0f, 1.0f); o.pitch = (std::clamp)(pitchErr * 2.0f, -1.0f, 1.0f);
+    float t = cruiseThrottle; if (std::fabs(yawErr) > 1.0f) t *= 0.4f;                                       // a sharp turn first, then full speed
+    if (dist < arriveDist * 3.0f) t *= (std::max)(0.15f, dist / (arriveDist * 3.0f));                        // ease off on arrival
+    o.throttle = t; return o;
+}
+AILandingOrders GamingAI::StepLanding(AILandingMemory& m, const AILandingFacts& f)
+{
+    AILandingOrders o; m.phaseT += f.dt; m.totalT += f.dt;
+    const float spd = (std::max)(1.0f, f.spdMax);
+    const float apLen = std::sqrt(f.ax * f.ax + f.ay * f.ay + f.az * f.az);
+    const bool aligned = apLen > 1.0e-3f && f.az / apLen > 0.97f;                                     // nose within about 14 degrees of the approach point
+    switch (m.phase)
+    {
+    case AILandPhase::Approach:
+    {
+        // Full speed toward the standoff point, easing off on arrival (the same steering as a waypoint flight).
+        const AIDogfightOrders s = FlyToward(f.ax, f.ay, f.az, f.apDist, f.standoff * 0.4f, 1.0f);
+        o.yaw = s.yaw; o.pitch = s.pitch; o.throttle = s.throttle;
+        if (!f.cruising && !f.cruiseCharging && f.apDist > 4500.0f && aligned) o.cruiseToggle = true;     // far and lined up: engage the cruise drive
+        if (f.cruising) { o.throttle = 1.0f; if (f.apDist < 3500.0f) o.cruiseToggle = true; }          // cruise must be off well before the portal
+        if (!f.detour && !f.cruising && f.apDist < f.standoff * 0.35f) { m.phase = AILandPhase::Align; m.phaseT = 0.0f; }
+        else if (!f.detour && !f.cruising && f.along > 0.0f && f.dist < f.standoff * 1.15f) { m.phase = AILandPhase::Align; m.phaseT = 0.0f; }       // already on the bay's side and inside the standoff distance: go straight in (it used to fly OUT to the standoff point first, away from the target)
+        break;
+    }
+    case AILandPhase::Align:
+    {
+        // Creep onto the landing axis at the standoff point; once on the right side and close to the axis, start the descent.
+        const AIDogfightOrders s = FlyToward(f.ax, f.ay, f.az, f.apDist, (std::max)(60.0f, f.standoff * 0.15f), 0.35f);
+        o.yaw = s.yaw; o.pitch = s.pitch; o.throttle = (std::min)(s.throttle, 0.3f);
+        if (f.cruising) o.cruiseToggle = true;
+        if (f.along > 0.0f && f.lateral < f.radius * 0.4f && f.lz > 0.0f) { m.phase = AILandPhase::Descend; m.phaseT = 0.0f; }
+        else if (m.phaseT > 30.0f) { m.phase = AILandPhase::Approach; m.phaseT = 0.0f; }                // lost the axis: fly the approach again
+        break;
+    }
+    default:                                                                                              // Descend
+    {
+        const AIDogfightOrders s = FlyToward(f.lx, f.ly, f.lz, f.dist, f.radius, 1.0f);
+        o.yaw = s.yaw; o.pitch = s.pitch;
+        // The speed profile: slow as the portal nears, never above the limit.  Above the wanted speed the engine is cut and the velocity chase brakes the ship.
+        const float want = (std::min)(f.maxLandSpeed * 0.8f, 20.0f + f.dist * 0.12f);
+        o.throttle = f.speed > want * 1.3f ? 0.0f : (std::clamp)(want / spd, 0.03f, 1.0f);
+        // The funnel narrows toward the portal; leaving it (or ending up on the wrong side) sends the ship back to line up again.
+        const float funnel = f.radius * 0.5f + (std::max)(0.0f, f.dist - f.radius) * 0.12f;
+        if (f.lateral > funnel * 1.6f || f.along < -f.radius * 0.2f) { m.phase = AILandPhase::Align; m.phaseT = 0.0f; }
+        else if (f.dist < f.radius * 1.1f && f.speed <= f.maxLandSpeed) o.requestLand = true;
+        break;
+    }
+    }
+    o.phase = m.phase; return o;
+}
+
+// ------------------------------------------------------------------------------------------------
+//  MASTER AI SPACE COMMAND (see AISpaceMemory in GamingAI.h).  Allocation free, bounded loops (16 contacts, goal arrays as given), called a few times a second per demo pilot.
+// ------------------------------------------------------------------------------------------------
+void GamingAI::ResetSpaceMemory(AISpaceMemory& m)
+{
+    const uint32_t d = m.decisions, s = m.stalls; m = AISpaceMemory(); m.decisions = d; m.stalls = s;                // goals are per system, so ids and rejections must not leak into the next one
+}
+static bool SpaceRejected(const AISpaceMemory& m, int id, AISpaceGoalKind k)
+{
+    for (size_t i = 0; i < m.rejId.size(); ++i) if (m.rejId[i] == id && m.rejKind[i] == static_cast<uint8_t>(k) && m.rejUntil[i] > m.clock) return true;
+    return false;
+}
+AISpaceOrders GamingAI::PlanSpaceMission(AISpaceMemory& m, const AISpaceFacts& f, const AISpaceContact* contacts, int contactCount, const AISpaceGoal* goals, int goalCount)
+{
+    AISpaceOrders o; const float dt = (std::clamp)(f.dt, 0.0f, 0.5f); m.clock += dt; m.modeT += dt; m.goalT += dt;
+    const int nc = (std::clamp)(contactCount, 0, 16), ng = (std::max)(0, goalCount);
+    // ---- condition: vitality (hull weighs more than shields) and a damage-pressure meter that fades over about three seconds; a fast drop means someone is hurting us right now
+    const float vit = (std::clamp)(f.hull * 0.65f + f.shield * 0.35f, 0.0f, 1.0f); if (m.lastVit < 0.0f) m.lastVit = vit;
+    m.pressure = m.pressure * std::exp(-dt / 3.0f) + (std::max)(0.0f, m.lastVit - vit); m.lastVit = vit;
+    // ---- THREAT ASSESSMENT: danger per contact = role weight x (skill) x proximity, doubled-ish when its nose is on us at close range, discounted when it is nearly dead
+    float total = 0.0f, bestScore = -1.0f, nearD = 1.0e30f; int bestC = -1, nearC = -1;
+    for (int i = 0; i < nc; ++i)
+    {
+        const AISpaceContact& c = contacts[i]; const float lin = (std::max)(0.0f, 1.0f - c.dist / 9000.0f), prox = (std::max)(0.03f, lin * lin);
+        float w = c.weight * (0.6f + 0.25f * (std::clamp)(c.skill, 0.0f, 3.0f)); if (c.facingMe && c.dist < 1800.0f) w *= 1.5f; if (c.hpFrac < 0.25f) w *= 0.8f;
+        const float th = w * prox; total += th;
+        const float score = th + 0.3f * (1.0f - c.hpFrac) * prox + (c.id == m.targetId ? 0.12f : 0.0f);      // the kill order: most dangerous, finish the wounded, stay on the current target (hysteresis)
+        if (score > bestScore) { bestScore = score; bestC = i; }
+        if (c.dist < nearD) { nearD = c.dist; nearC = i; }
+    }
+    const float strength = (std::max)(0.05f, vit * (0.55f + 0.25f * (std::min)(1.0f, static_cast<float>(f.missiles) / 4.0f) + 0.20f * (std::clamp)(f.energy, 0.0f, 1.0f)));
+    const float ratio = total / (strength * 2.2f);                                                                 // > 1: we are outgunned
+    m.threatSm += (total - m.threatSm) * (1.0f - std::exp(-dt * 2.0f));
+    o.threat = total; o.strength = strength; o.fightRatio = ratio;
+    // ATTACKED FIRST: a hit (damage pressure) or a hostile with its nose on us at close range starts a ten second "fight back" window; inside it every contact within 9 km is engaged, and the pilot does not
+    // run unless it is badly outgunned.  Without it a hostile is engaged inside 5.5 km (or 8 km when it is aiming at us).
+    if (m.pressure > 0.02f || (nc > 0 && contacts[nearC].facingMe && nearD < 2500.0f)) m.attackedT = 10.0f; else m.attackedT = (std::max)(0.0f, m.attackedT - dt);
+    const float engageR = f.warping ? 2000.0f : 5500.0f, faceR = f.warping ? 2500.0f : 8000.0f;                       // under warp, hostiles that are not close or not attacking are flown past
+    const bool pressing = nc > 0 && (nearD < engageR || (contacts[nearC].facingMe && nearD < faceR) || (m.attackedT > 0.0f && nearD < 9000.0f) || m.pressure > 0.04f);
+    const bool hurt = vit < 0.55f, crit = vit < 0.30f;
+    // ---- TASK PRIORITY: survive (missile, outgunned, critical) > repair > fight what presses us > the job > explore.  Modes have a minimum dwell so the pilot does not flip-flop.
+    AISpaceMode want = AISpaceMode::Patrol; AISpaceReason why = AISpaceReason::Idle;
+    if (m.evadeT > 0.0f) m.evadeT -= dt;
+    if (f.missileInbound && nc > 0) { m.evadeT = 2.5f; }
+    if (m.evadeT > 0.0f && nc > 0) { want = AISpaceMode::Evade; why = AISpaceReason::Missile; }
+    else if (pressing && f.haveHaven && (ratio > (m.attackedT > 0.0f ? 1.6f : 1.0f) || (crit && total > 0.05f))) { want = AISpaceMode::Retreat; why = crit ? AISpaceReason::Damaged : AISpaceReason::Outgunned; }
+    else if (m.mode == AISpaceMode::Retreat && m.modeT < 4.0f && nc > 0 && f.haveHaven) { want = AISpaceMode::Retreat; why = m.reason; }      // commit to a fall-back for at least four seconds
+    else if (pressing) { want = AISpaceMode::Engage; why = AISpaceReason::Hostiles; }
+    else if (m.mode == AISpaceMode::Engage && m.modeT < 2.0f && nc > 0) { want = AISpaceMode::Engage; why = AISpaceReason::Hostiles; }               // keep fighting two more seconds after the pressure lifts
+    else if (hurt && f.haveHaven) { want = AISpaceMode::Repair; why = AISpaceReason::Damaged; }
+    // ---- DESTINATION: only when nothing above claims the pilot.  Jobs first; without a job an exploration target or a small task (pick up work, discover, scan).
+    int goalIdx = -1;
+    auto pickGoal = [&]() -> int
+    {
+        int best = -1; float bs = 0.02f;
+        for (int i = 0; i < ng; ++i)
+        {
+            const AISpaceGoal& g = goals[i]; if (SpaceRejected(m, g.id, g.kind)) continue;
+            float want01 = g.jobValue * 2.2f + (g.onRoute ? 1.0f : 0.0f) + g.value * 0.7f * ((f.hasJob && g.jobValue <= 0.0f && !g.onRoute) ? 0.2f : 1.0f);      // with a job, everything that is not the job counts for a fifth
+            float s = want01 / (1.0f + g.dist / 7000.0f) - g.hazard * 0.9f; if (g.id == m.goalId && g.kind == m.goalKind) s = s * 1.6f + 0.15f;       // the current goal is sticky: another must clearly beat it (a flip of goal cancelled the autopilot and reopened the map)
+            if (s > bs) { bs = s; best = i; }
+        }
+        return best;
+    };
+    auto pickHaven = [&](bool ignoreRejections) -> int
+    {
+        int best = -1; float bd = 1.0e30f;
+        for (int i = 0; i < ng; ++i)
+        {
+            const AISpaceGoal& g = goals[i]; if (g.kind != AISpaceGoalKind::Station && g.kind != AISpaceGoalKind::Planet) continue; if (!ignoreRejections && SpaceRejected(m, g.id, g.kind)) continue;
+            const float d = g.dist * (g.kind == AISpaceGoalKind::Station ? 0.8f : 1.0f);                                  // a station is preferred: its police patrol the safe zone
+            if (d < bd) { bd = d; best = i; }
+        }
+        return best;
+    };
+    if (want == AISpaceMode::Retreat || want == AISpaceMode::Repair) { goalIdx = pickHaven(want == AISpaceMode::Retreat); if (goalIdx < 0) { want = pressing ? AISpaceMode::Engage : AISpaceMode::Patrol; why = pressing ? AISpaceReason::Hostiles : AISpaceReason::Idle; } }
+    if (want == AISpaceMode::Patrol)
+    {
+        goalIdx = pickGoal();
+        if (goalIdx >= 0)
+        {
+            const AISpaceGoal& g = goals[goalIdx]; const bool job = g.jobValue > 0.0f || (g.onRoute && f.hasJob);
+            if (job) { want = g.kind == AISpaceGoalKind::Gate ? AISpaceMode::Travel : AISpaceMode::Job; why = g.kind == AISpaceGoalKind::Gate ? AISpaceReason::JobTravel : AISpaceReason::JobWork; }
+            else if (g.kind == AISpaceGoalKind::Gate) { want = AISpaceMode::Travel; why = AISpaceReason::Explore; }
+            else { want = AISpaceMode::Patrol; why = (g.kind == AISpaceGoalKind::Station && !f.hasJob) ? AISpaceReason::SeekWork : AISpaceReason::Explore; }
+        }
+    }
+    // ---- PROBLEM SOLVING: watch the progress toward the goal; no meaningful gain for 30 s (gates 40, havens 45) or 5 minutes on one goal rejects it for two minutes and the next best is taken
+    if (goalIdx >= 0 && want != AISpaceMode::Engage && want != AISpaceMode::Evade)
+    {
+        const AISpaceGoal& g = goals[goalIdx]; const bool changed = g.id != m.goalId || g.kind != m.goalKind;
+        if (changed) { m.goalId = g.id; m.goalKind = g.kind; m.bestDist = g.dist; m.stallT = 0.0f; m.goalT = 0.0f; o.goalChanged = true; ++m.decisions; }
+        else if (g.dist < m.bestDist - 30.0f) { m.bestDist = g.dist; m.stallT = 0.0f; }
+        else m.stallT += dt;
+        const float limit = g.kind == AISpaceGoalKind::Gate ? 40.0f : ((g.kind == AISpaceGoalKind::Station || g.kind == AISpaceGoalKind::Planet) ? 45.0f : 30.0f);
+        if ((m.stallT > limit || m.goalT > 300.0f) && want != AISpaceMode::Retreat)
+        {
+            const int s = m.nextRej; m.nextRej = (m.nextRej + 1) % static_cast<int>(m.rejId.size()); m.rejId[s] = g.id; m.rejKind[s] = static_cast<uint8_t>(g.kind); m.rejUntil[s] = m.clock + 120.0f; ++m.stalls;
+            m.goalId = -1; m.stallT = 0.0f; m.goalT = 0.0f; why = AISpaceReason::Stalled; goalIdx = (want == AISpaceMode::Repair) ? pickHaven(false) : pickGoal();
+            if (goalIdx >= 0) { m.goalId = goals[goalIdx].id; m.goalKind = goals[goalIdx].kind; m.bestDist = goals[goalIdx].dist; o.goalChanged = true; }
+            else if (want != AISpaceMode::Repair) { want = AISpaceMode::Patrol; }
+        }
+    }
+    else if (goalIdx < 0 && want != AISpaceMode::Engage && want != AISpaceMode::Evade) { m.goalId = -1; }
+    // ---- publish
+    if (want != m.mode) { m.mode = want; m.modeT = 0.0f; ++m.decisions; }
+    m.reason = why;
+    if (want == AISpaceMode::Engage || want == AISpaceMode::Evade) { o.targetContact = want == AISpaceMode::Evade && nearC >= 0 ? nearC : bestC; if (o.targetContact >= 0) m.targetId = contacts[o.targetContact].id; }
+    else if (nc == 0) m.targetId = -1;
+    o.mode = m.mode; o.reason = m.reason; o.goalIndex = goalIdx;
+    // cruise is only sensible with the guns quiet and nobody close (a fall-back may cruise once it has some distance)
+    if (m.cruiseOk) { if (nearD < 2500.0f) m.cruiseOk = false; } else if (nearD > 4000.0f) m.cruiseOk = true;       // HYSTERESIS: warp is refused inside 2.5 km of a hostile and allowed again beyond 4 km (a contact hovering near one distance used to flip it every plan)
+    o.allowCruise = (m.mode == AISpaceMode::Travel || m.mode == AISpaceMode::Job || m.mode == AISpaceMode::Patrol || m.mode == AISpaceMode::Repair) ? m.cruiseOk : (m.mode == AISpaceMode::Retreat && nearD > 1200.0f);
+    return o;
+}
+
+float GamingAI::ReputationPriceMul(int rep) { return (std::clamp)(1.0f - 0.0015f * static_cast<float>(rep), 0.85f, 1.15f); }
+bool GamingAI::PoliceHostileToPlayer(int rep, float wanted) { return wanted > 0.0f || rep < -40; }
+int GamingAI::MissionBounty(float basePerUnit, int units, int hops, float threat, float roll)
+{
+    const float h = static_cast<float>((std::max)(0, hops)), th = (std::clamp)(threat, 0.0f, 2.5f); const float v = basePerUnit * static_cast<float>((std::max)(1, units)) * (1.0f + 0.45f * h + 0.06f * h * h) * (1.0f + 1.6f * th + 1.0f * th * th) * (0.8f + 0.4f * roll);
+    return (std::max)(50, static_cast<int>(v / 50.0f + 0.5f) * 50);
+}
+AIMarketQuote GamingAI::QuoteMarket(const AIMarketFacts& f)
+{
+    AIMarketQuote q; q.supply = (std::clamp)(f.baseline + f.delta + f.wobble, -1.2f, 1.2f);
+    q.mult = (std::clamp)(std::exp(-0.85f * q.supply), 0.42f, 2.35f);                 // plenty -> cheap, scarce -> dear
+    q.price = (std::max)(5, static_cast<int>(static_cast<float>(f.basePrice) * q.mult + 0.5f)); return q;
+}
+float GamingAI::MarketTrade(float delta, int units, bool bought) { return (std::clamp)(delta + (bought ? -0.035f : 0.035f) * static_cast<float>(units), -1.0f, 1.0f); }
+float GamingAI::MarketRecover(float delta, float seconds) { return delta * std::exp(-(std::max)(0.0f, seconds) * 0.004f); }      // a half-life of about three minutes
+AIAvoidOrders GamingAI::AvoidObstacles(const AIObstacle* obs, int n, float gx, float gy, float gz, float speed)
+{
+    AIAvoidOrders o; o.ax = gx; o.ay = gy; o.az = gz; const float gl2 = gx * gx + gy * gy + gz * gz; if (gl2 < 1.0f || !obs) return o;
+    // Clearance beyond the surface grows with speed: at cruise a ship needs thousands of metres to turn.  But a body that sits NEXT TO THE GOAL (a station beside a planet, a portal over a world) must not
+    // push the aim point away from it: near the goal the clearance is limited to 60 % of the goal's own gap to the body's surface, so the goal itself is never inside the inflated sphere (this made the
+    // autopilot circle or fly away from a target that lay close to a planet).
+    auto clearance = [&](const AIObstacle& b)
+    {
+        const float full = b.radius * 0.35f + (std::min)(speed, 900.0f) * 2.2f + 150.0f, gdx = gx - b.x, gdy = gy - b.y, gdz = gz - b.z, gap = std::sqrt(gdx * gdx + gdy * gdy + gdz * gdz) - b.radius;
+        return gap > 0.0f ? (std::min)(full, (std::max)(60.0f, gap * 0.6f)) : full;
+    };
+    int worst = -1; float worstT = 2.0f;
+    for (int i = 0; i < n; ++i)
+    {
+        const AIObstacle& b = obs[i]; const float t = (b.x * gx + b.y * gy + b.z * gz) / gl2; if (t <= 0.0f) continue;      // behind: no threat
+        const float tc = (std::min)(t, 1.0f), px = gx * tc - b.x, py = gy * tc - b.y, pz = gz * tc - b.z, R = b.radius + clearance(b);
+        if (px * px + py * py + pz * pz < R * R && tc < worstT) { worstT = tc; worst = i; }                               // the nearest sphere along the path is dealt with first
+    }
+    if (worst < 0) return o;
+    const AIObstacle& b = obs[worst]; const float R = b.radius + clearance(b), tc = (std::min)(1.0f, (b.x * gx + b.y * gy + b.z * gz) / gl2);
+    float mx = gx * tc - b.x, my = gy * tc - b.y, mz = gz * tc - b.z; float ml = std::sqrt(mx * mx + my * my + mz * mz);
+    if (ml < 1.0f) { mx = 0.0f; my = 1.0f; mz = 0.0f; ml = 1.0f; }                                                      // dead centre: pass over the top
+    const float k = R * 1.15f / ml; o.ax = b.x + mx * k; o.ay = b.y + my * k; o.az = b.z + mz * k; o.avoiding = true;      // a waypoint beside the sphere, on the side the path already leans to
+    const float dc = std::sqrt(b.x * b.x + b.y * b.y + b.z * b.z) - b.radius;                                           // metres to the surface
+    const float sp = (std::min)(speed, 900.0f); o.dropCruise = dc < sp * 0.8f + 600.0f; o.throttleScale = dc < sp * 2.0f ? 0.5f : 1.0f;       // the zone is sized from the speed CAPPED at 900 m/s: at warp speed (2.9 km/s) it used to grow to 12 km, so any planet near the 80 km route dropped the warp drive again and again (the path-based waypoint already steers round a body from far away)
+    return o;
+}
+
+// ------------------------------------------------------------------------------------------------
+//  STEADY AIM and WARP POLICY (see AISteadyAim / AIWarpMemory in GamingAI.h).  Allocation free.
+// ------------------------------------------------------------------------------------------------
+void GamingAI::SteadyAim(AISteadyAim& s, const AISteadyAimFacts& f, float& ox, float& oy, float& oz)
+{
+    const float gl = std::sqrt(f.gx * f.gx + f.gy * f.gy + f.gz * f.gz); if (gl < 1.0e-4f) { ox = s.wx; oy = s.wy; oz = s.wz; return; }
+    const float ux = f.gx / gl, uy = f.gy / gl, uz = f.gz / gl, sp = std::sqrt(f.vx * f.vx + f.vy * f.vy + f.vz * f.vz); float ax = ux, ay = uy, az = uz;
+    if (sp > 40.0f && f.dist > f.arrive * 2.0f)                                       // velocity compensation: lead against the sideways drift
+    {
+        const float along = f.vx * ux + f.vy * uy + f.vz * uz, lx = f.vx - ux * along, ly = f.vy - uy * along, lz = f.vz - uz * along, k = (std::max)(sp, 150.0f);
+        ax = ux * k - lx * 0.9f; ay = uy * k - ly * 0.9f; az = uz * k - lz * 0.9f; const float al = std::sqrt(ax * ax + ay * ay + az * az); if (al > 1.0e-4f) { ax /= al; ay /= al; az /= al; }
+    }
+    if (f.time - s.lastTime > 0.25f) { s.wx = ax; s.wy = ay; s.wz = az; }              // a new trip: no history
+    else
+    {
+        const float k = 1.0f - std::exp(-(std::min)(f.dt, 0.1f) * 7.0f); s.wx += (ax - s.wx) * k; s.wy += (ay - s.wy) * k; s.wz += (az - s.wz) * k;
+        const float l = std::sqrt(s.wx * s.wx + s.wy * s.wy + s.wz * s.wz); if (l > 1.0e-4f) { s.wx /= l; s.wy /= l; s.wz /= l; } else { s.wx = ax; s.wy = ay; s.wz = az; }
+    }
+    s.lastTime = f.time; ox = s.wx; oy = s.wy; oz = s.wz;
+}
+bool GamingAI::StepWarp(AIWarpMemory& m, const AIWarpFacts& f)
+{
+    if (!f.cruising && !f.charging && f.allowed && f.time >= m.lockUntil && f.dist > f.engageDist && f.steerDemand < 0.25f && !f.obstacleClose) return true;     // a long trip, lined up: engage
+    if (f.cruising && (f.dist < f.dropDist || !f.allowed)) return true;                                                                                                // arrived, or stand down for a fight
+    if (f.cruising && f.obstacleClose) { m.lockUntil = f.time + f.lockSeconds; return true; }                                                                         // an obstacle is close: drop it and keep it off for a while
+    return false;
+}

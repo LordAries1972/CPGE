@@ -784,6 +784,44 @@ void Camera::SetYawPitch(float newYaw, float newPitch)
     viewMatrix = glm::lookAtLH(position, target, up);
 }
 
+// Orbit view (see the header): the camera sits `distance` behind the target along the view direction.  m_yaw / m_pitch are stored in this class's own convention (radians, positive
+// pitch looks UP) so later engine camera calls carry on from this view.
+void Camera::SetOrbitView(float targetX, float targetY, float targetZ, float pitchDegDown, float yawDeg, float distance)
+{
+    const float p = glm::radians(pitchDegDown), y = glm::radians(yawDeg);
+    const float sp = std::sin(p), cp = std::cos(p), sy = std::sin(y), cy = std::cos(y);
+    forward  = glm::vec3(cp * sy, -sp, cp * cy);
+    up       = glm::vec3(sp * sy, cp, sp * cy);                        // perpendicular to forward at every pitch, including straight down
+    target   = glm::vec3(targetX, targetY, targetZ);
+    position = target - forward * distance;
+    m_yaw    = y;
+    m_pitch  = -p;
+    viewMatrix = glm::lookAtLH(position, target, up);
+}
+
+// The camera's right / up / forward unit vectors in world space (left-handed: right = up x forward).
+void Camera::GetViewBasis(float outRight[3], float outUp[3], float outForward[3]) const
+{
+    const glm::vec3 r = glm::normalize(glm::cross(up, forward));
+    outRight[0] = r.x;       outRight[1] = r.y;       outRight[2] = r.z;
+    outUp[0] = up.x;         outUp[1] = up.y;         outUp[2] = up.z;
+    outForward[0] = forward.x; outForward[1] = forward.y; outForward[2] = forward.z;
+}
+
+// The camera's view as the engine's math types (see the header): what a software renderer needs to project by hand.
+void Camera::GetViewFrame(MyVector& outPosition, MyGeom::Mat3& outWorldToView, MyGeom::Mat3& outViewToWorld) const
+{
+    float r[3], u[3], f[3];
+    GetViewBasis(r, u, f);
+    outPosition = MyVector(position.x, position.y, position.z);
+    outWorldToView.m[0] = r[0]; outWorldToView.m[1] = r[1]; outWorldToView.m[2] = r[2];     // rows: right, up, forward
+    outWorldToView.m[3] = u[0]; outWorldToView.m[4] = u[1]; outWorldToView.m[5] = u[2];
+    outWorldToView.m[6] = f[0]; outWorldToView.m[7] = f[1]; outWorldToView.m[8] = f[2];
+    outViewToWorld.m[0] = r[0]; outViewToWorld.m[1] = u[0]; outViewToWorld.m[2] = f[0];     // the transpose
+    outViewToWorld.m[3] = r[1]; outViewToWorld.m[4] = u[1]; outViewToWorld.m[5] = f[1];
+    outViewToWorld.m[6] = r[2]; outViewToWorld.m[7] = u[2]; outViewToWorld.m[8] = f[2];
+}
+
 void Camera::MoveUp(float distance)    { position.y += distance; UpdateViewMatrix(); }
 void Camera::MoveDown(float distance)  { position.y -= distance; UpdateViewMatrix(); }
 void Camera::MoveRight(float distance) { position.x += distance; UpdateViewMatrix(); }

@@ -297,6 +297,9 @@ public:
     void DrawCircle(const Vector2& center, float radius, const MyColor& color, bool filled = true) override;
     void DrawCurve(float startX, float startY, float ctrlX, float ctrlY, float endX, float endY,
                     const MyColor& color, float thickness = 2.0f, bool is2D = true) override;
+    void DrawFilledPolygon(const Vector2* points, int count, const MyColor& color) override;
+    void DrawFilledPolygonBatch(const Vector2* const* polys, const int* counts, int n, const MyColor& color) override;
+    void DrawFilledEllipse(float cx, float cy, float rx, float ry, float rotRad, const MyColor& color, int segments = 22) override;
     void DrawMyText(const std::wstring& text, const Vector2& position, const MyColor& color, const float FontSize) override;
     void DrawMyText(const std::wstring& text, const Vector2& position, const Vector2& size, const MyColor& color, const float FontSize) override;
     void DrawMyTextWithFont(const std::wstring& text, const Vector2& position, const MyColor& color,

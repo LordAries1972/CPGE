@@ -17,8 +17,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CMAKE_EXE="${CMAKE_EXE:-cmake}"
 
-ARG1="${1:-}"
-ARG2="${2:-}"
+# Split the command line into the positional arguments and the optional -clean switch (any position).
+# Without -clean the existing build tree (objects, CMake cache, binaries) is reused, so only changed sources recompile.
+CLEAN_BUILD=""
+POSARGS=()
+for a in "$@"; do
+    if [[ "${a,,}" == "-clean" ]]; then CLEAN_BUILD=1; else POSARGS+=("$a"); fi
+done
+ARG1="${POSARGS[0]:-}"
+ARG2="${POSARGS[1]:-}"
 
 # --- Help (lists every directive and exits) ---
 show_help() {
@@ -29,7 +36,7 @@ show_help() {
 ${me} - configure and build the engine for Linux with CMake
 
 Usage:
-  ${me} <directive> [config]
+  ${me} <directive> [config] [-clean]
 
 Build directives (one render pipeline):
   opengl    OpenGL renderer
@@ -39,6 +46,11 @@ Build directives (one render pipeline):
 Multi-pipeline directive:
   all       Builds opengl then vulkan with the given config and prints a
             pass/fail summary. Exits 1 if any pipeline failed.
+
+Option (any position, used by every build directive and by all):
+  -clean    Deletes the build tree of the pipeline being built (objects, CMake
+            cache, binaries) first for a fresh compile. Without it the existing
+            binaries are reused (incremental build).
 
 Maintenance directives:
   clean     Deletes the Linux build directory (Linux/build).
@@ -63,6 +75,7 @@ Examples:
   ${me} vulkan release
   ${me} all debug
   ${me} all release
+  ${me} opengl release -clean   # fresh full compile
   ${me} clean
   ${me} help
 
@@ -87,7 +100,7 @@ fi
 # --- Usage ---
 if [[ -z "${ARG1}" ]]; then
     echo ""
-    echo "Usage: $(basename "$0") <renderer> [debug|release]"
+    echo "Usage: $(basename "$0") <renderer> [debug|release] [-clean]"
     echo "  Renderers : opengl  vulkan"
     echo "  Special   : all   (builds every pipeline in the specified config)"
     echo "  Config    : debug  release  (default: debug)"
@@ -127,7 +140,7 @@ if [[ "${ARG1,,}" == "all" ]]; then
         echo ""
         echo "  ---- Building ${renderer} ${ALL_CONFIG} ----"
         if [[ "${IS_FIRST_BUILD}" == "1" ]]; then
-            if "${BASH_SOURCE[0]}" "${renderer}" "${ALL_CONFIG}"; then
+            if "${BASH_SOURCE[0]}" "${renderer}" "${ALL_CONFIG}" ${CLEAN_BUILD:+-clean}; then
                 ALL_PASS_LIST="${ALL_PASS_LIST} ${renderer}"
             else
                 ALL_FAIL_COUNT=$((ALL_FAIL_COUNT + 1))
@@ -135,7 +148,7 @@ if [[ "${ARG1,,}" == "all" ]]; then
             fi
             IS_FIRST_BUILD=0
         else
-            if SKIP_VERSION_INCREMENT=1 "${BASH_SOURCE[0]}" "${renderer}" "${ALL_CONFIG}"; then
+            if SKIP_VERSION_INCREMENT=1 "${BASH_SOURCE[0]}" "${renderer}" "${ALL_CONFIG}" ${CLEAN_BUILD:+-clean}; then
                 ALL_PASS_LIST="${ALL_PASS_LIST} ${renderer}"
             else
                 ALL_FAIL_COUNT=$((ALL_FAIL_COUNT + 1))
@@ -236,6 +249,12 @@ fi
 
 # --- Build ---
 BUILD_DIR="${SCRIPT_DIR}/build/${RENDERER}/${CONFIG}"
+# -clean: wipe this pipeline's build tree so the compile below starts completely fresh.
+if [[ -n "${CLEAN_BUILD}" && -d "${BUILD_DIR}" ]]; then
+    echo "-clean: removing ${BUILD_DIR} ..."
+    rm -rf "${BUILD_DIR}"
+    if [[ -d "${BUILD_DIR}" ]]; then echo "ERROR: Could not remove ${BUILD_DIR}"; exit 1; fi
+fi
 mkdir -p "${BUILD_DIR}"
 
 echo ""

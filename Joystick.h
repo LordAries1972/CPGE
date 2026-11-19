@@ -9,6 +9,10 @@
     #include "VulkanCamera.h"
 #endif
 #include "Configuration.h"
+#include <atomic>
+#include <mutex>
+#include <array>
+#include <string>
 
 const int MAX_JOYSTICKS = 2;
 const std::string JoystickMapFilename = "joystick.map";
@@ -29,7 +33,32 @@ struct ButtonMapping
     std::unordered_map<int, int> buttonToKey;                                       // Joystick button -> Keyboard key
 };
 
-enum class MovementMode 
+// ---- WHAT KIND OF PAD IS IT? ----------------------------------------------------------------------------------------------------------------------------------
+// winmm reports every pad as the same "joystick", with buttons numbered in whatever order the driver likes.  The USB vendor / product IDs (and, failing that, the product name) say
+// what the pad really is, and each family numbers its buttons differently (an Xbox pad's A is button 1; a PlayStation pad's cross is button 2 and its square button 1).  The engine
+// therefore keeps a PadInfo per slot and translates the raw buttons into LOGICAL ones - south / east / west / north (the A B X Y diamond, by position), the shoulders and triggers,
+// select / start / the stick clicks - so a game can say "south" and mean the right button on every pad.
+enum class PadType { Unknown = 0, Xbox360, XboxOne, PlayStation3, PlayStation4, PlayStation5, SwitchPro, JoyCon, Generic };
+enum PadButton : uint32_t
+{
+    kPadSouth = 1u << 0, kPadEast = 1u << 1, kPadWest = 1u << 2, kPadNorth = 1u << 3,        // Xbox A B X Y / PlayStation cross circle square triangle / Switch B A Y X
+    kPadL1 = 1u << 4, kPadR1 = 1u << 5, kPadL2 = 1u << 6, kPadR2 = 1u << 7,                  // shoulders and triggers (the Xbox triggers are an axis: past 35 % counts as pressed)
+    kPadSelect = 1u << 8, kPadStart = 1u << 9, kPadL3 = 1u << 10, kPadR3 = 1u << 11, kPadGuide = 1u << 12
+};
+struct PadInfo
+{
+    int          slot = -1;
+    PadType      type = PadType::Unknown;
+    uint16_t     vendorId = 0, productId = 0;                                                // USB IDs (0 when the driver does not say)
+    std::wstring name;                                                                       // the product name winmm gives (often a generic driver name)
+    std::wstring typeName;                                                                   // "Xbox 360 controller", "DualShock 4", ... - what the engine decided
+    int          numButtons = 0, numAxes = 0;
+    bool         hasZ = false, hasR = false, hasU = false, hasV = false, hasPov = false;
+    bool         triggersOnZ = false;                                                        // an Xbox-style pad: the two triggers share the Z axis (left pushes it up, right pulls it down)
+    bool         valid() const { return slot >= 0; }
+};
+
+enum class MovementMode
 {
     MODE_2D,
     MODE_3D
@@ -46,6 +75,9 @@ struct JoystickAxes {
 
 class Joystick {
 public:
+    // Shared menu navigation: a held east button never skips pages, and a
+    // second press is accepted only after the transition cooldown.
+    static bool MenuBackPressed(bool eastDown);
     Joystick();
     ~Joystick();
 
@@ -64,8 +96,17 @@ public:
     void ConfigureFor2DMovement();
     void ConfigureFor3DMovement();
 
-    size_t NumOfJoysticks() const { return activeJoysticks.size(); };
-    bool HasActiveControllers() const { return !activeJoysticks.empty(); };
+    // Thread safe: the main loop re-scans (PollControllers) while the render thread reads the pads every frame, so the count is atomic and every winmm call goes through m_joyMutex.
+    size_t NumOfJoysticks() const { return m_activeCount.load(std::memory_order_relaxed); };
+    bool HasActiveControllers() const { return m_activeCount.load(std::memory_order_relaxed) != 0; };
+    // Pad identity (see PadInfo).  Detected by detectJoysticks() for every slot it finds; copies are returned so another thread can call these while a re-scan runs.
+    PadInfo  GetPadInfo(int slot);                                                   // slot < 0 or unplugged: an empty PadInfo (valid() == false)
+    PadType  GetPadType(int slot);                                                   // just the type (cheap: use this per frame)
+    PadInfo  GetPrimaryPad();                                                        // the first active pad
+    // Turns the raw winmm buttons / axes of `ji` into logical PadButton bits for that slot's pad type.  Optionally returns the analog triggers (0..1).
+    uint32_t ReadPadButtons(int slot, const JOYINFOEX& ji, float* leftTrigger = nullptr, float* rightTrigger = nullptr);
+    static const wchar_t* PadTypeName(PadType t);
+    bool ReadRawPad(int joystickID, JOYINFOEX& ji);                                  // locked joyGetPosEx for one slot (false = missing / unplugged); fills dwSize and dwFlags itself
 
     // New joystick movement functions
     void setMovementMode(MovementMode mode) { m_movementMode = mode; }
@@ -91,6 +132,9 @@ public:
 
 private:
     std::vector<int> activeJoysticks;
+    std::array<PadInfo, MAX_JOYSTICKS> m_padInfo;                                    // what each slot's pad is (guarded by m_joyMutex)
+    std::recursive_mutex m_joyMutex;                                                 // guards activeJoysticks and every joyGetPosEx call (recursive: readJoystickState is called with it held)
+    std::atomic<size_t> m_activeCount{ 0 };
     std::unordered_map<int, ButtonMapping> joystickMappings;
 
     // New movement-related members

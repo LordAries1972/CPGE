@@ -128,6 +128,29 @@ struct MyConfig {
     //                       scales the setting above, a pulse can never exceed the user's limit.
     bool        emissionEnabled   = true;
     long double emissionIntensity = 1.0;
+
+    // Vector system quality (Video tab, "Vector ..." rows; see the vector demo's VecQualityUpdate in main.cpp and
+    // Docs/Vectors-Example-Usage.md).  EVERY one of these applies live - no restart.  Same persistence rules as the
+    // shadow settings (j.value defaults, clamped on load, NOT part of calculateChecksum()).
+    //   vectorQuality    : 0=Auto (adapts to hold vectorTargetFps)  1=Low  2=Medium  3=High (fixed detail levels)
+    //   vectorTargetFps  : overall frame cap for ALL quality levels; Auto also adapts detail to this target (20 - 240; UI: 30 / 60 / 90 / 120)
+    //   vectorDetailDist : 0.5 - 2.0, how far away models keep their detail (1 = normal, 2 = detail stays twice as far, 0.5 = dots sooner)
+    //   vectorShadows    : drop shadows under vector models (also dropped automatically by Auto when the machine is struggling)
+    //   vectorParticles  : 0.25 - 1.0, share of the explosion debris / sparks / smoke that is created
+    //   vectorEffects    : shock-wave rings, fireballs and smoke on top of the debris cubes
+    // AI history and startup policy (Game Play tab, persisted, applied live).
+    bool        aiRecordSessions = true;
+    bool        aiRecallRecent = true;
+    bool        aiAdaptiveStrategies = true;
+    bool        aiRestartCountdown = true;
+
+    int         vectorQuality     = 0;
+    int         vectorTargetFps   = 60;
+    long double vectorDetailDist  = 1.0;
+    bool        vectorShadows     = true;
+    long double vectorParticles   = 1.0;
+    bool        vectorEffects     = true;
+
     float       emissionPulse     = 1.0f;
     float EmissionScale() const
     {

@@ -14,6 +14,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
         
 --------------------------------------------------------------------------------------------------------- */
 #pragma once
+#include "Platform.h"
 
 // ---------------------------------------------------------------------------
 // Game Identity
@@ -91,6 +92,9 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 // ---------------------------------------------------------------------------
 #define __USING_JOYSTICKS__                                                             // Uncomment this line if you want to use Joysticks with this engine.
 #define __USE_NETWORKING__                                                              // Uncomment this line if you want to use Networking TCP/UDP Protocols with this engine.
+// Enable only for audited, typed CPGE-AI-LISTENER external commands.
+// The hyphenated name DEFINE_EXT-CMD-SEQUENCE is not a valid C++ identifier.
+//#define DEFINE_EXT_CMD_SEQUENCE
 #define __USE_GAMINGAI__                                                                // Uncomment this line if you want to use Gaming AI with this engine.
 //#define __USE_SCRIPT_MANAGER__                                                          // Uncomment this line to use the interal Script Manager System.
 
@@ -98,8 +102,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 // Windows Specific Includes
 // -----------------------------------
 #if defined(_WIN64) || defined(_WIN32)
-    #ifndef PLATFORM_WINDOWS
-        #define PLATFORM_WINDOWS
+    #if defined(PLATFORM_WINDOWS)
 
         // CRITICAL: Define this before any Windows includes to prevent macro conflicts
         #ifndef NOMINMAX
@@ -166,7 +169,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
         #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__) && \
             !defined(__USE_OPENGL__)     && !defined(__USE_VULKAN__)      && \
             !defined(__USE_RADEON__) && !defined(__USE_METAL__)
-//            #define __USE_DIRECTX_11__  // Change this to switch the default for IDE-only builds
+            #define __USE_DIRECTX_11__  // Change this to switch the default for IDE-only builds
         #endif
 
         #if !defined(__USE_DIRECTX_11__) && !defined(__USE_DIRECTX_12__) && !defined(__USE_OPENGL__) && !defined(__USE_VULKAN__)
@@ -293,7 +296,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
             #pragma comment(lib, "RadeonGPUAnalyzer.lib")
         #endif
     #endif // !PLATFORM_WINDOWS
-#elif defined(__linux__)
+#elif defined(PLATFORM_LINUX)
     #ifndef PLATFORM_LINUX
         #define PLATFORM_LINUX
     #endif
@@ -301,7 +304,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
     // Linux — enable renderers you have installed; runtime selection via rendererType: 0=OpenGL  1=Vulkan
     //#define __USE_OPENGL__
     //#define __USE_VULKAN__
-#elif defined(__ANDROID__)
+#elif defined(PLATFORM_ANDROID)
     #ifndef PLATFORM_ANDROID
         #define PLATFORM_ANDROID
     #endif // !PLATFORM_ANDROID
@@ -309,7 +312,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
     // Android — enable renderers you have installed; runtime selection via rendererType: 0=OpenGL  1=Vulkan
     //#define __USE_OPENGL__
     //#define __USE_VULKAN__
-#elif defined(__APPLE__)
+#elif defined(PLATFORM_MACOS)
     #ifndef PLATFORM_APPLE
         #define PLATFORM_APPLE
     #endif // !PLATFORM_APPLE
@@ -317,7 +320,7 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
     //#define __USE_OPENGL__
     // macOS — Metal - For newer systems.
     //#define __USE_METAL__
-#elif defined(TARGET_OS_IPHONE) || (TARGET_IPHONE_SIMULATOR)
+#elif defined(PLATFORM_IOS)
     #ifndef PLATFORM_IOS
         #define PLATFORM_IOS
     #endif // !PLATFORM_IOS
@@ -379,9 +382,11 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 #include <thread>
 #include <memory>
 #include <algorithm>                                    // Required for std::clamp
-#include <mmreg.h>
-#include <mmsystem.h>
-#include <mutex>                                        // For std::mutex
+#if defined(PLATFORM_WINDOWS)
+    #include <mmreg.h>                                  // Windows multimedia headers: do not exist on Linux / Android / Apple
+    #include <mmsystem.h>
+#endif // PLATFORM_WINDOWS
+#include <mutex>                                     // For std::mutex
 #include <queue>                                        // For std::priority_queue
 #include <functional>                                   // For std::function and lambda support
 #include <array>                                        // For std::array<uint32_t, 256>
@@ -389,14 +394,24 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
 #include <chrono>                                       // For std::chrono
 #include <condition_variable>
 #include <filesystem>
-#include <objbase.h>                                    // COM infrastructure (CoCreateInstance)
+#if defined(PLATFORM_WINDOWS)
+    #include <objbase.h>                                // COM infrastructure (CoCreateInstance)
+#endif // PLATFORM_WINDOWS
 #include <tuple>
-#include <propvarutil.h>
-#include <cfloat>                                       // for FLT_MAX
+#if defined(PLATFORM_WINDOWS)
+    #include <propvarutil.h>
+#endif // PLATFORM_WINDOWS
+#include <cfloat>                                      // for FLT_MAX
 #include <vector>                                       // For std::vector
 #include <unordered_map>                                // For std::unordered_map
 #include <unordered_set>                                // For std::unordered_set
 #include <map>				                            // Used for mapping spec indices to object hierarchy
+
+// ARRAYSIZE is a Windows SDK macro (winnt.h).  Provide the same compile-time element count on every
+// other platform so the shared tables below (and any code using it) build everywhere.
+#ifndef ARRAYSIZE
+    #define ARRAYSIZE(a) (sizeof(a) / sizeof((a)[0]))
+#endif
 
 //------------------------------------------
 // Cross-Platform Math Type Aliases

@@ -486,11 +486,47 @@ bool KeyboardHandler::IsKeyJustPressed(KeyCode keyCode) const {
    // Convert KeyCode to array index for fast access
    uint32_t keyIndex = static_cast<uint32_t>(keyCode) % m_keyStates.size();
    
-   // Check if key is currently pressed but wasn't pressed in previous frame
-   bool currentlyPressed = m_keyStates[keyIndex].isPressed.load();
-   bool previouslyPressed = m_keyStates[keyIndex].wasPressed.load();
-   
-   return currentlyPressed && !previouslyPressed;
+   // A fresh press arrived since the previous UpdateKeyStates() snapshot.  Counting presses (instead of comparing
+   // isPressed / wasPressed) keeps a tap that was released before the game polled, and reports each press exactly once.
+   const KeyState& state = m_keyStates[keyIndex];
+   return state.frameSeq.load() != state.prevFrameSeq.load();
+}
+
+// Resolve a native key code to our KeyCode through a lock-free per-key cache.  PlatformKeyToKeyCode() is a large switch that
+// logs every unmapped key, so it runs once per distinct key; the cache stores (KeyCode + 1) so the zero-initialised
+// static storage means "not looked up yet".  Concurrent first lookups write the same value, so relaxed atomics are enough.
+static KeyCode CachedPlatformKey(const KeyboardHandler& handler, uint32_t platformKey) {
+   static std::atomic<uint64_t> s_cache[512];
+   if (platformKey >= 512) return KeyCode::KEY_UNKNOWN;
+   uint64_t cached = s_cache[platformKey].load(std::memory_order_relaxed);
+   if (cached == 0) {
+       cached = static_cast<uint64_t>(static_cast<uint32_t>(handler.PlatformKeyToKeyCode(platformKey))) + 1;
+       s_cache[platformKey].store(cached, std::memory_order_relaxed);
+   }
+   return static_cast<KeyCode>(static_cast<uint32_t>(cached - 1));
+}
+
+// Native-key query: is the key (or, for the generic Windows modifier codes, either physical side) held?
+bool KeyboardHandler::IsPlatformKeyPressed(uint32_t platformKey) const {
+   #if defined(PLATFORM_WINDOWS)
+       // Generic modifier codes have no KeyCode of their own: the hook reports the left / right keys separately
+       if (platformKey == VK_SHIFT)   return IsKeyPressed(KeyCode::KEY_SHIFT_LEFT) || IsKeyPressed(KeyCode::KEY_SHIFT_RIGHT);
+       if (platformKey == VK_CONTROL) return IsKeyPressed(KeyCode::KEY_CTRL_LEFT)  || IsKeyPressed(KeyCode::KEY_CTRL_RIGHT);
+       if (platformKey == VK_MENU)    return IsKeyPressed(KeyCode::KEY_ALT_LEFT)   || IsKeyPressed(KeyCode::KEY_ALT_RIGHT);
+   #endif
+   const KeyCode code = CachedPlatformKey(*this, platformKey);
+   return code != KeyCode::KEY_UNKNOWN && IsKeyPressed(code);
+}
+
+// Native-key press edge (see IsKeyJustPressed)
+bool KeyboardHandler::IsPlatformKeyJustPressed(uint32_t platformKey) const {
+   #if defined(PLATFORM_WINDOWS)
+       if (platformKey == VK_SHIFT)   return IsKeyJustPressed(KeyCode::KEY_SHIFT_LEFT) || IsKeyJustPressed(KeyCode::KEY_SHIFT_RIGHT);
+       if (platformKey == VK_CONTROL) return IsKeyJustPressed(KeyCode::KEY_CTRL_LEFT)  || IsKeyJustPressed(KeyCode::KEY_CTRL_RIGHT);
+       if (platformKey == VK_MENU)    return IsKeyJustPressed(KeyCode::KEY_ALT_LEFT)   || IsKeyJustPressed(KeyCode::KEY_ALT_RIGHT);
+   #endif
+   const KeyCode code = CachedPlatformKey(*this, platformKey);
+   return code != KeyCode::KEY_UNKNOWN && IsKeyJustPressed(code);
 }
 
 // Check if a key was just released this frame (edge detection)
@@ -1147,11 +1183,63 @@ uint32_t KeyboardHandler::GetCurrentModifierFlags() const {
 }
 
 // Update key states (called by game loop for edge detection)
+// Reconcile the key states with the OS (see the header)
+void KeyboardHandler::SyncWithOS() {
+   #if defined(PLATFORM_WINDOWS)
+       // SELF-HEALING: the low-level hook is the fast path, but Windows silently drops hook events (and can remove a low-level hook outright) whenever the thread that installed it
+       // does not service its message queue within ~300 ms - e.g. during the long start-up loading, a level load or a debugger pause.  The game must never depend on that, so once
+       // per frame every key the handler knows is reconciled with the OS: a key the hook missed is brought into line (state and press count only; the key handlers are NOT called
+       // from here, because this runs on the game thread while they belong to the hook's thread).  ~110 cheap calls per frame, no allocation after the first call.
+       static const std::vector<std::pair<uint32_t, KeyCode>> pollKeys = [this]() {
+           std::vector<std::pair<uint32_t, KeyCode>> v;
+           auto add = [&](uint32_t lo, uint32_t hi) { for (uint32_t vk = lo; vk <= hi; ++vk) v.emplace_back(vk, PlatformKeyToKeyCode(vk)); };
+           add(0x08, 0x09); add(0x0D, 0x0D); add(0x13, 0x14); add(0x1B, 0x1B);                 // Backspace, Tab, Enter, Pause, Caps, Esc
+           add(0x20, 0x28); add(0x2C, 0x2E);                                                    // Space, PgUp ... arrows, PrintScr, Insert, Delete
+           add(0x30, 0x39); add(0x41, 0x5A); add(0x5B, 0x5D);                                   // digits, letters, Win keys, Menu
+           add(0x60, 0x6B); add(0x6D, 0x6F); add(0x70, 0x7E); add(0x90, 0x91);                  // numpad, F1-F15, Num / Scroll lock
+           add(0xA0, 0xA5); add(0xBA, 0xC0); add(0xDB, 0xDE);                                   // left / right Shift Ctrl Alt, OEM punctuation
+           return v;
+       }();
+       // Throttle: the game's main loop calls UpdateKeyStates() thousands of times a second, and ~110 OS queries each time would be wasteful - once per 2 ms is far finer than a frame.
+       static std::atomic<int64_t> lastSyncNs(0);
+       const auto now = std::chrono::steady_clock::now();
+       const int64_t nowNs = std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
+       if (nowNs - lastSyncNs.load() < 2000000) return;
+       lastSyncNs.store(nowNs);
+       for (const auto& pk : pollKeys) {
+           if (pk.second == KeyCode::KEY_UNKNOWN) continue;
+           KeyState& ks = m_keyStates[static_cast<uint32_t>(pk.second) % m_keyStates.size()];
+           const bool osDown = (GetAsyncKeyState(static_cast<int>(pk.first)) & 0x8000) != 0;
+           const bool ours = ks.isPressed.load();
+           if (osDown && !ours) { ks.isPressed.store(true); ks.pressTime = now; ks.repeatCount = 0; ks.pressSeq.fetch_add(1); }   // a press the hook never delivered
+           else if (!osDown && ours) { ks.isPressed.store(false); ks.releaseTime = now; }                                          // a release it never delivered (a stuck key)
+       }
+   #endif
+
+}
+
+// Total fresh presses seen for a native key (see the header)
+uint32_t KeyboardHandler::GetPlatformKeyPressCount(uint32_t platformKey) const {
+   #if defined(PLATFORM_WINDOWS)
+       if (platformKey == VK_SHIFT)   return m_keyStates[static_cast<uint32_t>(KeyCode::KEY_SHIFT_LEFT) % m_keyStates.size()].pressSeq.load() + m_keyStates[static_cast<uint32_t>(KeyCode::KEY_SHIFT_RIGHT) % m_keyStates.size()].pressSeq.load();
+       if (platformKey == VK_CONTROL) return m_keyStates[static_cast<uint32_t>(KeyCode::KEY_CTRL_LEFT) % m_keyStates.size()].pressSeq.load()  + m_keyStates[static_cast<uint32_t>(KeyCode::KEY_CTRL_RIGHT) % m_keyStates.size()].pressSeq.load();
+       if (platformKey == VK_MENU)    return m_keyStates[static_cast<uint32_t>(KeyCode::KEY_ALT_LEFT) % m_keyStates.size()].pressSeq.load()   + m_keyStates[static_cast<uint32_t>(KeyCode::KEY_ALT_RIGHT) % m_keyStates.size()].pressSeq.load();
+   #endif
+   const KeyCode code = CachedPlatformKey(*this, platformKey);
+   return (code == KeyCode::KEY_UNKNOWN) ? 0u : m_keyStates[static_cast<uint32_t>(code) % m_keyStates.size()].pressSeq.load();
+}
+
 void KeyboardHandler::UpdateKeyStates() {
+   SyncWithOS();                                           // bring the states in line with the OS first (throttled)
+
    // Update previous frame state for all keys (lock-free operation)
    for (auto& keyState : m_keyStates) {
        // Store current state as previous state for next frame
        keyState.wasPressed.store(keyState.isPressed.load());
+
+       // Snapshot the press counter: IsKeyJustPressed() is true for this whole frame if a press arrived since the last snapshot
+       keyState.prevFrameSeq.store(keyState.frameSeq.load());
+       keyState.frameSeq.store(keyState.pressSeq.load());
    }
 }
 
@@ -1367,6 +1455,7 @@ void KeyboardHandler::HandleKeyDown(KeyCode keyCode, uint32_t modifierFlags) {
        if (!wasAlreadyPressed) {
            keyState.pressTime = std::chrono::steady_clock::now();
            keyState.repeatCount = 0;                       // Reset repeat count for new press
+           keyState.pressSeq.fetch_add(1);                 // Count the fresh press for edge detection (OS auto-repeat is not counted)
        }
        else if (m_config.enableKeyRepeat) {
            // Handle key repeat

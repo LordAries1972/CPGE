@@ -4,6 +4,11 @@
 #include "ThreadManager.h"
 #include "Debug.h"
 #include "Configuration.h"
+#include <algorithm>
+#include <chrono>
+#include <cwctype>
+#include <filesystem>
+#include <random>
 
 extern Debug debug;
 extern ThreadManager threadManager;
@@ -21,6 +26,7 @@ float MediaPlayer::ConfigMusicVolume() {
 MediaPlayer::MediaPlayer() {}
 
 MediaPlayer::~MediaPlayer() {
+    stopPlaylistThread();                               // a joinable std::thread must never be destroyed
     try {
         if (bHasCleanedUp) return;
         debug.logLevelMessage(LogLevel::LOG_INFO, L"MediaPlayer destroyed.");
@@ -35,6 +41,73 @@ MediaPlayer::~MediaPlayer() {
     }
 
     bHasCleanedUp = true;
+}
+
+bool MediaPlayer::startPlaylistThread(HWND hWnd) {
+    if (playlist.empty() || playbackThread.joinable()) return false;
+    threadQuit = false;
+    playbackThread = std::thread([this, hWnd]() {
+        CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);              // MFPlay needs a single-threaded apartment on the thread that creates the player
+        Initialize(hWnd);
+        currentPlaylistIndex = 0;
+        if (loadFile(playlist[0])) {
+            play();
+            fadeIn(2000);                                               // lands exactly on the Music Volume setting
+        }
+        ULONGLONG lastSampleMs = 0;
+        while (!threadQuit) {                                           // keep this thread's message queue serviced for as long as the music plays
+            MSG msg;
+            while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
+                TranslateMessage(&msg);
+                DispatchMessage(&msg);
+            }
+            if (advanceRequested.exchange(false)) PlayNext();           // a track ended: start the next one here, outside the MFPlay callback
+            const ULONGLONG nowMs = GetTickCount64();
+            if (nowMs - lastSampleMs >= 500)                            // sample the position HERE, on the player's own thread: nothing else may touch mediaPlayer
+            {
+                lastSampleMs = nowMs;
+                if (mediaPlayer && playing) { PROPVARIANT v; PropVariantInit(&v); if (SUCCEEDED(mediaPlayer->GetPosition(GUID_NULL, &v)) && v.vt == VT_I8) samplePosMs = static_cast<double>(v.hVal.QuadPart) / 10000.0; PropVariantClear(&v); }
+            }
+            if (trackRequested.exchange(false))                         // requestTrack(): switch to a given playlist entry / time index, also outside any callback
+            {
+                std::wstring target; bool same = false;
+                { std::lock_guard<std::mutex> lock(mtx); target = requestedTrack; same = (filePath == target); }
+                const double ms = requestedSeekMs.exchange(-1.0);
+                if (same) { if (ms >= 0.0) seekQuiet(ms); }
+                else if (!target.empty())
+                {
+                    for (size_t i = 0; i < playlist.size(); ++i) if (playlist[i] == target) currentPlaylistIndex = i;     // the playlist carries on after this entry
+                    if (loadFile(target)) { seekAfterLoad = ms; play(); }
+                    else PlayNext();                                    // loadFile released the old player: never leave the music dead
+                }
+            }
+            Sleep(15);
+        }
+        terminate();
+        CoUninitialize();
+    });
+    return true;
+}
+
+void MediaPlayer::stopPlaylistThread() {
+    threadQuit = true;
+    if (playbackThread.joinable()) playbackThread.join();
+}
+
+bool MediaPlayer::requestTrack(const std::wstring& file, double positionMs) {
+    if (file.empty() || !playbackThread.joinable()) return false;
+    const auto leaf = [](const std::wstring& p) { return std::filesystem::path(p).filename().wstring(); };
+    std::wstring match;
+    for (const std::wstring& entry : playlist) if (leaf(entry) == leaf(file)) { match = entry; break; }      // the playlist is only built before the thread starts
+    if (match.empty()) return false;
+    { std::lock_guard<std::mutex> lock(mtx); requestedTrack = match; }
+    requestedSeekMs = positionMs; trackRequested = true;
+    return true;
+}
+
+std::wstring MediaPlayer::currentFile() {
+    std::lock_guard<std::mutex> lock(mtx);
+    return filePath;
 }
 
 // IUnknown methods
@@ -107,14 +180,19 @@ bool MediaPlayer::isValidAudioFile(const std::wstring& filePath) {
 }
 
 bool MediaPlayer::loadFile(const std::wstring& filePath) {
-    cleanup();
+    // Release the previous track's player every time.  (cleanup() sets bHasCleanedUp and then does nothing on later calls, so the second and later tracks
+    // used to be created on top of a player that was never released.)
+    if (mediaPlayer) { mediaPlayer->Stop(); mediaPlayer.Reset(); }
 
     if (!isValidAudioFile(filePath)) {
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"Unsupported or corrupted file: " + filePath);
         return false;
     }
 
-    this->filePath = filePath;
+    {
+        std::lock_guard<std::mutex> lock(mtx);          // currentFile() may be reading it from another thread
+        this->filePath = filePath;
+    }
     itemReady = false;
     pendingPlay = false;
     HRESULT hr = MFPCreateMediaPlayer(
@@ -284,6 +362,13 @@ void MediaPlayer::seek(double positionMs) {
     }
 }
 
+bool MediaPlayer::seekQuiet(double positionMs) {
+    if (!mediaPlayer) return false;
+    PROPVARIANT var; InitPropVariantFromInt64(static_cast<LONGLONG>(positionMs * 10000), &var);
+    const HRESULT hr = mediaPlayer->SetPosition(GUID_NULL, &var); PropVariantClear(&var);
+    return SUCCEEDED(hr);
+}
+
 double MediaPlayer::getSeekPosition() {
     if (!mediaPlayer) return 0.0;
 
@@ -309,6 +394,53 @@ void MediaPlayer::cleanup() {
     bHasCleanedUp = true;
 }
 
+// Asset scanning ---------------------------------------------------------------------------------------------------------------------
+std::vector<std::wstring> MediaPlayer::FindFiles(const std::wstring& root, const std::wstring& ext, bool recursive) {
+    std::vector<std::wstring> found;
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    if (root.empty() || !fs::is_directory(fs::path(root), ec)) return found;
+
+    // Lower-case the wanted extension once; each candidate is lower-cased the same way (the extension is short, so this is cheap).
+    std::wstring want = ext;
+    if (!want.empty() && want[0] != L'.') want.insert(want.begin(), L'.');
+    for (wchar_t& c : want) c = static_cast<wchar_t>(std::towlower(c));
+
+    auto consider = [&](const fs::directory_entry& e) {
+        std::error_code e2;
+        if (!e.is_regular_file(e2)) return;
+        std::wstring x = e.path().extension().wstring();
+        for (wchar_t& c : x) c = static_cast<wchar_t>(std::towlower(c));
+        if (x == want) found.push_back(fs::absolute(e.path(), e2).lexically_normal().make_preferred().wstring());
+    };
+    if (recursive) {
+        for (fs::recursive_directory_iterator it(fs::path(root), fs::directory_options::skip_permission_denied, ec), end; !ec && it != end; it.increment(ec))
+            consider(*it);
+    } else {
+        for (fs::directory_iterator it(fs::path(root), fs::directory_options::skip_permission_denied, ec), end; !ec && it != end; it.increment(ec))
+            consider(*it);
+    }
+    std::sort(found.begin(), found.end());
+    return found;
+}
+
+size_t MediaPlayer::AddFolderToPlaylist(const std::wstring& root, const std::wstring& ext, bool shuffle, bool recursive) {
+    std::vector<std::wstring> files = FindFiles(root, ext, recursive);
+    ClearPlaylist();
+    if (files.empty()) {
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"No '" + ext + L"' files found under: " + root);
+        return 0;
+    }
+    if (shuffle) {                                   // Fisher-Yates, seeded from the clock so every run plays a different order
+        std::mt19937 rng(static_cast<std::mt19937::result_type>(std::chrono::steady_clock::now().time_since_epoch().count()));
+        for (size_t i = files.size(); i > 1; --i)
+            std::swap(files[i - 1], files[std::uniform_int_distribution<size_t>(0, i - 1)(rng)]);
+    }
+    playlist.reserve(files.size());
+    for (const std::wstring& f : files) AddToPlaylist(f);
+    return files.size();
+}
+
 // Playlist management
 void MediaPlayer::AddToPlaylist(const std::wstring& filePath) {
     playlist.push_back(filePath);
@@ -327,10 +459,16 @@ void MediaPlayer::PlayNext() {
         return;
     }
 
-    // Move to the next file in the playlist
-    currentPlaylistIndex = (currentPlaylistIndex + 1) % playlist.size();
-    loadFile(playlist[currentPlaylistIndex]);
-    play();
+    // Move to the next file in the playlist, skipping any that fail to load (a bad file used to end the music for good: the finished player was replayed)
+    for (size_t tries = 0; tries < playlist.size(); ++tries) {
+        currentPlaylistIndex = (currentPlaylistIndex + 1) % playlist.size();
+        if (loadFile(playlist[currentPlaylistIndex])) {
+            play();
+            return;
+        }
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"Skipping unplayable playlist entry: " + playlist[currentPlaylistIndex]);
+    }
+    debug.logLevelMessage(LogLevel::LOG_ERROR, L"No playable file in the playlist.");
 }
 
 // IMFPMediaPlayerCallback implementation
@@ -341,6 +479,7 @@ STDMETHODIMP_(void) MediaPlayer::OnMediaPlayerEvent(MFP_EVENT_HEADER* pEventHead
     else if (pEventHeader->eEventType == MFP_EVENT_TYPE_MEDIAITEM_SET) {
         debug.logLevelMessage(LogLevel::LOG_INFO, L"Media item set.");
         itemReady = true;
+        { const double ms = seekAfterLoad.exchange(-1.0); if (ms >= 0.0 && mediaPlayer && !terminateFlag) seekQuiet(ms); }       // requestTrack(): start inside the new track
         if (pendingPlay.exchange(false) && mediaPlayer && !terminateFlag && playing && !paused) {
             HRESULT hr = mediaPlayer->Play();
             if (FAILED(hr)) {
@@ -356,9 +495,11 @@ STDMETHODIMP_(void) MediaPlayer::OnMediaPlayerEvent(MFP_EVENT_HEADER* pEventHead
         // Handle playback ended
         debug.logLevelMessage(LogLevel::LOG_INFO, L"Playback ended.");
 
-        // If there's a playlist, play the next file
+        // If there's a playlist, play the next file.  With a playlist thread the advance is only REQUESTED here: loadFile() releases and recreates the MFPlay player, which
+        // must not happen from inside that same player's own callback.  The thread's loop does it a few milliseconds later, outside any callback.
         if (!playlist.empty()) {
-            PlayNext();
+            if (playbackThread.joinable()) advanceRequested = true;
+            else PlayNext();
         }
         else if (!config.myConfig.playMusic) {
             playing = false;                            // applyPlayMusic(true) restarts it from 0

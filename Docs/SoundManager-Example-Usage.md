@@ -25,6 +25,8 @@
 17. [Best Practices](#best-practices)
 18. [Troubleshooting](#troubleshooting)
 19. [API Reference](#api-reference)
+20. [Sound Bank (many effects, loops, live volume)](#sound-bank-many-effects-loops-live-volume)
+21. [Background music with the MediaPlayer](#background-music-with-the-mediaplayer)
 
 ---
 
@@ -616,6 +618,9 @@ void StartAudioSystem() {
     }
 }
 ```
+
+### Threads and the sound bank
+Every sound bank call (`RegisterBankSound`, `PlayBankSound`, `PlayBankLoop`, `SetBankLoopGain`, `StopBankSound`, `StopAllBankSounds`, `IsBankSoundLoaded`) takes one internal lock, so the game thread can play sounds while the options window changes the volume and the playback thread trims over-long samples. The global volume itself is an atomic. The only rule is the usual one: call `Initialize()` before registering sounds, and `CleanUp()` (which releases every bank voice) once, at shutdown. See [Sound Bank](#sound-bank-many-effects-loops-live-volume).
 
 ### Stopping the Audio Thread
 ```cpp
@@ -1520,6 +1525,46 @@ Internal queue item structure containing all playback parameters and state infor
 
 ---
 
+### Sound Bank Methods
+
+#### `bool RegisterBankSound(int slot, const std::wstring& file, int voices = 1, unsigned minGapMs = 0, unsigned maxPlayMs = 0, float gain = 1.0f)`
+Loads a WAV once and creates `voices` DirectSound buffers that share its sample data. Registering a slot again replaces it.
+- **Parameters**: `slot` 0-4095; `voices` how many copies may overlap; `minGapMs` throttle between plays (0 = none); `maxPlayMs` cut-off for a long sample (0 = play it all); `gain` this sound's level against the others
+- **Returns**: `false` (quietly) if the manager is not initialised, the file is missing, or it is not a PCM WAV
+- **Thread Safety**: Thread-safe
+
+#### `bool IsBankSoundLoaded(int slot)`
+Whether `slot` holds a loaded sound. Thread-safe.
+
+#### `void PlayBankSound(int slot, float volume = 1.0f)`
+Plays on a free voice, else steals the oldest; ignored inside `minGapMs` of the previous play. Level = `volume x gain x global volume`. Thread-safe.
+
+#### `void PlayBankLoop(int slot, float volume = 1.0f)`
+Starts the sound looping unless it is already playing (cheap to call every frame). Thread-safe.
+
+#### `void SetBankLoopGain(int slot, float volume)`
+Changes the level of a sound that is playing. Thread-safe.
+
+#### `void StopBankSound(int slot)` / `void StopAllBankSounds()`
+Silences one slot / every slot. Thread-safe.
+
+#### `void UpdateBankSounds()`
+Stops voices that ran past their `maxPlayMs`. Called by the playback thread every 100 ms; calling it yourself is harmless.
+
+#### `void SetGlobalVolume(float volume)` (updated)
+Sets the global volume (0-1, clamped). It now also re-applies the level to every bank voice that is already playing, and volume is converted to DirectSound decibels (`2000 x log10(volume)`), so 0.5 is about -6 dB and 0 is silent.
+
+#### `void SetAmbientVolume(float volume)`
+Sets the **ambient** volume (0-1, clamped): an extra scale for every *looping* bank sound, i.e. anything started with `PlayBankLoop` (the background sirens, buzzes and engines). It multiplies on top of the global volume, leaves one-shot sounds (`PlayBankSound`) untouched, and, like `SetGlobalVolume`, re-applies at once to loops that are already playing. Default 1.0.
+
+### MediaPlayer additions
+
+#### `bool MediaPlayer::startPlaylistThread(HWND hWnd)` / `void MediaPlayer::stopPlaylistThread()`
+Play the playlist on the player's own STA message-pump thread, and stop it (see [Background music with the MediaPlayer](#background-music-with-the-mediaplayer)).
+
+#### `std::wstring MediaPlayer::currentFile()`
+A thread-safe copy of the file now loaded.
+
 ## Performance Considerations
 
 ### CPU Usage
@@ -1545,6 +1590,166 @@ Internal queue item structure containing all playback parameters and state infor
 
 ---
 
+## Sound Bank (many effects, loops, live volume)
+
+The `SFX_ID` list is a fixed set of sounds that are queued, copying the sample into a new buffer for every play. A game with dozens of effects, looping sounds and rapid-fire weapons needs more, so the manager also has a **sound bank**: sounds are registered once at run time under an integer slot and played with no allocation.
+
+```cpp
+// Once, after soundManager.Initialize() - the slot can be any number you like (a game's own enum, say)
+//                                  slot  file                        voices gapMs maxMs gain
+soundManager.RegisterBankSound(0, L"./Assets/laser.wav",            4,     60,   400,  0.50f);   // 4 overlapping voices, at most ~16 shots a second
+soundManager.RegisterBankSound(1, L"./Assets/engine-loop.wav",      1,      0,     0,  0.35f);   // a looping sound
+soundManager.RegisterBankSound(2, L"./Assets/explosion.wav",        5,     55,  1100,  0.70f);   // cut after 1.1 s even if the sample is longer
+
+// Whenever
+soundManager.PlayBankSound(0);                  // plays on a free voice, or steals the oldest; throttled by gapMs
+soundManager.PlayBankSound(2, 0.6f);            // quieter this time (volume 0..1)
+
+// A looping sound: call every frame while it should run; it starts once and then does nothing
+soundManager.PlayBankLoop(1, 0.8f);
+soundManager.SetBankLoopGain(1, 0.3f + 0.7f * throttle);   // rev it up and down while it plays
+soundManager.StopBankSound(1);                  // the stick was released
+
+soundManager.StopAllBankSounds();               // leaving the level
+```
+
+| Call | What it does |
+|---|---|
+| `RegisterBankSound(slot, file, voices, minGapMs, maxPlayMs, gain)` | Loads the WAV. `voices` buffers share one copy of the sample. Returns `false` (quietly) if the file is missing, so an optional effect just stays silent. |
+| `IsBankSoundLoaded(slot)` | Whether that slot has a sound, e.g. to fall back to speech when a voice WAV is absent. |
+| `PlayBankSound(slot, volume)` | One-shot. Free voice, else the oldest is stolen. |
+| `PlayBankLoop(slot, volume)` | Looping; a no-op while it is already playing. The loop is an **ambient** sound: it follows `SetAmbientVolume` as well as `SetGlobalVolume`. |
+| `SetBankLoopGain(slot, volume)` | Re-levels a sound that is playing. |
+| `StopBankSound(slot)` / `StopAllBankSounds()` | Silence one slot / everything. |
+| `UpdateBankSounds()` | Cuts voices that ran past `maxPlayMs`. The playback thread calls it ten times a second; you never need to. |
+
+#### `void RegisterBankSoundsAsync(std::vector<BankSoundDef> defs)` / `bool IsBankLoadingDone() const` / `void WaitForBankLoad()`
+Loads a whole bank on ONE background worker thread. `BankSoundDef` is `{ slot, file, voices, minGapMs, maxPlayMs, gain }` (the same values `RegisterBankSound` takes, in the same order). The call returns at once; the worker registers each entry in turn (a missing file is skipped quietly).
+- **Why**: a game bank is ~100 wavs, each decoded and duplicated into DirectSound buffers. Registered on the game thread that takes a second or more: one frame freezes and the first shots or sounds are lost.
+- **While loading**: `PlayBankSound` / `PlayBankLoop` on a slot that is not in yet do nothing, so the game just starts and each effect comes alive as it finishes. `IsBankSoundLoaded(slot)` tells you about one slot; `IsBankLoadingDone()` is true when no batch is loading (also when none was ever started).
+- **Order and shutdown**: a second call waits for the first batch. `CleanUp()` tells the worker to abandon the rest of its list and joins it before the DirectSound device is released; `WaitForBankLoad()` blocks until the batch is in (loading screens, tools; never in the frame loop).
+- **Thread Safety**: Thread-safe. The worker only takes the bank mutex to publish each finished sound.
+
+```cpp
+std::vector<SoundSystem::SoundManager::BankSoundDef> list;
+list.push_back({ kLaser,  (AssetsDir / L"firing.wav").wstring(),  6, 70, 800, 0.5f });   // slot, file, voices, minGapMs, maxPlayMs, gain
+list.push_back({ kEngine, (AssetsDir / L"engine.wav").wstring(),  1,  0,   0, 0.4f });
+soundManager.RegisterBankSoundsAsync(std::move(list));      // returns immediately: start the game now
+// ... later, if you care: if (soundManager.IsBankLoadingDone()) { /* every effect is in */ }
+```
+
+### A complete lifecycle
+
+```cpp
+enum MySfx { kLaser = 0, kEngine = 1, kBoom = 2, kVoiceReady = 3, kSfxTotal };
+
+void StartSound(HWND hwnd)
+{
+    soundManager.Initialize(hwnd);
+    soundManager.StartPlaybackThread();                        // trims maxPlayMs samples; also needed by the queue
+    soundManager.SetGlobalVolume(config.myConfig.dialogVolume / 64.0f);
+
+    soundManager.RegisterBankSound(kLaser,      L"./Assets/laser.wav",   4,  60,  400, 0.50f);
+    soundManager.RegisterBankSound(kEngine,     L"./Assets/engine.wav",  1,   0,    0, 0.35f);
+    soundManager.RegisterBankSound(kBoom,       L"./Assets/boom.wav",    5,  55, 1100, 0.70f);
+    soundManager.RegisterBankSound(kVoiceReady, L"./Assets/ready.wav",   1,   0,    0, 1.00f);   // optional: the file may not exist
+}
+
+void OnPlayerFires()  { soundManager.PlayBankSound(kLaser); }
+void OnExplosion()    { soundManager.PlayBankSound(kBoom, 0.8f); }
+
+void EveryFrame(bool thrusting)
+{
+    if (thrusting) soundManager.PlayBankLoop(kEngine, 0.6f);   // starts once; a no-op while it plays
+    else           soundManager.StopBankSound(kEngine);
+}
+
+void StopSound()
+{
+    soundManager.StopAllBankSounds();
+    soundManager.StopPlaybackThread();
+    soundManager.CleanUp();                                    // releases every bank voice, then the DirectSound device
+}
+```
+
+### Falling back when an optional file is missing
+
+`RegisterBankSound` returns `false` for a missing or unreadable file without raising an error, so optional sounds simply stay silent. Use `IsBankSoundLoaded` to take another route:
+
+```cpp
+void SayReady()
+{
+    if (soundManager.IsBankSoundLoaded(kVoiceReady))
+        soundManager.PlayBankSound(kVoiceReady);               // a recorded voice, if the WAV is there
+    else
+        ttsManager.PlayAsync(L"Get ready.");                   // otherwise the speech engine
+}
+```
+
+### Live volume
+
+`SetGlobalVolume` re-applies the new level to every bank voice, including ones that are in the middle of playing, so the options window can change the volume of a looping engine or a long explosion as the player drags the slider:
+
+```cpp
+soundManager.PlayBankLoop(kEngine, 1.0f);       // playing at 100% of the global volume
+soundManager.SetGlobalVolume(0.25f);            // the engine drops to 25% immediately, not on its next start
+soundManager.SetGlobalVolume(0.0f);             // silent (a true zero, not a very quiet sound)
+soundManager.SetGlobalVolume(1.0f);
+
+// The configuration window wires this up for you: config.applyLive() runs the callback in WinMain, which calls
+// soundManager.SetGlobalVolume(cfg.dialogVolume / 64.0f) and soundManager.SetAmbientVolume(cfg.ambientVolume / 64.0f).
+```
+
+### Ambient volume (looping background sounds)
+
+"Ambient" means the looping background sounds: the Stix buzz and drawing scrape, the Incoming sirens, the Chomper siren and blue-ghost warble. Anything started with `PlayBankLoop` is ambient, so it has its own level, set by the options window's **Ambient Volume** slider, on top of the Dialog Volume (global) that scales every effect:
+
+```cpp
+soundManager.PlayBankLoop(kEngine, 1.0f);       // level = 1.0 x gain x global x ambient
+soundManager.SetAmbientVolume(0.5f);            // the loop drops to half at once; one-shot effects (PlayBankSound) are not affected
+soundManager.SetAmbientVolume(config.myConfig.ambientVolume / 64.0f);   // what the configuration callback does
+```
+
+## Background music with the MediaPlayer
+
+Music is not part of `SoundManager`; the engine's `MediaPlayer` (`WinMediaPlayer.h`) plays mp3 / m4a files through Media Foundation. It follows the Music Volume and Play Music settings, and keeps a playlist.
+
+**Use `startPlaylistThread` for background music.** Media Foundation's MFPlay processes `Play()` and delivers its events through the message queue of the thread that *created* the player, so that thread must be a single-threaded apartment and keep pumping messages while the music plays. A player created on a game / render thread that does neither loads fine and logs "Playback started", but is silent. `startPlaylistThread` creates the player on its own STA thread and pumps messages for you; when a track ends the thread starts the next one (outside the player's callback), skipping any file that fails to load.
+
+```cpp
+static MediaPlayer music;                                      // the vector demo owns one instance
+
+void StartMusic(HWND hwnd, const std::vector<std::wstring>& files)   // files: absolute paths, already shuffled if you like
+{
+    music.ClearPlaylist();
+    for (const std::wstring& f : files) music.AddToPlaylist(f);
+    music.startPlaylistThread(hwnd);                           // starts files[0] at the Music Volume setting (2 s fade-in), then moves on by itself
+}
+
+void OnAudioSettingsChanged()                                  // call from the Configuration apply callback
+{
+    music.setVolume(MediaPlayer::ConfigMusicVolume());         // 0..1 from the Music Volume slider (the master volume is the Windows output device's)
+    music.applyPlayMusic(config.myConfig.playMusic);           // off: pause; on: resume (or start)
+}
+
+void EverySecond()
+{
+    // The player changes track on its own thread, so read the name through the thread-safe getter, not the public filePath member
+    const std::wstring nowPlaying = std::filesystem::path(music.currentFile()).filename().wstring();
+}
+
+void StopMusic() { music.stopPlaylistThread(); }               // stops the music and joins the thread (the destructor does this too)
+```
+
+| Call | What it does |
+|---|---|
+| `startPlaylistThread(hwnd)` | Plays the playlist on the player's own STA message-pump thread. Returns `false` if the playlist is empty or a thread is already running. |
+| `stopPlaylistThread()` | Stops the music and joins the thread. Safe to call when nothing is running. |
+| `currentFile()` | Thread-safe copy of the file now loaded. |
+| `PlayNext()` | Moves to the next playlist entry, now skipping files that fail to load (it used to stop the music for good on a bad file). |
+
+Fixed in the same change: `loadFile` now always releases the previous track's player (`cleanup()` only worked once, so the second and later tracks were created on top of a player that was never released), and the end-of-track event no longer reloads the player from inside that player's own callback.
+
 ## Conclusion
 
 The SoundManager class provides a robust, professional-grade audio system suitable for games and real-time applications. Its DirectSound foundation ensures stability and performance, while advanced features like priority queuing, fade effects, and cooldown management provide the flexibility needed for complex audio scenarios.
@@ -1557,3 +1762,17 @@ Key strengths include:
 - **Ease of Use**: Simple API with sensible defaults for quick implementation
 
 For best results, follow the initialization sequence carefully, implement proper error handling, and monitor system resources in long-running applications. The provided examples and best practices should serve as a solid foundation for implementing professional audio systems in your applications.
+## Bank update cost (2026-11-13)
+
+`BankVoice::appliedGain` caches only successful effective-volume writes, including
+global and ambient scaling. An unchanged gain skips both the logarithm and the
+DirectSound `SetVolume` call; changing either live volume control still updates
+the voice. Failed writes are retried. `StopBankSound` / `StopAllBankSounds` skip
+idle voices, while retaining the existing mutex and playback bookkeeping.
+
+The vector bank contains 204 definitions, with a compile-time count check and a
+separate Soldier On / arcade boundary check. Run
+`python Scripts/validate-vector-audio.py` without compiling to check required
+files and new library conversions. See
+[the audio/performance audit](Vector-Audio-Performance-Audit.md). Playback remains
+unverified until a manual engine run.

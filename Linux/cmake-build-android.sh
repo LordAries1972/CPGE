@@ -19,9 +19,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CMAKE_EXE="${CMAKE_EXE:-cmake}"
 
-ARG1="${1:-}"
-ARG2="${2:-}"
-ARG3="${3:-}"
+# Split the command line into the positional arguments and the optional -clean switch (any position).
+# Without -clean the existing build tree (objects, CMake cache, binaries) is reused, so only changed sources recompile.
+CLEAN_BUILD=""
+POSARGS=()
+for a in "$@"; do
+    if [[ "${a,,}" == "-clean" ]]; then CLEAN_BUILD=1; else POSARGS+=("$a"); fi
+done
+ARG1="${POSARGS[0]:-}"
+ARG2="${POSARGS[1]:-}"
+ARG3="${POSARGS[2]:-}"
 
 # --- Help (lists every directive and exits) ---
 show_help() {
@@ -32,12 +39,17 @@ show_help() {
 ${me} - cross-compile the engine for Android with CMake + the Android NDK
 
 Usage:
-  ${me} <directive> [config] [abi]
+  ${me} <directive> [config] [abi] [-clean]
 
 Build directives (one render pipeline):
   opengl    OpenGL ES renderer
   vulkan    Vulkan renderer
             (DirectX 11/12 are Windows-only - use cmake-build.bat)
+
+Option (any position, used by every build directive and by all):
+  -clean    Deletes the build tree of the pipeline being built (objects, CMake
+            cache, binaries) first for a fresh compile. Without it the existing
+            binaries are reused (incremental build).
 
 Maintenance directives:
   clean     Deletes the Android build directory (Linux/build-android).
@@ -73,6 +85,7 @@ Examples:
   ${me} vulkan release
   ${me} vulkan release arm64-v8a
   ${me} opengl debug x86_64
+  ${me} vulkan release -clean   # fresh full compile
   ${me} clean
   ${me} help
 
@@ -97,7 +110,7 @@ fi
 # --- Usage ---
 if [[ -z "${ARG1}" ]]; then
     echo ""
-    echo "Usage: $(basename "$0") <renderer> [debug|release] [abi]"
+    echo "Usage: $(basename "$0") <renderer> [debug|release] [abi] [-clean]"
     echo "  Renderers : opengl  vulkan"
     echo "  Config    : debug  release        (default: debug)"
     echo "  ABI       : arm64-v8a  x86_64  armeabi-v7a  x86  (default: arm64-v8a)"
@@ -221,6 +234,12 @@ fi
 
 # --- Build ---
 BUILD_DIR="${SCRIPT_DIR}/build-android/${ABI}/${RENDERER}/${CONFIG}"
+# -clean: wipe this pipeline's build tree so the compile below starts completely fresh.
+if [[ -n "${CLEAN_BUILD}" && -d "${BUILD_DIR}" ]]; then
+    echo "-clean: removing ${BUILD_DIR} ..."
+    rm -rf "${BUILD_DIR}"
+    if [[ -d "${BUILD_DIR}" ]]; then echo "ERROR: Could not remove ${BUILD_DIR}"; exit 1; fi
+fi
 mkdir -p "${BUILD_DIR}"
 
 echo ""

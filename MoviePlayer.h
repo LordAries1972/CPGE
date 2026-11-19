@@ -32,6 +32,8 @@ class Renderer;
 class Debug;
 class ThreadManager;
 
+extern bool gameplayPlaybackActive; // Owned by the rendering thread; suppresses live game overlays.
+
 class MoviePlayer {
 public:
     MoviePlayer();
@@ -45,6 +47,11 @@ public:
 
     // Open a movie file for playback
     bool OpenMovie(const std::wstring& filePath);
+    // Queue from an overlay; perform decoder/GPU resource changes at the next
+    // frame boundary, outside BeginDraw. An empty path requests Stop().
+    void RequestMovie(const std::wstring& path, bool holdOpeningFrame = false);
+    void ResumeRequestedMovie() { m_resumeRequested.store(true); }
+    void ProcessMovieRequest();
 
     // Play, pause, stop control
     bool Play();
@@ -82,6 +89,10 @@ public:
     void Cleanup();
 
 private:
+    std::atomic<bool> m_movieRequested { false };
+    std::mutex m_requestMutex;
+    std::wstring m_requestedMovie;
+    std::atomic<bool> m_holdOpeningFrame { false }, m_resumeRequested { false };
     // XAudio2 voice callback — frees the per-buffer BYTE* copy on completion
     struct AudioVoiceCallback : public IXAudio2VoiceCallback {
         void STDMETHODCALLTYPE OnBufferEnd(void* pContext) override { delete[] static_cast<BYTE*>(pContext); }

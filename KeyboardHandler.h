@@ -174,7 +174,7 @@ enum class KeyCode : uint32_t {
     KEY_NUMPAD_SUBTRACT = 0x0000006D,                       // Numpad - (subtract)
     KEY_NUMPAD_DECIMAL = 0x0000006E,                        // Numpad . (decimal)
     KEY_NUMPAD_DIVIDE = 0x0000006F,                         // Numpad / (divide)
-    KEY_NUMPAD_ENTER = 0x0000000E,                          // Numpad Enter key
+    KEY_NUMPAD_ENTER = 0x0000010E,                          // Numpad Enter key (was 0x0E, which shared a state slot with KEY_N)
 
     // Punctuation and symbol keys
     KEY_SEMICOLON = 0x000000BA,                             // ; (semicolon)
@@ -209,7 +209,7 @@ enum class KeyCode : uint32_t {
 
     // Platform-specific special keys
     KEY_PRINT_SCREEN = 0x0000002C,                          // Print Screen key
-    KEY_PAUSE = 0x00000013,                                 // Pause/Break key
+    KEY_PAUSE = 0x00000113,                                 // Pause/Break key (was 0x13, which shared a state slot with KEY_S)
     KEY_MENU = 0x0000005D,                                  // Menu/Context key
     KEY_SLEEP = 0x0000005F,                                 // Sleep key
 
@@ -242,8 +242,16 @@ struct KeyState {
     std::chrono::steady_clock::time_point releaseTime;     // When key was released
     uint32_t repeatCount;                                   // Key repeat counter
 
+    // Press-edge bookkeeping (see IsKeyJustPressed / UpdateKeyStates).  pressSeq counts every fresh press as it arrives from the
+    // OS; frameSeq / prevFrameSeq are snapshots of it taken by UpdateKeyStates(), so "just pressed" = "a press arrived since the
+    // previous snapshot".  Unlike comparing isPressed / wasPressed this never loses a quick tap that is released before the
+    // game polls, and never reports the same press twice.
+    std::atomic<uint32_t> pressSeq;                         // Incremented on every fresh press (written by the hook)
+    std::atomic<uint32_t> frameSeq;                         // pressSeq as of the latest UpdateKeyStates()
+    std::atomic<uint32_t> prevFrameSeq;                     // pressSeq as of the UpdateKeyStates() before that
+
     // Constructor with default initialization
-    KeyState() : isPressed(false), wasPressed(false), repeatCount(0) {
+    KeyState() : isPressed(false), wasPressed(false), repeatCount(0), pressSeq(0), frameSeq(0), prevFrameSeq(0) {
         pressTime = std::chrono::steady_clock::time_point::min();
         releaseTime = std::chrono::steady_clock::time_point::min();
     }
@@ -370,8 +378,22 @@ public:
     // Check if a specific key is currently pressed
     bool IsKeyPressed(KeyCode keyCode) const;
 
-    // Check if a key was just pressed this frame (edge detection)
+    // Check if a key was just pressed this frame (edge detection).  Needs UpdateKeyStates() once at the START of every frame.
     bool IsKeyJustPressed(KeyCode keyCode) const;
+
+    // Same two queries for a native (platform) key code, e.g. a Windows VK_* value, so code that thinks in virtual keys can use
+    // the handler directly.  Windows also accepts the generic VK_SHIFT / VK_CONTROL / VK_MENU (either side).  The lookup is
+    // cached per key, so these are as cheap as the KeyCode versions.  Unmapped keys (mouse buttons, ...) report false.
+    bool IsPlatformKeyPressed(uint32_t platformKey) const;
+    bool IsPlatformKeyJustPressed(uint32_t platformKey) const;
+
+    // How many fresh presses of a native key the handler has seen since start-up (OS auto-repeat is not counted; the generic Windows modifier codes sum both sides).  A consumer
+    // that keeps its own "last count I saw" gets an exact press edge no matter how often, or from which thread, anyone calls UpdateKeyStates() - the demo does this (KeyEdge).
+    uint32_t GetPlatformKeyPressCount(uint32_t platformKey) const;
+
+    // Reconcile the key states with the OS (Windows): corrects any press / release the hook missed.  Throttled internally (at most every 2 ms), so it is safe to call from
+    // several places or from a tight loop.  UpdateKeyStates() calls it too.
+    void SyncWithOS();
 
     // Check if a key was just released this frame (edge detection)
     bool IsKeyJustReleased(KeyCode keyCode) const;
@@ -436,7 +458,7 @@ public:
     // Get current modifier flags (Ctrl, Shift, Alt combinations)
     uint32_t GetCurrentModifierFlags() const;
 
-    // Update key states (called by game loop for edge detection)
+    // Update key states (call ONCE at the start of every frame, before any IsKeyJustPressed / IsPlatformKeyJustPressed query)
     void UpdateKeyStates();
 
     //==========================================================================

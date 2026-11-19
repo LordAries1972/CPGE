@@ -75,6 +75,20 @@ using namespace SoundSystem;
 
 extern Debug debug;
 
+#if defined(PLATFORM_WINDOWS)
+namespace {
+    // Linear gain (0..1) -> DirectSound volume.  DirectSound volume is in hundredths of a DECIBEL (0 = full, -10000 = silent), so a linear gain must go
+    // through a logarithm: dB = 20 * log10(gain), i.e. 2000 * log10(gain) in these units.  Interpolating linearly between DSBVOLUME_MIN and 0 instead
+    // (which this file used to do) made half volume -50 dB: effectively silent, so a volume slider only seemed to work near its top.
+    LONG GainToDirectSound(float gain) {
+        if (!(gain > 0.0001f)) return DSBVOLUME_MIN;            // silence (also catches NaN)
+        if (gain >= 1.0f) return DSBVOLUME_MAX;
+        const LONG db = static_cast<LONG>(2000.0f * std::log10(gain));
+        return (db < DSBVOLUME_MIN) ? DSBVOLUME_MIN : db;
+    }
+}
+#endif
+
 SoundManager::SoundManager() :
     m_directSound(nullptr),
     m_primaryBuffer(nullptr),
@@ -225,9 +239,27 @@ void SoundManager::AddToQueue(SFX_ID id, float volume, StereoBalance balance, Pl
 
 void SoundManager::SetGlobalVolume(float volume) {
     m_globalVolume = std::clamp(volume, 0.0f, 1.0f);
+#if defined(PLATFORM_WINDOWS)
+    {   // bank sounds already playing follow the new volume at once (the options window's volume sliders call this)
+        std::lock_guard<std::mutex> lock(m_bankMutex);
+        for (BankSound& b : m_bank)
+            for (BankVoice& v : b.voices)
+                if (v.buf) ApplyBankVoiceVolume(v);
+    }
+#endif
     #if defined(_DEBUG_SOUNDMANAGER_)
-        debug.logLevelMessage(LogLevel::LOG_INFO, L"Global volume set to: " + std::to_wstring(m_globalVolume));
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"Global volume set to: " + std::to_wstring(m_globalVolume.load()));
     #endif
+}
+
+void SoundManager::SetAmbientVolume(float volume) {
+    m_ambientVolume = std::clamp(volume, 0.0f, 1.0f);
+#if defined(PLATFORM_WINDOWS)
+    std::lock_guard<std::mutex> lock(m_bankMutex);              // loops that are playing follow the new level at once
+    for (BankSound& b : m_bank)
+        for (BankVoice& v : b.voices)
+            if (v.buf && v.loop) ApplyBankVoiceVolume(v);
+#endif
 }
 
 void SoundManager::SetCooldown(SFX_ID id, float seconds) {
@@ -363,8 +395,7 @@ void SoundManager::PlayImmediateSFX(SFX_ID id) {
     tempBuffer->Unlock(pBuffer, bufferSize, NULL, 0);
 
     tempBuffer->SetCurrentPosition(0);
-    LONG dsVol = static_cast<LONG>(DSBVOLUME_MIN + static_cast<float>(DSBVOLUME_MAX - DSBVOLUME_MIN) * m_globalVolume);
-    tempBuffer->SetVolume(dsVol);
+    tempBuffer->SetVolume(GainToDirectSound(m_globalVolume));
     tempBuffer->Play(0, 0, 0);
 
     #if defined(_DEBUG_SOUNDMANAGER_)
@@ -392,7 +423,7 @@ void SoundManager::UpdateFadeInVolumes() {
         float volume = item.volume * fadeRatio;
 
 #if defined(PLATFORM_WINDOWS)
-        LONG volumeDb = static_cast<LONG>(DSBVOLUME_MIN + (DSBVOLUME_MAX - DSBVOLUME_MIN) * volume);
+        LONG volumeDb = GainToDirectSound(volume);
 
         // Re-acquire the buffer and update volume (not implemented fully here)
         // In real implementation, we'd track the DirectSound buffer pointer in item or elsewhere.
@@ -475,8 +506,7 @@ void SoundManager::PlayQueueList() {
         default: buffer->SetPan(DSBPAN_CENTER); break;
         }
 
-        LONG volumeDb = (item.fadeIn) ? DSBVOLUME_MIN
-                      : static_cast<LONG>(DSBVOLUME_MIN + static_cast<float>(DSBVOLUME_MAX - DSBVOLUME_MIN) * item.volume);
+        LONG volumeDb = (item.fadeIn) ? DSBVOLUME_MIN : GainToDirectSound(item.volume);
         buffer->SetVolume(volumeDb);
 
         buffer->Play(0, 0, (item.playbackType == PlaybackType::pbtSFX_Loop) ? DSBPLAY_LOOPING : 0);
@@ -492,8 +522,186 @@ void SoundManager::PlayQueueList() {
 #endif // PLATFORM_WINDOWS
 }
 
+// ---- Sound bank -------------------------------------------------------------------------------------------------------------------
+void SoundManager::ApplyBankVoiceVolume(BankVoice& v) {
+    #if defined(PLATFORM_WINDOWS)
+        if (!v.buf) return;
+        const float gain = v.level * m_globalVolume.load() * (v.loop ? m_ambientVolume.load() : 1.0f);
+        if (gain == v.appliedGain) return;
+        // Retry failed driver writes; every volume control still takes effect immediately.
+        if (SUCCEEDED(v.buf->SetVolume(GainToDirectSound(gain)))) v.appliedGain = gain;
+    #endif
+}
+
+void SoundManager::ReleaseBankSound(BankSound& b) {
+#if defined(PLATFORM_WINDOWS)
+    for (BankVoice& v : b.voices)
+        if (v.buf) { v.buf->Stop(); v.buf->Release(); v.buf = nullptr; }
+#endif
+    b.voices.clear();
+    b.ok = false;
+}
+
+bool SoundManager::RegisterBankSound(int slot, const std::wstring& file, int voices, unsigned minGapMs, unsigned maxPlayMs, float gain) {
+#if defined(PLATFORM_WINDOWS)
+    if (!m_initialized || !m_directSound || slot < 0 || slot > 4095 || voices < 1) return false;
+    std::error_code ec;
+    if (!std::filesystem::exists(file, ec)) return false;       // checked here: LoadSFXFile logs an error for a missing file, and a missing optional effect is not one
+
+    LoadedSFX sfx;
+    if (!LoadSFXFile(file, sfx)) return false;
+
+    DSBUFFERDESC d = {};
+    d.dwSize = sizeof(d);
+    d.dwFlags = DSBCAPS_CTRLVOLUME | DSBCAPS_GLOBALFOCUS | DSBCAPS_GETCURRENTPOSITION2;     // GLOBALFOCUS: keeps playing when the window loses focus
+    d.dwBufferBytes = static_cast<DWORD>(sfx.audioData.size());
+    d.lpwfxFormat = &sfx.waveFormat;
+    LPDIRECTSOUNDBUFFER master = nullptr;
+    if (FAILED(m_directSound->CreateSoundBuffer(&d, &master, nullptr)) || !master) return false;
+    void* p = nullptr; DWORD n = 0;
+    if (SUCCEEDED(master->Lock(0, d.dwBufferBytes, &p, &n, nullptr, nullptr, 0))) { memcpy(p, sfx.audioData.data(), n); master->Unlock(p, n, nullptr, 0); }
+
+    BankSound bs;
+    bs.minGapMs = minGapMs; bs.maxPlayMs = maxPlayMs; bs.gain = gain;
+    bs.voices.push_back({ master, 0, 0.0f });
+    for (int i = 1; i < voices; ++i) {                          // extra voices SHARE the master's sample data
+        LPDIRECTSOUNDBUFFER dup = nullptr;
+        if (FAILED(m_directSound->DuplicateSoundBuffer(master, &dup)) || !dup) break;
+        bs.voices.push_back({ dup, 0, 0.0f });
+    }
+    bs.ok = true;
+
+    std::lock_guard<std::mutex> lock(m_bankMutex);
+    if (static_cast<size_t>(slot) >= m_bank.size()) m_bank.resize(static_cast<size_t>(slot) + 1);
+    ReleaseBankSound(m_bank[slot]);                             // registering a slot twice replaces it
+    m_bank[slot] = std::move(bs);
+    return true;
+#else
+    (void)slot; (void)file; (void)voices; (void)minGapMs; (void)maxPlayMs; (void)gain;
+    return false;
+#endif
+}
+
+bool SoundManager::IsBankSoundLoaded(int slot) {
+    std::lock_guard<std::mutex> lock(m_bankMutex);
+    return slot >= 0 && static_cast<size_t>(slot) < m_bank.size() && m_bank[slot].ok;
+}
+
+void SoundManager::PlayBankSound(int slot, float volume) {
+#if defined(PLATFORM_WINDOWS)
+    std::lock_guard<std::mutex> lock(m_bankMutex);
+    if (slot < 0 || static_cast<size_t>(slot) >= m_bank.size() || !m_bank[slot].ok) return;
+    BankSound& b = m_bank[slot];
+    const unsigned long long now = GetTickCount64();
+    if (now - b.lastPlayed < b.minGapMs) return;                // throttle rapid retriggers
+
+    BankVoice* pick = nullptr;                                  // a free voice, else steal the oldest one
+    for (BankVoice& v : b.voices) {
+        DWORD st = 0;
+        v.buf->GetStatus(&st);
+        if (!(st & DSBSTATUS_PLAYING)) { pick = &v; break; }
+        if (!pick || v.started < pick->started) pick = &v;
+    }
+    if (!pick) return;
+    pick->level = volume * b.gain;
+    pick->loop = false;                                         // a one-shot effect: not ambient
+    pick->buf->Stop();
+    pick->buf->SetCurrentPosition(0);
+    ApplyBankVoiceVolume(*pick);
+    pick->buf->Play(0, 0, 0);
+    pick->started = now; b.lastPlayed = now;
+#else
+    (void)slot; (void)volume;
+#endif
+}
+
+void SoundManager::PlayBankLoop(int slot, float volume) {
+#if defined(PLATFORM_WINDOWS)
+    std::lock_guard<std::mutex> lock(m_bankMutex);
+    if (slot < 0 || static_cast<size_t>(slot) >= m_bank.size() || !m_bank[slot].ok) return;
+    BankSound& b = m_bank[slot];
+    BankVoice& v = b.voices[0];
+    DWORD st = 0;
+    v.buf->GetStatus(&st);
+    if (st & DSBSTATUS_PLAYING) return;                         // already running: nothing to do
+    v.level = volume * b.gain;
+    v.loop = true;                                              // a looping background sound: scaled by the ambient volume
+    v.buf->SetCurrentPosition(0);
+    ApplyBankVoiceVolume(v);
+    v.buf->Play(0, 0, DSBPLAY_LOOPING);
+    v.started = GetTickCount64();
+#else
+    (void)slot; (void)volume;
+#endif
+}
+
+void SoundManager::SetBankLoopGain(int slot, float volume) {
+    std::lock_guard<std::mutex> lock(m_bankMutex);
+    if (slot < 0 || static_cast<size_t>(slot) >= m_bank.size() || !m_bank[slot].ok) return;
+    BankVoice& v = m_bank[slot].voices[0];
+    v.level = volume * m_bank[slot].gain;
+    ApplyBankVoiceVolume(v);
+}
+
+void SoundManager::StopBankSound(int slot) {
+    std::lock_guard<std::mutex> lock(m_bankMutex);
+    if (slot < 0 || static_cast<size_t>(slot) >= m_bank.size() || !m_bank[slot].ok) return;
+#if defined(PLATFORM_WINDOWS)
+    // Games stop inactive loops every frame. An idle voice needs no driver call.
+    for (BankVoice& v : m_bank[slot].voices)
+        if (v.started != 0) { v.buf->Stop(); v.started = 0; }
+#endif
+}
+
+void SoundManager::StopAllBankSounds() {
+    std::lock_guard<std::mutex> lock(m_bankMutex);
+#if defined(PLATFORM_WINDOWS)
+    for (BankSound& b : m_bank)
+        for (BankVoice& v : b.voices)
+            if (v.buf && v.started != 0) { v.buf->Stop(); v.started = 0; }
+#endif
+}
+
+void SoundManager::UpdateBankSounds() {
+#if defined(PLATFORM_WINDOWS)
+    std::lock_guard<std::mutex> lock(m_bankMutex);
+    const unsigned long long now = GetTickCount64();
+    for (BankSound& b : m_bank) {
+        if (!b.ok || b.maxPlayMs == 0) continue;
+        for (BankVoice& v : b.voices)
+            if (v.started && now - v.started > b.maxPlayMs) { v.buf->Stop(); v.started = 0; }
+    }
+#endif
+}
+
+void SoundManager::RegisterBankSoundsAsync(std::vector<BankSoundDef> defs) {
+    WaitForBankLoad();                                          // one batch at a time: a second call queues behind the first
+    if (defs.empty() || m_cleanupDone) return;
+    m_bankAbort = false;
+    m_bankLoading = true;
+    m_bankLoader = std::thread([this, list = std::move(defs)]() {
+        for (const BankSoundDef& d : list) {
+            if (m_bankAbort) break;                             // shutting down: abandon the rest
+            RegisterBankSound(d.slot, d.file, d.voices, d.minGapMs, d.maxPlayMs, d.gain);   // locks the bank only to publish each finished sound
+        }
+        m_bankLoading.store(false, std::memory_order_release);
+    });
+}
+
+void SoundManager::WaitForBankLoad() {
+    if (m_bankLoader.joinable()) m_bankLoader.join();
+}
+
 void SoundManager::CleanUp() {
     m_cleanupDone = true;
+    m_bankAbort = true;                                         // stop the background loader before anything it uses is released
+    WaitForBankLoad();
+
+    {   // bank voices are children of the DirectSound device: release them first
+        std::lock_guard<std::mutex> lock(m_bankMutex);
+        for (BankSound& b : m_bank) ReleaseBankSound(b);
+        m_bank.clear();
+    }
 
 #if defined(PLATFORM_WINDOWS)
     if (m_primaryBuffer) {
@@ -521,9 +729,11 @@ void SoundManager::StartPlaybackThread() {
         #if defined(_DEBUG_SOUNDMANAGER_)
             debug.logLevelMessage(LogLevel::LOG_INFO, L"[SoundThread] Playback thread started");
         #endif
+        int bankTick = 0;
         while (!m_terminationFlag) {
             PlayQueueList();
             UpdateFadeInVolumes();
+            if (++bankTick >= 10) { bankTick = 0; UpdateBankSounds(); }          // every 100 ms
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         #if defined(_DEBUG_SOUNDMANAGER_)

@@ -5,6 +5,7 @@
 //-------------------------------------------------------------------------------------------------
 
 #include "Includes.h"
+#include "Vectors.h"
 
 #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
 
@@ -97,6 +98,14 @@ public:
     void SetYawPitchFromForward();
     void SetTarget(const XMFLOAT3& newTarget);
     void SetNearFar(float nearPlane, float farPlane);
+
+    // Orbit view for games / the vector demo: puts the camera on a sphere round (targetX, targetY, targetZ) and looks at it.  pitchDegDown = how far the camera looks DOWN
+    // (0 = level, 90 = straight down), yawDeg = 0 looks along +Z and 90 along +X, distance = from the target.  The up vector comes from the pitch (not the world up), so a straight-down
+    // view is a valid, stable view matrix.  GetViewBasis returns the camera's right / up / forward unit vectors in world space (for renderers that project by hand).
+    void SetOrbitView(float targetX, float targetY, float targetZ, float pitchDegDown, float yawDeg, float distance);
+    void GetViewBasis(float outRight[3], float outUp[3], float outForward[3]) const;
+    // The camera's view as the engine's own math types, for a software renderer: the eye position, the world -> view rotation (rows = right / up / forward) and its transpose (view -> world).
+    void GetViewFrame(MyVector& outPosition, MyGeom::Mat3& outWorldToView, MyGeom::Mat3& outViewToWorld) const;
 
     // Field of View, Up Vector, and Clipping Plane Management Functions
     float GetFieldOfView() const;

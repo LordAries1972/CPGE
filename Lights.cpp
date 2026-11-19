@@ -980,3 +980,62 @@ void ReflectionCaptureFaceCamera(int face, const float origin[3], float nearZ, f
         outProj[14] = -2.0f * farZ * nearZ / (farZ - nearZ);
     }
 }
+
+//=============================================================================================================
+//  VECTOR LIGHTING (the non-inline parts; the sun / brightness / flat accessors are inline in Lights.h)
+//=============================================================================================================
+
+// Registers one dynamic vector light for this frame.  Returns false (and drops it) once kMaxVectorLights are in: the lights are decoration, so losing the furthest ones is harmless.
+bool LightsManager::AddVectorLight(const VectorLight& l)
+{
+    if (static_cast<int>(vecLights.size()) >= kMaxVectorLights) return false;
+    vecLights.push_back(l);
+    return true;
+}
+
+// Sums every registered light's reach at a world point.  Each light contributes intensity * (1 - d / radius)^2 inside its radius (a smooth bright centre, no hard edge) - cheap enough to
+// call per model.  Returns 0..1.
+float LightsManager::VectorLightAt(const MyVector& worldPos) const
+{
+    float sum = 0.0f;
+    for (const VectorLight& l : vecLights)
+    {
+        const float dx = l.pos.x - worldPos.x, dy = l.pos.y - worldPos.y, dz = l.pos.z - worldPos.z, d2 = dx * dx + dy * dy + dz * dz, r2 = l.radius * l.radius;
+        if (d2 >= r2) continue;                                                     // outside this light's reach (squared compare: no sqrt for the misses)
+        const float t = 1.0f - std::sqrt(d2) / l.radius;
+        sum += l.intensity * t * t;
+    }
+    return sum > 1.0f ? 1.0f : sum;
+}
+
+// The vector light as a POINT light of the 3D model pipeline (so one lamp can light real models as well as vector ones).
+LightStruct LightsManager::MakePointLightStruct(const VectorLight& l) const
+{
+    LightStruct s;
+    std::memset(&s, 0, sizeof(s));
+    s.position = XMFLOAT3(l.pos.x, l.pos.y, l.pos.z);
+    s.color = XMFLOAT3(l.color.r / 255.0f, l.color.g / 255.0f, l.color.b / 255.0f);
+    s.specularColor = s.color;
+    s.intensity = s.baseIntensity = l.intensity;
+    s.range = l.radius;
+    s.type = static_cast<int>(LightType::POINT);
+    s.active = 1;
+    return s;
+}
+
+// The shared vector sun as a DIRECTIONAL LightStruct for the 3D pipeline.  `rayDirWorld` is the direction the light travels in world space (the view-space sun vector the vector
+// renderer uses cannot be converted here: that needs the camera).
+LightStruct LightsManager::MakeSunLightStruct(const MyVector& rayDirWorld) const
+{
+    LightStruct s;
+    std::memset(&s, 0, sizeof(s));
+    const MyVector d = rayDirWorld.Normalized();
+    s.direction = XMFLOAT3(d.x, d.y, d.z);
+    s.color = XMFLOAT3(1.0f, 1.0f, 1.0f);
+    s.specularColor = s.color;
+    s.ambient = XMFLOAT3(vecAmbient, vecAmbient, vecAmbient);
+    s.intensity = s.baseIntensity = vecDiffuse + vecAmbient;
+    s.type = static_cast<int>(LightType::DIRECTIONAL);
+    s.active = 1;
+    return s;
+}

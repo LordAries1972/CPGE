@@ -18,6 +18,8 @@
    DO NOT INCLUDE THIS FILE!!! THE PROJECT ITSELF SCOPES THIS FILE!
 /* ---------------------------------------------------------------- */
 #include "Includes.h"
+#include "KeyboardHandler.h"
+#include "FramePacer.h"
 
 #if defined(__USE_OPENGL__)
 
@@ -952,7 +954,7 @@ inline void OpenGLRenderer::RenderGamePlay(float deltaTime)
 // ---------------------------------------------------------------------------------------------------------------
 inline void OpenGLRenderer::RenderIntroMovie()
 {
-    if (!moviePlayer.IsPlaying()) return;
+    if (!moviePlayer.IsPlaying() && !(gameplayPlaybackActive && moviePlayer.IsPaused())) return;
 
     // Advance the movie to the current frame (mirrors DX11 UpdateFrame call)
     moviePlayer.UpdateFrame();
@@ -1006,7 +1008,7 @@ inline void OpenGLRenderer::RenderIntroMovie()
     // FadeOutThenCallback's own completion callback fires, so the fade duration
     // (1.0s) is the single source of truth instead of an immediate hard cut.
     // Only active in SCENE_INTRO_MOVIE, not the splash SCENE_INTRO.
-    if (scene.stSceneType == SceneType::SCENE_INTRO_MOVIE && (GetAsyncKeyState(' ') & 0x8000) && !scene.bSceneSwitching)
+    if (scene.stSceneType == SceneType::SCENE_INTRO_MOVIE && KeyboardHandler::GetInstance().IsPlatformKeyPressed(' ') && !scene.bSceneSwitching)
     {
         scene.bSceneSwitching = true;
         fxManager.FadeOutThenCallback(XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f), 1.0f, 0.06f, []() {
@@ -1021,6 +1023,7 @@ inline void OpenGLRenderer::RenderIntroMovie()
 // ---------------------------------------------------------------------------------------------------------------
 void OpenGLRenderer::RenderFrame()
 {
+    moviePlayer.ProcessMovieRequest();
     // ---- Safety guards ----
     if (bHasCleanedUp || m_glContext.renderingContext == nullptr)
         return;
@@ -1073,6 +1076,12 @@ void OpenGLRenderer::RenderFrame()
             }
 
             threadManager.threadVars.bIsRendering.store(true);
+
+            // One shared pacing policy on every backend, independent of quality and VSync.
+            // This waits only for unused time since the preceding frame, never another
+            // full interval after rendering. Native present/fence waits remain authoritative.
+            static FramePacer framePacer;
+            framePacer.Wait(config.myConfig.vectorTargetFps);
 
             EvictStaleTextCache();  // advance frame counter; evict unused text textures
 
@@ -1260,6 +1269,10 @@ void OpenGLRenderer::RenderFrame()
             // ---- FX: 2D overlay effects (scrollers, particles, text) ----
             fxManager.Render2D();
 
+            // Optional app-supplied 2D overlay (e.g. a game drawing its vector graphics with MyVectorRender, see VectorRender.h); no-op when unset.
+            if (gameplayPlaybackActive) RenderIntroMovie();
+            if (g_Overlay2DCallback) g_Overlay2DCallback(*this, iOrigWidth, iOrigHeight);
+
             // ---- FPS / debug info display ----
             if (USE_FPS_DISPLAY && config.myConfig.showDebugInfo)
             {
@@ -1432,8 +1445,9 @@ void OpenGLRenderer::RenderFrame()
             // ---- Present frame ----
             #if defined(_WIN32) || defined(_WIN64)
                 // ---- Screen recorder: capture back-buffer BEFORE Present (mirrors DX11 behaviour) ----
-                if (screenRecorder.IsRecording())
+                if (screenRecorder.IsRecording() || gameplayRecorder.IsRecording())
                     screenRecorder.CaptureFrame(static_cast<UINT>(renderW), static_cast<UINT>(renderH));
+                if (gameplayRecorder.IsRecording()) gameplayRecorder.CaptureFrame(static_cast<UINT>(renderW), static_cast<UINT>(renderH));
 
                 // Apply per-frame VSync setting — update swap interval if config changed
                 static bool lastVSync = true;
@@ -1444,17 +1458,8 @@ void OpenGLRenderer::RenderFrame()
                     lastVSync = vsyncNow;
                 }
 
-                auto presentStart = std::chrono::steady_clock::now();
                 SwapBuffers(m_glContext.deviceContext);
 
-                // Software frame cap when VSync is disabled (~60 FPS target, mirrors DX11 behaviour)
-                if (!vsyncNow) {
-                    const auto targetFrame = std::chrono::milliseconds(16);
-                    auto presentEnd  = std::chrono::steady_clock::now();
-                    auto frameTime   = std::chrono::duration_cast<std::chrono::milliseconds>(presentEnd - presentStart);
-                    if (frameTime < targetFrame)
-                        std::this_thread::sleep_for(targetFrame - frameTime);
-                }
             #elif defined(__linux__)
                 glXSwapBuffers(m_glContext.display, m_glContext.window);
             #elif defined(__ANDROID__)

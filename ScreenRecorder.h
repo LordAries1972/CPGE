@@ -79,7 +79,10 @@ public:
     bool StartRecording(UINT width, UINT height, RecordFPS fps,
                         const std::wstring& outputPath,
                         MicMode     micMode     = MicMode::Off,
-                        AudioBitrate audioBitrate = AudioBitrate::Kbps_192);
+                        AudioBitrate audioBitrate = AudioBitrate::Kbps_192,
+                        bool captureAudio = true);
+    // Gameplay archives omit menus/pauses without changing the playback rate.
+    void SetCaptureEnabled(bool enabled);
 
     void StopRecording();
 
@@ -120,6 +123,7 @@ public:
 #endif
 
     bool      IsRecording()  const { return m_isRecording.load(); }
+    LONGLONG VideoFrames() const { return m_videoFrameIndex.load(); }
     RecordFPS GetTargetFPS() const { return m_targetFPS; }
 
     // Mic gain controls — safe to call while recording.
@@ -235,5 +239,10 @@ private:
 
     // ---- state ----
     std::atomic<bool>       m_isRecording;
+    std::atomic<bool>       m_captureEnabled { true };
+    LONGLONG m_pauseStart = 0, m_pausedTicks = 0;
     std::mutex              m_mutex;
 };
+
+// Independent of the user's manual screen recording session.
+extern ScreenRecorder gameplayRecorder;

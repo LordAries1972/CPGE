@@ -1370,3 +1370,24 @@ void ShutdownGameAI() {
 - Compatible with **SceneManager** for scene-specific behavior
 
 This comprehensive guide provides production-ready implementation patterns for integrating the GamingAI system into your gaming engine while maintaining optimal performance, thread safety, and code quality standards as specified in your enforced policies.
+## Vector game session and board integration
+
+See [GamingAI history, listener and strategy exchange](GamingAI-History-Example-Usage.md) for the current bounded recording API, 21-day retention limit, optional 72-hour recall, separate human/demo profiles, typed external commands and acknowledged board suggestions. Vector games submit through this API automatically; legacy `StartMonitoring` remains a separate opt-in interface for its existing scene.
+
+## Space-flight policies: dogfight, landing, avoidance, space command, steady aim, warp (merged 2026-11-19, uncompiled)
+
+All of these are value-only policies in `GamingAI` (no game types): the caller measures the world in the pilot's LOCAL frame (x right, y up, z forward) - or in world space where noted - and executes the orders returned.
+
+| Routine | Memory / facts / orders | What it does |
+| --- | --- | --- |
+| `StepDogfighter` | `AIDogfightMemory`, `AIDogfightFacts`, `AIDogfightOrders` | The Freelancer pilot state machine (buzz, pass-by, trail, strafe, dodge, break, engine kill, flee) with skill tiers 0 - 3; guns in bursts, missiles, mines, countermeasures. |
+| `FlyToward` | - | Steering and throttle toward a local-frame point, easing off on arrival. |
+| `StepLanding` | `AILandingMemory`, `AILandingFacts`, `AILandingOrders` | Approach (cruise when far) -> align -> descend funnel -> land; goes straight in when already on the bay's side inside the standoff distance. |
+| `AvoidObstacles` | `AIObstacle[]`, `AIAvoidOrders` | Aim point beside the sphere that lies across the path; clearance grows with speed (capped at 900 m/s) but is limited near the goal; `dropCruise` only when a body is really close. |
+| `QuoteMarket`, `MarketTrade`, `MarketRecover` | `AIMarketFacts`, `AIMarketQuote` | Supply / demand prices, trade impact and drift back to the baseline. |
+| `ReputationPriceMul`, `PoliceHostileToPlayer`, `MissionBounty` | - | Standing -> price factor, law enforcement rule, job pay (quadratic in jumps and in danger). |
+| `PlanSpaceMission`, `ResetSpaceMemory` | `AISpaceMemory`, `AISpaceFacts`, `AISpaceContact[]`, `AISpaceGoal[]`, `AISpaceOrders` | The MASTER AI space command: threat assessment (role x skill x proximity x aiming against the pilot's strength), task priority (survive > repair > fight what presses > job > explore), a 10 s "attacked first" window, a stall solver (a goal with no progress is rejected for 2 minutes), warp hysteresis and `warping` awareness. |
+| `SteadyAim` | `AISteadyAim`, `AISteadyAimFacts` | Velocity-compensated, smoothed aim (world space): the velocity, not the nose, closes on the goal; no drift at speed, no snapping when an avoidance waypoint flips sides. |
+| `StepWarp` | `AIWarpMemory`, `AIWarpFacts` | One steady rule for a drive that takes seconds to spin up: engage on trips over 4.5 km when lined up, drop on arrival / stand-down / a close obstacle, and lock the drive out for 10 s after an obstacle drop. Returns true when the pilot should press the cruise key. |
+
+Typical per-frame flow of an autopilot: `AvoidObstacles` -> `SteadyAim` -> `FlyToward` -> `StepWarp`; a demo pilot adds `PlanSpaceMission` a few times a second and executes the goal / contact it names.

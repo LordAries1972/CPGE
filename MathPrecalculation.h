@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 //-------------------------------------------------------------------------------------------------
 // MathPrecalculation.h - High-Performance Mathematical Precalculation Class
@@ -53,6 +53,16 @@ const float INTERP_PRECISION_FACTOR = static_cast<float>(INTERPOLATION_TABLE_SIZ
 // Inverse trigonometric lookup table sizes and precision factors
 const int INVERSE_TRIG_TABLE_SIZE = 32768;                                     // Inverse trig lookup table size for domain [-1, 1]
 const float INVERSE_TRIG_PRECISION_FACTOR = static_cast<float>(INVERSE_TRIG_TABLE_SIZE - 1) / 2.0f;  // Maps [-1, 1] to [0, table_size-1]
+
+// Vector-math tables (added for MyVector / MyQuaternion in Vectors.h)
+// Accurate arccosine: acos(|v|) = 2 * asin(sqrt((1 - |v|) / 2)).  The asin argument stays inside
+// [0, 1/sqrt(2)] where asin is gently sloped, so a modest table + interpolation is accurate
+// everywhere - unlike a table indexed directly by v, whose step explodes near +-1.
+const int   HALF_ANGLE_TABLE_SIZE = 8192;                                      // Entries covering asin(s), s in [0, 1/sqrt(2)]
+const float HALF_ANGLE_MAX_INPUT = 0.70710678f;                                // 1/sqrt(2): largest s ever produced by (1-|v|)/2
+const float HALF_ANGLE_PRECISION_FACTOR = static_cast<float>(HALF_ANGLE_TABLE_SIZE - 1) / HALF_ANGLE_MAX_INPUT;
+// Degree-domain trig index factor: lets rotation code that works in degrees skip the radian conversion.
+const float TRIG_DEGREE_PRECISION_FACTOR = static_cast<float>(TRIG_TABLE_SIZE) / 360.0f;
 
 //===================================================
 // Physics Constants
@@ -171,6 +181,33 @@ struct OrbitalMechanicsData {
 };
 
 //==============================================================================
+// Reciprocal-of-integer table (compile-time)
+//
+// 1/n for n = 0..64 (entry 0 is 0).  Per-face averages ("zSum / vertexCount"), per-segment steps and
+// similar integer divisions become one table load and a multiply.  Built by the compiler, so it needs
+// no Initialize() call and no memory is touched at start-up.
+//==============================================================================
+struct InverseIntTable {
+    static constexpr int kCount = 65;
+    float v[kCount];
+    constexpr InverseIntTable() : v() {
+        v[0] = 0.0f;
+        for (int i = 1; i < kCount; ++i) v[i] = 1.0f / static_cast<float>(i);
+    }
+};
+inline constexpr InverseIntTable kInverseInt{};
+
+// LOBBED SHOTS (grenades).  A lobbed shot is aimed by choosing its FLIGHT TIME from the horizontal distance R (a long throw takes longer, so it flies higher and arrives more gently): then
+//     horizontal speed  hs = R / t,     vertical speed  vy = dy / t + g t / 2     (dy = target height - launch height, g = gravity)
+// which lands exactly on the target, with  apex = vy^2 / 2g  above the launch point and launch angle = atan(vy / hs).  Two arc profiles are tabled at startup (MathPrecalculation::
+// InitializeLobbedShotTables): 0 = the hand grenade (t = R / 14 limited to 1.2 .. 2.2 s), 1 = the grenade launcher (t = R / 16 limited to 1.3 .. 2.6 s), for R = 0 .. 64 in steps of 0.25.
+// A table entry holds t and 1 / t, so a throw is two table reads, a lerp and a few multiplies - no division, no clamp, no trig on the frame.
+inline constexpr float kLobbedShotStep = 0.25f;
+inline constexpr int   kLobbedShotCount = 257;                                  // R = 0 .. 64
+struct LobbedShotData { float flightTime; float invFlightTime; };
+struct LobbedShotSolution { float flightTime, hSpeed, vSpeed, apexHeight, launchAngleDeg, landDistance; bool reachable; };       // reachable: the distance was inside the table (else it was clamped to 64)
+
+//==============================================================================
 // MathPrecalculation Class Declaration
 //==============================================================================
 class MathPrecalculation {
@@ -222,6 +259,55 @@ public:
     // Fast two-argument arctangent for angle calculation from y/x coordinates
     // Returns angle in range [-π, π] for proper quadrant determination
     float FastATan2(float y, float x) const;
+
+    //==========================================================================
+    // Vector-Math Lookup Methods (used by MyVector / MyQuaternion)
+    //==========================================================================
+    // Accurate arccosine for dot-product angles. Input [-1, 1] (clamped), output [0, PI] radians.
+    // Linear interpolation over a well-conditioned half-angle table: error ~1e-7 rad everywhere,
+    // including the nearly-parallel / nearly-opposite cases where FastACos is ~0.01 rad off.
+    float FastACosAccurate(float value) const;
+
+    // Sine and cosine of an angle given in DEGREES (any magnitude, negative allowed).
+    // Interpolates between table entries (error ~1e-9) and wraps in O(1) - no radian conversion,
+    // no normalisation loops - so it is the call of choice for per-frame rotation work.
+    void FastSinCosDeg(float degrees, float& outSin, float& outCos) const;
+
+    // Precalculated unit-circle points (cos(2*PI*k/n), sin(2*PI*k/n)), k = 0..n-1, for the common
+    // segment counts 3,4,5,6,8,10,12,16,20,24,32,48,64.  Used to build prisms, cones, discs and
+    // spheres without any trig at mesh-build time. Read-only after Initialize() => lock-free.
+    // Returns an empty vector when segments is not one of the precomputed counts.
+    const std::vector<XMFLOAT2>& GetUnitCircle(int segments) const;
+    // exp(-age * rate), interpolated over [0,8]; zero beyond the visible tail.
+    // Prepared at engine startup for scanner returns and response envelopes.
+    float FastDecay(float age, float rate) const;
+    float FastSurfaceReflection(float cosine, float roughness) const;
+
+    // Precalculated unit directions on the sphere: kUnitSphereCount points spread evenly by a Fibonacci
+    // spiral (no clumping at the poles).  A random burst direction is one table load: no sin / cos, no
+    // sqrt and no rejection-sampling loop.  `rnd` is any random number; bits 10..19 pick the entry, so a
+    // plain LCG (whose low bits are weak) works.  Read-only after Initialize() => lock-free.
+    static constexpr int kUnitSphereCount = 1024;
+    Vector3 GetUnitSphereDirection(uint32_t rnd) const;
+
+    // Power curves t^exponent over t in [0,1] as interpolated 1024-step tables (easing in per-particle,
+    // per-frame code instead of std::pow, which costs tens of nanoseconds a call).
+    //   RegisterPowerCurve : call ONCE per exponent (e.g. into a function-local static); it builds the
+    //                        table and returns an id.  The same exponent returns the same id.  Up to
+    //                        kMaxPowerCurves distinct exponents; when full, the last curve's id is returned.
+    //   FastPowCurve       : t is clamped to [0,1].  Error below ~1e-6 for exponents >= 1.
+    // Tables are never discarded (not even by Cleanup()), so an id stays valid for the program's life.
+    typedef int PowerCurveId;
+    static constexpr int kMaxPowerCurves  = 8;
+    static constexpr int kPowerCurveSteps = 1024;
+    PowerCurveId RegisterPowerCurve(float exponent);
+    float        FastPowCurve(PowerCurveId id, float t) const;
+
+    // 1 / n for n = 1..64 from a compile-time table (see kInverseInt); falls back to a real divide
+    // outside that range and returns 0 for n <= 0.  Inline: no singleton access.
+    static float FastInvInt(int n) {
+        return (n >= 0 && n < InverseIntTable::kCount) ? kInverseInt.v[n] : (n > 0 ? 1.0f / static_cast<float>(n) : 0.0f);
+    }
 
     //==========================================================================
     // Color Conversion Methods
@@ -365,6 +451,10 @@ public:
     XMFLOAT3 FastProjectileTrajectory(const XMFLOAT3& startPos, const XMFLOAT3& targetPos,
         float launchSpeed, float gravity = 9.81f) const;
 
+    // Lobbed-shot solver (see LobbedShotData): the speeds that drop a thrown / launched shot on a point `horizDist` away and `targetY - launchY` higher, using the precalculated arc profile
+    // (0 hand grenade, 1 grenade launcher).  False before initialisation or for an unknown profile; `out` is then untouched.
+    bool SolveLobbedShot(int profile, float horizDist, float launchY, float targetY, float gravity, LobbedShotSolution& out) const;
+
     // Fast orbital velocity calculation
     float FastOrbitalVelocity(float distance, float mass) const;
 
@@ -389,6 +479,9 @@ private:
     // Initialize inverse trigonometric lookup tables
     void InitializeInverseTrigonometricTables();
 
+    // Initialize the vector-math tables (accurate acos half-angle table, unit-circle tables)
+    void InitializeVectorMathTables();
+
     // Initialize color conversion lookup tables
     void InitializeColorConversionTables();
 
@@ -412,6 +505,7 @@ private:
     void InitializeAudioAttenuationTables();
     void InitializeOrbitalMechanicsTables();
     void InitializePhysicsPrecalculations();
+    void InitializeLobbedShotTables();                                                       // the grenade arc profiles (see LobbedShotData)
 
     //==========================================================================
     // Helper Methods
@@ -444,6 +538,20 @@ private:
     // Inverse trigonometric lookup tables
     std::vector<InverseTrigonometricData> m_inverseTrigonometricTable;
 
+    // Vector-math tables
+    std::vector<float> m_halfAngleAsinTable;                                    // asin(s) for s in [0, 1/sqrt(2)] (accurate acos)
+    std::unordered_map<int, std::vector<XMFLOAT2>> m_unitCircleTables;          // segment count -> unit-circle points
+    std::vector<Vector3> m_unitSphereDirections;                                // Fibonacci-spiral unit directions (GetUnitSphereDirection)
+    std::array<float, 257> m_decayTable{};
+    std::array<std::array<float, 257>, 2> m_surfaceReflection{};
+
+    // Power-curve tables (RegisterPowerCurve / FastPowCurve).  Slots are filled under m_powerCurveMutex and then
+    // published by raising m_powerCurveCount (release); readers only look at slots below the count they load (acquire).
+    std::array<std::array<float, kPowerCurveSteps + 1>, kMaxPowerCurves> m_powerCurveTables;
+    std::array<float, kMaxPowerCurves> m_powerCurveExponent;
+    std::atomic<int> m_powerCurveCount{ 0 };
+    std::mutex m_powerCurveMutex;
+
     // Color conversion lookup tables
     std::vector<ColorConversionData> m_colorConversionTable;
     std::vector<uint8_t> m_yuvToRgbLookup;                                      // Dynamic YUV to RGB lookup table
@@ -475,6 +583,7 @@ private:
     std::vector<CollisionResponseData> m_collisionResponseTable;                // Collision response lookup table
     std::vector<AudioAttenuationData> m_audioAttenuationTable;                  // Audio attenuation lookup table
     std::vector<OrbitalMechanicsData> m_orbitalMechanicsTable;                  // Orbital mechanics lookup table
+    std::vector<LobbedShotData> m_lobbedShotTable[2];                           // lobbed-shot flight times: 0 hand grenade, 1 grenade launcher
 };
 
 //==============================================================================
@@ -491,6 +600,11 @@ private:
 #define FAST_ACOS(value) FAST_MATH.FastACos(value)
 #define FAST_ATAN(value) FAST_MATH.FastATan(value)
 #define FAST_ATAN2(y, x) FAST_MATH.FastATan2(y, x)
+#define FAST_ACOS_ACCURATE(value) FAST_MATH.FastACosAccurate(value)
+#define FAST_SINCOS_DEG(degrees, outSin, outCos) FAST_MATH.FastSinCosDeg(degrees, outSin, outCos)
+#define FAST_UNIT_CIRCLE(segments) FAST_MATH.GetUnitCircle(segments)
+#define FAST_UNIT_SPHERE(rnd) FAST_MATH.GetUnitSphereDirection(rnd)
+#define FAST_INV_INT(n) MathPrecalculation::FastInvInt(n)
 
 // Physics optimization macros
 #define FAST_GRAVITY_INTENSITY(distance, mass, intensity) FAST_MATH.FastGravityIntensity(distance, mass, intensity)
@@ -499,6 +613,7 @@ private:
 #define FAST_COLLISION_RESPONSE(velocity, normal, restitution, friction) FAST_MATH.FastCollisionResponse(velocity, normal, restitution, friction)
 #define FAST_AUDIO_PROPAGATION(distance, occlusion) FAST_MATH.FastAudioPropagation(distance, occlusion)
 #define FAST_PROJECTILE_TRAJECTORY(start, target, speed, gravity) FAST_MATH.FastProjectileTrajectory(start, target, speed, gravity)
+#define FAST_LOBBED_SHOT(profile, dist, launchY, targetY, gravity, out) FAST_MATH.SolveLobbedShot(profile, dist, launchY, targetY, gravity, out)
 #define FAST_ORBITAL_VELOCITY(distance, mass) FAST_MATH.FastOrbitalVelocity(distance, mass)
 #define FAST_ESCAPE_VELOCITY(distance, mass) FAST_MATH.FastEscapeVelocity(distance, mass)
 

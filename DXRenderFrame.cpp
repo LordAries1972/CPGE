@@ -19,6 +19,9 @@
    DO NOT INCLUDE THIS FILE!!! THE PROJECT ITSELF SCOPES THIS FILE!
 /* ---------------------------------------------------------------- */
 #include "Includes.h"
+#include "KeyboardHandler.h"
+#include "FramePacer.h"
+#include "VectorAA.h"
 
 #if defined(__USE_DIRECTX_11__)
 #include "DX11Renderer.h"
@@ -68,6 +71,7 @@ extern ScriptManager scriptManager;
 
 void DX11Renderer::RenderFrame()
 {
+    moviePlayer.ProcessMovieRequest();
     // ENHANCED SAFE-GUARDS - Check all critical conditions before proceeding
     if (bHasCleanedUp || !m_d3dDevice || !m_d3dContext || !m_cameraConstantBuffer) {
         #if defined(_DEBUG_RENDERER_) && defined(_DEBUG)
@@ -153,6 +157,12 @@ void DX11Renderer::RenderFrame()
                 // Confirm rendering state is active
                 threadManager.threadVars.bIsRendering.store(true);
         #endif
+
+            // One shared pacing policy on every backend, independent of quality and VSync.
+            // This waits only for unused time since the preceding frame, never another
+            // full interval after rendering. Native present/fence waits remain authoritative.
+            static FramePacer framePacer;
+            framePacer.Wait(config.myConfig.vectorTargetFps);
 
             // CRITICAL: Check device state and handle device removal
             if (m_d3dDevice)
@@ -276,8 +286,8 @@ void DX11Renderer::RenderFrame()
             // Calculate raw delta time in seconds
             float rawDeltaTime = std::chrono::duration<float>(now - lastFrameTime).count(); 
             
-            // Target 60 FPS for smoothing
-            float smoothedDeltaTime = deltaTimeSmoothing.ProcessDelta(rawDeltaTime, 60.0f); 
+            // Use the selected pacing target for animation smoothing too.
+            float smoothedDeltaTime = deltaTimeSmoothing.ProcessDelta(rawDeltaTime, static_cast<float>((std::clamp)(config.myConfig.vectorTargetFps, 20, 240))); 
             // Use smoothed delta time for animations
             float deltaTime = smoothedDeltaTime;
 
@@ -423,7 +433,7 @@ void DX11Renderer::RenderFrame()
             // context->Map() and CopyResource() between BeginDraw/EndDraw trigger
             // SEH exception 0x87D from the D3D11 debug layer (D3D11_3SDKLayers.dll).
             if (moviePlayer.IsPlaying() &&
-                (scene.stSceneType == SceneType::SCENE_INTRO ||
+                (gameplayPlaybackActive || scene.stSceneType == SceneType::SCENE_INTRO ||
                  scene.stSceneType == SceneType::SCENE_INTRO_MOVIE))
             {
                 moviePlayer.UpdateFrame();
@@ -444,6 +454,7 @@ void DX11Renderer::RenderFrame()
                     try {
                         // Start Direct2D rendering session
                         m_d2dRenderTarget->BeginDraw();                  
+                        VectorApplyD2DAA(m_d2dRenderTarget.Get());                          // Video settings: Anti-Aliasing for every 2D shape and the text (VectorAA.h)
                     }
                     catch (const std::exception& e) {
                         debug.logDiagMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Failed to begin 2D draw: %hs", e.what());
@@ -520,6 +531,10 @@ void DX11Renderer::RenderFrame()
                            }
                        }
                    }
+
+                   // Optional app-supplied 2D overlay (e.g. a game drawing its vector graphics with MyVectorRender, see VectorRender.h); no-op when unset.
+                   if (gameplayPlaybackActive) RenderIntroMovie();
+                   if (g_Overlay2DCallback) g_Overlay2DCallback(*this, iOrigWidth, iOrigHeight);
 
                    // Render FPS display and debug information (if enabled)
                    if (USE_FPS_DISPLAY && config.myConfig.showDebugInfo)
@@ -777,12 +792,10 @@ void DX11Renderer::RenderFrame()
                
                // Capture back-buffer BEFORE Present so the fully-composed frame is recorded
                screenRecorder.CaptureFrame(m_d3dDevice.Get(), m_d3dContext.Get(), m_swapChain.Get());
+                if (gameplayRecorder.IsRecording()) gameplayRecorder.CaptureFrame(m_d3dDevice.Get(), m_d3dContext.Get(), m_swapChain.Get());
 
                // Present frame with VSync setting from configuration
                if (m_swapChain) {
-                   // Capture the start time of the present for optional software frame limiting.
-                   std::chrono::steady_clock::time_point presentStart = std::chrono::steady_clock::now();
-
                    // Present with VSync when enabled (sync interval 1).
                    // Present with sync interval 0 when disabled (unlocked).
                    UINT syncInterval = config.myConfig.enableVSync ? 1 : 0;
@@ -793,18 +806,6 @@ void DX11Renderer::RenderFrame()
                        debug.logDiagMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] Present failed (0x%08X)", presentResult);
                    }
 
-                   // If VSync is disabled, apply a conservative software cap to reduce runaway CPU usage.
-                   // This also stabilizes timing on systems where Present(0,0) runs at uncapped speeds.
-                   if (!config.myConfig.enableVSync) {
-                       // Target ~60 FPS (16 ms) as a safe default cap when unlocked.
-                       const auto targetFrame = std::chrono::milliseconds(16);
-                       auto presentEnd = std::chrono::steady_clock::now();
-                       auto frameTime = std::chrono::duration_cast<std::chrono::milliseconds>(presentEnd - presentStart);
-
-                       if (frameTime < targetFrame) {
-                           std::this_thread::sleep_for(targetFrame - frameTime);
-                       }
-                   }
                }
            }
            catch (const std::exception& e) {
@@ -1224,15 +1225,15 @@ inline void DX11Renderer::RenderGamePlay(float deltaTime)
         // Debug pixel shader controls (debug builds only)
         #if defined(_DEBUG_RENDERER_) && defined(_DEBUG) && defined(_DEBUG_PIXSHADER_)
         // Real-time pixel shader debug mode switching
-            if (GetAsyncKeyState('1') & 0x8000) SetDebugMode(0); // Production view mode
-            if (GetAsyncKeyState('2') & 0x8000) SetDebugMode(1); // Normals only mode
-            if (GetAsyncKeyState('3') & 0x8000) SetDebugMode(2); // Texture only mode
-            if (GetAsyncKeyState('4') & 0x8000) SetDebugMode(3); // Lighting only mode
-            if (GetAsyncKeyState('5') & 0x8000) SetDebugMode(4); // Specular only mode
-            if (GetAsyncKeyState('6') & 0x8000) SetDebugMode(5); // Attenuation/normals mode
-            if (GetAsyncKeyState('7') & 0x8000) SetDebugMode(6); // Shadows only mode
-            if (GetAsyncKeyState('8') & 0x8000) SetDebugMode(7); // Reflection only mode
-            if (GetAsyncKeyState('9') & 0x8000) SetDebugMode(8); // Metallic only mode
+            if (KeyboardHandler::GetInstance().IsPlatformKeyPressed('1')) SetDebugMode(0); // Production view mode
+            if (KeyboardHandler::GetInstance().IsPlatformKeyPressed('2')) SetDebugMode(1); // Normals only mode
+            if (KeyboardHandler::GetInstance().IsPlatformKeyPressed('3')) SetDebugMode(2); // Texture only mode
+            if (KeyboardHandler::GetInstance().IsPlatformKeyPressed('4')) SetDebugMode(3); // Lighting only mode
+            if (KeyboardHandler::GetInstance().IsPlatformKeyPressed('5')) SetDebugMode(4); // Specular only mode
+            if (KeyboardHandler::GetInstance().IsPlatformKeyPressed('6')) SetDebugMode(5); // Attenuation/normals mode
+            if (KeyboardHandler::GetInstance().IsPlatformKeyPressed('7')) SetDebugMode(6); // Shadows only mode
+            if (KeyboardHandler::GetInstance().IsPlatformKeyPressed('8')) SetDebugMode(7); // Reflection only mode
+            if (KeyboardHandler::GetInstance().IsPlatformKeyPressed('9')) SetDebugMode(8); // Metallic only mode
         #endif
 
         // Animate lights (pulse / flicker / strobe) each frame before uploading
@@ -1342,14 +1343,14 @@ inline void DX11Renderer::RenderIntroMovie()
     #endif
 
     // Movie playback 2D rendering
-    if (moviePlayer.IsPlaying()) {
+    if (moviePlayer.IsPlaying() || (gameplayPlaybackActive && moviePlayer.IsPaused())) {
         // Render the movie to fill the entire screen.
         // UpdateFrame() is called before D2D BeginDraw (in RenderFrame) to keep all
         // D3D11 context->Map() calls outside BeginDraw (SEH exception 0x87D guard).
         moviePlayer.Render(Vector2(0, 0), Vector2(iOrigWidth, iOrigHeight));
 
         // Draw company logo overlay at half size, bottom-left corner
-        if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]) {
+        if (!gameplayPlaybackActive && m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]) {
             D2D1_SIZE_F logoSz = m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]->GetSize();
             int halfW = static_cast<int>(logoSz.width  * 0.5f);
             int halfH = static_cast<int>(logoSz.height * 0.5f);
@@ -1364,7 +1365,7 @@ inline void DX11Renderer::RenderIntroMovie()
         // FadeOutThenCallback's own completion callback fires, so the fade duration
         // (1.0s) is the single source of truth instead of an immediate hard cut.
         // Only in SCENE_INTRO_MOVIE, not splash SCENE_INTRO.
-        if (scene.stSceneType == SceneType::SCENE_INTRO_MOVIE && (GetAsyncKeyState(' ') & 0x8000) && !scene.bSceneSwitching)
+        if (scene.stSceneType == SceneType::SCENE_INTRO_MOVIE && KeyboardHandler::GetInstance().IsPlatformKeyPressed(' ') && !scene.bSceneSwitching)
         {
             scene.bSceneSwitching = true;
             fxManager.FadeOutThenCallback(XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f), 1.0f, 0.06f, []() {
@@ -1395,6 +1396,7 @@ void DX11Renderer::RenderBackgroundImage()
     }
 
     m_d2dRenderTarget->BeginDraw();
+    VectorApplyD2DAA(m_d2dRenderTarget.Get());                          // Video settings: Anti-Aliasing for every 2D shape and the text (VectorAA.h)
 
     switch (scene.stSceneType)
     {
@@ -1412,7 +1414,7 @@ void DX11Renderer::RenderBackgroundImage()
                 }
 
                 // Company logo overlay at half size, bottom-left corner
-                if (m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]) {
+                if (!gameplayPlaybackActive && m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]) {
                     D2D1_SIZE_F logoSz = m_d2dTextures[int(BlitObj2DIndexType::IMG_COMPANYLOGO)]->GetSize();
                     int halfW = static_cast<int>(logoSz.width  * 0.5f);
                     int halfH = static_cast<int>(logoSz.height * 0.5f);

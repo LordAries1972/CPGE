@@ -1221,3 +1221,22 @@ void EnsureMatrixSync()
 
 *Camera-Example-Usage.md - Complete usage guide for the Camera Class*  
 *Generated for C++17 DirectX-based game engine*
+
+## Orbit view for games (`SetOrbitView` / `GetViewBasis`)
+
+```cpp
+// Put the camera on a sphere round a target and look at it:
+renderer->myCamera.SetOrbitView(targetX, targetY, targetZ,
+                                pitchDegDown,   // 0 = level, 90 = straight down
+                                yawDeg,         // 0 looks along +Z, 90 along +X
+                                distance);      // from the target
+
+// The camera's right / up / forward unit vectors (world space), for renderers that project by hand:
+float right[3], up[3], fwd[3];
+renderer->myCamera.GetViewBasis(right, up, fwd);
+// The eye position is renderer->myCamera.position.
+```
+
+The up vector is derived from the pitch rather than the world up, so a straight-down view (where the world up would be parallel to the view direction) still gives a valid view matrix. `m_yaw` / `m_pitch` are updated in the camera's own convention (radians, positive pitch looks up), so the other camera calls (`MoveIn`, `SetYawPitch`, ...) carry on from the view you set. The same two functions exist in `DXCamera`, `OpenGLCamera` and `VulkanCamera`.
+
+The Vector demo and all of its games (including both Chomper games) are viewed through this camera: each scene calls `SetOrbitView` and then `GetViewFrame(position, worldToView, viewToWorld)`, which returns the camera's eye position and its world -> view rotation (and the transpose) as the engine's own `MyVector` / `MyGeom::Mat3`, for the demo's software renderer.

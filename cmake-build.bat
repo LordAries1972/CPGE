@@ -17,8 +17,24 @@ set "SCRIPT_DIR=%~dp0"
 ::   cmake-build clean
 ::   cmake-build help               <- lists every directive (also -h, --help, /?)
 
-set ARG1=%1
-set ARG2=%2
+:: Split the command line into the positional arguments (renderer, config) and the
+:: optional -clean switch, which may appear anywhere.  Without -clean the existing
+:: build\<Renderer>\<Config> tree (objects, PCH, binaries) is reused, so only changed
+:: sources are recompiled.
+set "ARG1="
+set "ARG2="
+set "CLEAN_BUILD="
+set "CLEAN_ARG="
+for %%A in (%*) do (
+    if /i "%%~A"=="-clean" (
+        set "CLEAN_BUILD=1"
+        set "CLEAN_ARG=-clean"
+    ) else if not defined ARG1 (
+        set "ARG1=%%~A"
+    ) else if not defined ARG2 (
+        set "ARG2=%%~A"
+    )
+)
 
 :: --- Help (checked first so it works even when cmake is not installed) ---
 if /i "%ARG1%"=="help"   goto :help
@@ -57,7 +73,9 @@ if /i "%ARG1%"=="clean" (
 :: --- Usage ---
 if "%ARG1%"=="" (
     echo.
-    echo Usage: cmake-build ^<renderer^> [Debug^|Release]
+    echo Usage: cmake-build ^<renderer^> [Debug^|Release] [-clean]
+    echo   -clean    : wipe precompiled headers/objects first for a fresh compile
+    echo               ^(without it, the existing binaries are reused^)
     echo   Renderers : dx11  dx12  opengl  vulkan
     echo   Special   : all   ^(builds every pipeline in the specified config^)
     echo   Config    : debug  release  ^(default: Debug^)
@@ -107,7 +125,7 @@ if /i "%ARG1%"=="all" (
             echo.
             echo   ---- Building %%R !ALL_CONFIG! ----
             if "!IS_FIRST_BUILD!"=="0" set SKIP_VERSION_INCREMENT=1
-            call "%~f0" %%R !ALL_CONFIG!
+            call "%~f0" %%R !ALL_CONFIG! !CLEAN_ARG!
             set "BUILD_ERR=!ERRORLEVEL!"
             set SKIP_VERSION_INCREMENT=
             set "IS_FIRST_BUILD=0"
@@ -237,6 +255,20 @@ call :killcompiler
 
 set "BUILD_DIR=%SCRIPT_DIR%build\%RENDERER%\%CONFIG%"
 
+:: -clean: wipe this pipeline's build tree (precompiled headers, object files, CMake
+:: cache and binaries) so the compile below starts completely fresh.  Without the
+:: switch the tree is kept and the build is incremental.
+if defined CLEAN_BUILD (
+    if exist "%BUILD_DIR%" (
+        echo -clean: removing "%BUILD_DIR%" ^(precompiled headers and objects^) ...
+        rmdir /s /q "%BUILD_DIR%"
+        if exist "%BUILD_DIR%" (
+            echo ERROR: Could not remove "%BUILD_DIR%" -- a file is probably locked.
+            exit /b 1
+        )
+    )
+)
+
 if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
 
 echo.
@@ -324,6 +356,11 @@ echo Config (second argument, used by dx11 / dx12 / opengl / vulkan / all):
 echo   debug     Debug build   (default when omitted)
 echo   release   Release build
 echo.
+echo Option (any position, used by dx11 / dx12 / opengl / vulkan / all):
+echo   -clean    Deletes the build\^<Renderer^>\^<Config^> tree (precompiled headers,
+echo             objects, CMake cache) before building, giving a fresh compile.
+echo             Without -clean the existing binaries are reused (incremental).
+echo.
 echo What a build does:
 echo   1. Increments the build number in Version.id / BuildInfo.h
 echo      (once per run - "all" only bumps it for the first pipeline).
@@ -338,6 +375,7 @@ echo   cmake-build dx11 debug
 echo   cmake-build vulkan release
 echo   cmake-build all debug
 echo   cmake-build all release
+echo   cmake-build dx11 release -clean   ^<- fresh full compile
 echo   cmake-build clean
 echo   cmake-build help
 echo.

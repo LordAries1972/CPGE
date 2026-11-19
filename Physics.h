@@ -302,6 +302,19 @@ struct PhysicsParticle {
 //==============================================================================
 class Physics {
 public:
+    // Bounded longitudinal ground motion. Steering/collision remain with the
+    // caller; this helper supplies gradual acceleration and stronger braking.
+    static float GroundVehicleSpeedStep(float speed, float target, float maximum, bool tracked, float dt);
+    // Clip a projectile step to its remaining path-length budget; zero means
+    // the endpoint is the last valid point, regardless of frame duration.
+    static bool LimitProjectileStep(float& dx, float& dy, float& dz, float& remaining);
+    // Remaining kinetic effectiveness. Full power through the first fifth of
+    // the path, then a smooth fade to zero at the configured range. Rendering
+    // and damage use the same factor; no tables, allocation or random sampling.
+    static float ProjectilePower(float remaining, float range);
+    static bool AccumulateProjectileHit(float& accumulated, float power);
+    // Energy-bounded diffuse/specular approximation using startup math tables.
+    static float ReflectedLightGain(float cosine, float reflectivity, float roughness);
     // Constructor and destructor
     Physics();
     ~Physics();
@@ -617,3 +630,56 @@ extern Debug debug;
 extern ExceptionHandler exceptionHandler;
 
 #pragma warning(pop)
+//==============================================================================
+// GamePhysics: tiny, dependency-free helpers shared by the vector games (first user: Chess, Ctrl+Shift+F12).
+// Plain floats only (no MyVector, no locks, no allocation): safe to call every frame from a game's update loop.
+// Documented in Docs/Physics-Example-Usage.md, chapter 19.
+//==============================================================================
+namespace GamePhysics
+{
+    struct GroundPose { float height = 0, slope = 0; };
+    // Uniform samples cover [-halfWidth,+halfWidth], including both ends.
+    // Rigid bases follow the fitted incline while clearing intervening ridges.
+    GroundPose FitGroundSupport(const float* heights, int count, float halfWidth);
+    float WheelGroundSupport(const float* heights, int count, float radius);
+    // Returns landing speed; grounded bodies follow descending ground without
+    // acquiring a false jump. Only a positive vertical impulse leaves support.
+    float FollowGround(float& y, float& velocityY, bool& grounded, float support, float gravity, float dt);
+    struct SwayState { float x = 0, z = 0, vx = 0, vz = 0, fracture = 0, scale = 1; };
+    // Angular spring response, blast energy and contact impulses are core
+    // physics. Adapters supply mass/material data and collision contacts.
+    void SwayStep(SwayState& body, float dt);
+    void PushObject(SwayState& body, float objectX, float objectZ, float contactRadius,
+        float actorX, float actorZ, float actorVX, float actorVZ, float mass, float dt);
+    int BlastObject(SwayState& body, float objectX, float objectY, float objectZ,
+        float blastX, float blastY, float blastZ, float radius, float energy, float mass, float toughness);
+    // Smooth 0..1 easing curves used for piece moves and camera swings.
+    float EaseInOut(float t);                       // slow-fast-slow (smoothstep)
+    float EaseOutBack(float t);                     // overshoots slightly, then settles: a piece "landing" on its square
+    float HopHeight(float t, float apex);           // parabolic hop: 0 at t = 0 and 1, `apex` at t = 0.5 (the knight's jump)
+
+    // Critically damped spring: moves `x` toward `target` without overshoot or jitter, whatever the frame time.
+    // omega = stiffness in 1/seconds (about 6 = lazy camera, 14 = snappy).  Both x and v are updated in place.
+    void SpringStep(float& x, float& v, float target, float omega, float dt);
+
+    // A rigid tumbling body (a captured piece, a shard): position, velocity, Euler angles (degrees), spin (degrees / second).
+    struct Tumbler
+    {
+        float px = 0, py = 0, pz = 0;               // position
+        float vx = 0, vy = 0, vz = 0;               // velocity
+        float rx = 0, ry = 0, rz = 0;               // orientation, degrees
+        float wx = 0, wy = 0, wz = 0;               // angular velocity, degrees / second
+        float age = 0;                              // seconds since launch
+        int   bounces = 0;                          // floor hits so far
+        bool  resting = false;                      // true once it has come (almost) to rest on the floor
+    };
+
+    // Throws a body from (x,y,z) along the horizontal direction (dirX,dirZ) (need not be unit) with `speed` and an upward kick; spin is random-looking
+    // but deterministic from `seed`, so no random-number generator is needed here.
+    void TumbleLaunch(Tumbler& b, float x, float y, float z, float dirX, float dirZ, float speed, float up, float spinDegPerSec, unsigned seed);
+    void LaunchRockFragment(Tumbler& body, float x, float y, float z, float blastX, float blastZ, float energy, unsigned seed);
+
+    // One step: gravity (units / s^2, positive = down), bounce off the plane y = floorY with `restitution` (0..1), ground friction `friction` (0..1, per bounce) and spin damping.
+    // Returns false once the body has come to rest (and then keeps it settled on the floor).
+    bool TumbleStep(Tumbler& b, float dt, float floorY, float gravity, float restitution, float friction);
+}

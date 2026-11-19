@@ -185,14 +185,19 @@ bool TTSManager::SetVoiceVolume(float volume) {
     debug.logDebugMessage(LogLevel::LOG_DEBUG, L"TTSManager::SetVoiceVolume() - Setting volume to %.2f", volume);
 #endif
 
+    // Clamp volume to valid range (0.0 to 1.0).  SAPI's volume is a percentage (0 - 100) and cannot amplify, so anything above 1.0 is simply the maximum.
+    volume = std::max(0.0f, std::min(1.0f, volume));
+
+    // REMEMBER the requested volume before anything can make us bail out.  It used to be stored only after the voice had accepted it, so a request made while the engine was not
+    // ready (not initialised yet, or the engine briefly busy) was thrown away and ApplyVoiceSettings() - which runs before every utterance - kept speaking at the stale default
+    // (0.8): the volume setting seemed to be ignored.  Now the setting always reaches the next utterance, whatever state the engine was in when it was changed.
+    m_currentConfig.volume = volume;
+
     // Check if initialized
     if (!m_bIsInitialized || !m_pVoice) {
-        debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"TTSManager::SetVoiceVolume() - TTS not initialized");
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"TTSManager::SetVoiceVolume() - TTS not initialized yet: the volume is remembered and applied when it is");
         return false;
     }
-
-    // Clamp volume to valid range (0.0 to 1.0)
-    volume = std::max(0.0f, std::min(1.0f, volume));
 
     try {
         // Convert volume to SAPI format

@@ -450,8 +450,58 @@ private:
     LightStruct data;
 };
 
+//=============================================================================
+// VectorLight - one DYNAMIC light of the vector games (street lamp, stand floodlight, torch ...)
+//-----------------------------------------------------------------------------
+// The vector renderers have no per-pixel shading, so these lights act in two ways:
+//   1. LightsManager::VectorLightAt(worldPos) returns how strongly all registered lights reach a point (0..1) - games use it to BRIGHTEN the models near a lamp
+//      (a grandstand under its floodlights, a car passing under a street lamp).
+//   2. SubmitVectorLights() (main.cpp) draws what each light does to the scene: a warm POOL of translucent light on the lit surface and a camera-facing HALO round the fixture.
+// Vector lights live in their own list, NOT in lightMap, so the 3D model pipeline (GetAllLights -> pixel shader) never picks them up by accident; MakePointLightStruct() converts
+// one to a real POINT LightStruct when a game wants it in that pipeline too.  The list is rebuilt EVERY FRAME (BeginVectorLights, then AddVectorLight per visible lamp).
+//=============================================================================
+enum class VectorLightKind : int
+{
+    Street = 0,                                 // a road lamp: a round warm pool on the tarmac
+    Flood,                                      // a floodlight under a roof: a patch of light over seats / ground
+    Torch,                                      // a flickering wall torch (orange)
+    Generic                                     // anything else
+};
+
+struct VectorLight
+{
+    MyVector pos;                                                   // world position of the fixture: the halo is centred here
+    MyColor  color = MyColor(255, 214, 140, 255);                   // light colour (alpha is ignored)
+    float    radius = 12.0f;                                        // reach in world units: VectorLightAt() falls to zero at this distance
+    float    intensity = 1.0f;                                      // 0..1 strength - callers fold their fog / distance fade into it when they register the light
+    float    glowSize = 2.4f;                                       // radius of the camera-facing halo, world units
+    VectorLightKind kind = VectorLightKind::Street;
+    MyVector surface;                                               // centre of the lit patch (the road under a street lamp, the seats under a floodlight)
+    MyVector axisU, axisV;                                          // unit vectors spanning the lit surface (e.g. along the road / across it)
+    float    lenU = 0.0f, lenV = 0.0f;                              // half-extents of the lit ellipse along axisU / axisV (0 = no pool, halo only)
+};
+
 class LightsManager {
 public:
+    // ---- STAR LIGHT by distance and occlusion (space scenes) --------------------------------------------------------------------------------------------------------------------------------
+    // StarLightAtDistance: 0..1 strength of a star's light at `distance` from its centre: inverse-square fall-off, half of the star's full strength at 3 star radii + 4 km, scaled by its luminosity, never below
+    // `minimum`.  SphereShadowVisibility: 0..1 how much of the star (at `to`) a viewer at `from` can see past the spheres (planets, stations, moons) in the way: a sphere whose centre projects between the two
+    // points shades the viewer according to how closely the line passes it, with a smooth penumbra a quarter of the radius wide.  Multiply the two for the light a point receives.
+    static float StarLightAtDistance(float luminosity, float starRadius, float distance, float minimum = 0.03f)
+    {
+        const float ref = starRadius * 3.0f + 4000.0f, v = luminosity * 1.15f * ref * ref / (ref * ref + distance * distance); return v < minimum ? minimum : (v > 1.0f ? 1.0f : v);
+    }
+    static float SphereShadowVisibility(const MyVector& from, const MyVector& to, const MyVector* centres, const float* radii, int count)
+    {
+        const MyVector d = to - from; const float len = d.Magnitude(); if (len < 1.0f || !centres || !radii) return 1.0f; const MyVector u = d * (1.0f / len); float vis = 1.0f;
+        for (int i = 0; i < count; ++i)
+        {
+            const MyVector pc = centres[i] - from; const float t = pc.Dot(u); if (t <= 0.0f || t >= len) continue;
+            const float off = (pc - u * t).Magnitude(), pen = radii[i] * 0.25f + 1.0f, k = (off - (radii[i] - pen)) / (2.0f * pen), c = k < 0.0f ? 0.0f : (k > 1.0f ? 1.0f : k), s = c * c * (3.0f - 2.0f * c);
+            if (s < vis) vis = s;
+        }
+        return vis;
+    }
     void CreateLight(const std::wstring& name, LightStruct type);
     void UpdateLight(const std::wstring& name, const LightStruct& updatedData);
     bool GetLight(const std::wstring& name, LightStruct& outData);
@@ -462,7 +512,83 @@ public:
 
     std::vector<LightStruct> GetAllLights();
 
+    //=========================================================================================================
+    //  VECTOR LIGHTING  (merged in from the vector renderers: main.cpp's SubmitMesh / SubmitShadow and VectorRender.cpp)
+    //  The vector games used to keep their own lighting globals (a sun direction in the frame state, g_meshLight, g_meshFlat, a hard-coded shadow
+    //  direction).  They all live here now, so every game that needs lighting goes through ONE system.  Everything below is touched only from the
+    //  render thread, so (unlike the model-light map above) it takes no lock: these are plain inline reads on the hottest path of the vector renderer.
+    //=========================================================================================================
+
+    // ---- the SUN: one directional light shared by every vector model ----
+    // `towardLightView` = unit vector TOWARD the light in VIEW space (what the per-face Lambert term needs); `ambient` + `diffuse` are the floor and the
+    // range of a face's brightness (0.30 + 0.70 = a face turned straight to the sun is 1.0).  Called once per frame by the scene set-up.
+    void SetVectorSun(const MyVector& towardLightView, float ambient = 0.30f, float diffuse = 0.70f)
+    {
+        vecSunView = towardLightView.Normalized(); vecAmbient = ambient; vecDiffuse = diffuse;
+    }
+    const MyVector& GetVectorSunView() const { return vecSunView; }
+    // The per-face brightness (before the face's own tone / quantising): ambient + diffuse * max(0, n . sun).  `nView` = the face normal in view space.
+    float VectorLambert(const MyVector& nView) const
+    {
+        const float d = nView.Dot(vecSunView);
+        return vecAmbient + vecDiffuse * (d > 0.0f ? d : 0.0f);
+    }
+    // The direction the sun's rays TRAVEL (down and away from the sun, world space): used to throw drop shadows onto the ground plane.
+    const MyVector& GetVectorLightTravel() const { return vecTravel; }
+    void SetVectorLightTravel(const MyVector& t) { vecTravel = t.Normalized(); }
+    // A 3D-pipeline copy of the sun: a DIRECTIONAL LightStruct (direction = the way the rays travel, supplied in world space by the caller) so a game that mixes vector
+    // models with real models can feed both the same light.
+    LightStruct MakeSunLightStruct(const MyVector& rayDirWorld) const;
+
+    // ---- global BRIGHTNESS: the torch-light / night dimming for everything the vector renderer draws (1 = normal) ----
+    // Faces with their own fixed paint ignore the instance colour, so dimming the colour would not touch them; this multiplier hits EVERY face, glowing ones included.
+    void  SetVectorBrightness(float b) { vecBrightness = b; }
+    float GetVectorBrightness() const  { return vecBrightness; }
+    // ---- FLAT mode: every face is drawn in the instance colour at full brightness, ignoring the paint and the lighting (a plain silhouette, e.g. a hit outline) ----
+    void SetVectorFlat(bool f) { vecFlat = f; }
+    bool GetVectorFlat() const { return vecFlat; }
+
+    // RAII helpers: set the brightness / flat mode for one scope and restore the previous value afterwards, so nested scopes and early returns stay correct.
+    class VectorBrightnessScope
+    {
+    public:
+        VectorBrightnessScope(LightsManager& lm, float b) : m_lm(lm), m_old(lm.GetVectorBrightness()) { lm.SetVectorBrightness(b); }
+        ~VectorBrightnessScope() { m_lm.SetVectorBrightness(m_old); }
+        VectorBrightnessScope(const VectorBrightnessScope&) = delete;
+        VectorBrightnessScope& operator=(const VectorBrightnessScope&) = delete;
+    private:
+        LightsManager& m_lm; float m_old;
+    };
+    class VectorFlatScope
+    {
+    public:
+        VectorFlatScope(LightsManager& lm, bool f) : m_lm(lm), m_old(lm.GetVectorFlat()) { lm.SetVectorFlat(f); }
+        ~VectorFlatScope() { m_lm.SetVectorFlat(m_old); }
+        VectorFlatScope(const VectorFlatScope&) = delete;
+        VectorFlatScope& operator=(const VectorFlatScope&) = delete;
+    private:
+        LightsManager& m_lm; bool m_old;
+    };
+
+    // ---- DYNAMIC vector lights (street lamps, floodlights, torches): rebuilt every frame ----
+    static constexpr int kMaxVectorLights = 360;                        // hard cap: a scene never needs more, and the glow pass draws a few polygons per light
+    void BeginVectorLights() { vecLights.clear(); }                     // call once per frame BEFORE registering lights
+    bool AddVectorLight(const VectorLight& l);                          // false when the list is full (the light is dropped: it is only decoration)
+    const std::vector<VectorLight>& GetVectorLights() const { return vecLights; }
+    // How strongly the registered lights reach `worldPos`, 0..1 (smooth squared fall-off to zero at each light's radius, summed, clamped).  Use it to brighten the models near a lamp.
+    float VectorLightAt(const MyVector& worldPos) const;
+    // Converts a vector light to a POINT LightStruct for the 3D model pipeline (position, colour, range and intensity carried over).
+    LightStruct MakePointLightStruct(const VectorLight& l) const;
+
 private:
     std::unordered_map<std::wstring, LightStruct> lightMap;
     std::mutex mtx;
+
+    // vector lighting state (see the VECTOR LIGHTING section above); the defaults are the values the vector games always used
+    MyVector vecSunView = MyVector(-0.40f, 0.60f, -0.70f).Normalized();         // toward the sun, view space: up-left, toward the viewer
+    float    vecAmbient = 0.30f, vecDiffuse = 0.70f;
+    MyVector vecTravel  = MyVector(-0.35f, -1.0f, -0.25f).Normalized();         // the way the shadow-casting rays travel (world space)
+    float    vecBrightness = 1.0f;
+    bool     vecFlat = false;
+    std::vector<VectorLight> vecLights;
 };

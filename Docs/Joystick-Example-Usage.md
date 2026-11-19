@@ -596,3 +596,15 @@ enum class MovementMode {
 ```
 
 This comprehensive guide should help you integrate and use the Joystick class effectively in your projects. Remember to always check for joystick availability and handle both connected and disconnected states gracefully in your applications.
+## Knowing WHICH pad it is (`PadInfo`, `PadType`, `ReadPadButtons`)
+winmm calls every pad "a joystick" and numbers the buttons in whatever order the driver likes, so the engine now identifies the pad itself.
+
+```cpp
+PadInfo pad = joystick.GetPrimaryPad();          // or joystick.GetPadInfo(slot)
+if (pad.valid()) log(pad.typeName);              // "Xbox 360 controller", "DualShock 4", "DualSense", "Switch Pro controller" ...
+// pad.type (PadType), pad.vendorId / pad.productId (USB IDs), pad.name, pad.numButtons / numAxes, pad.hasZ / hasR / hasU / hasV / hasPov, pad.triggersOnZ
+```
+* **Detection** (`detectJoysticks`, run on every re-scan): `joyGetDevCapsW` gives the USB vendor / product IDs, the button / axis counts and which axes exist. Microsoft (0x045E) pads are Xbox 360 or Xbox One / Series, Sony (0x054C) DualShock 3 / 4 / DualSense, Nintendo (0x057E) Switch Pro / Joy-Con, Logitech F310 / F510 / F710 count as Xbox 360, and anything else is matched by name ("wireless controller", "dualsense", "xbox", "pro controller") or called `Generic`. A new or changed pad is written to the log once (type, IDs, name, button and axis counts).
+* **Logical buttons**: `joystick.ReadPadButtons(slot, ji, &left, &right)` turns the raw `JOYINFOEX` into `PadButton` bits - `kPadSouth / East / West / North` (the A B X Y diamond by POSITION: an Xbox A, a PlayStation cross and a Switch B are all south), `kPadL1 / R1 / L2 / R2`, `kPadSelect / Start / L3 / R3 / Guide` - using the numbering of that pad's family. The Xbox triggers are an axis (left pushes Z up, right pulls it down): past 35 % they count as pressed, and the 0..1 values come back through the optional pointers. `GetPadType(slot)` is the cheap per-frame query.
+* **Right stick**: an Xbox-style pad keeps its triggers on Z, so its right stick is on the U / R axes; PlayStation and most other pads use Z / R (the vector demo's pad input now asks the type).
+* The vector demo reads its pad through `ReadPadButtons`, so a PlayStation pad's cross is "south" (fire / A) and its R2 resets the racing car, with no per-pad code in the games.

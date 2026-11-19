@@ -83,6 +83,18 @@ struct TTSConfiguration {
 // Main TTS Manager class for text-to-speech operations
 class TTSManager {
 public:
+    // ---- VOICE TONE: speed and pitch that suit what a line says --------------------------------------------------------------------------------------------------------------------------
+    // ProsodyForTone returns the rate and pitch (the SetVoiceRate / SetVoicePitch scales) for a tone and a gender, all kept near the engine's natural rate so speech stays clean: Official (calm, crisp),
+    // Stern (level and firm), Warning (brisk and low), Threat (slower and lower), Taunt (lazy, cynical), Flat (deep and level: machines and aliens).
+    enum class Tone : int { Official = 0, Stern, Warning, Threat, Taunt, Flat };
+    struct Prosody { float rate; float pitch; };
+    static Prosody ProsodyForTone(Tone tone, bool female)
+    {
+        static const Prosody male[6] = { { 0.4f, -0.5f }, { -0.1f, -1.6f }, { 0.2f, -2.2f }, { -0.6f, -3.4f }, { -0.4f, -2.4f }, { -0.3f, -5.0f } };
+        static const Prosody fem[6]  = { { 0.4f,  0.6f }, { -0.1f, -0.6f }, { 0.2f, -1.4f }, { -0.6f, -2.6f }, { -0.4f, -1.8f }, { -0.3f, -4.6f } };
+        const int k = static_cast<int>(tone) < 0 ? 0 : (static_cast<int>(tone) > 5 ? 5 : static_cast<int>(tone)); return female ? fem[k] : male[k];
+    }
+
     // Constructor and destructor
     TTSManager();
     ~TTSManager();

@@ -57,6 +57,10 @@ bool Configuration::loadConfig() {
             myConfig.msaaSamples = 4;
         myConfig.MipMapping = j["MipMapping"];
         myConfig.BackCulling = j["BackCulling"];
+        myConfig.aiRecordSessions = j.value("aiRecordSessions", true);
+        myConfig.aiRecallRecent = j.value("aiRecallRecent", true);
+        myConfig.aiAdaptiveStrategies = j.value("aiAdaptiveStrategies", true);
+        myConfig.aiRestartCountdown = j.value("aiRestartCountdown", true);
         myConfig.showDebugInfo = j.value("showDebugInfo", false);
         myConfig.buildVersion = j["buildVersion"];
         myConfig.buildSubVersion = j["buildSubVersion"];
@@ -73,7 +77,8 @@ bool Configuration::loadConfig() {
         myConfig.joystickRotationSensitivity = j.value("joystickRotationSensitivity", 0.001);
         // Clamp to the 0.0 - 1.0 mic gain range (older configs stored up to 20.0)
         myConfig.microphoneVolume = std::clamp(j.value("microphoneVolume", 0.8), 0.0, 1.0);
-        myConfig.TTSVolume = j["TTSVolume"];
+        // Clamp to 0.0 - 1.0 (the settings slider used to allow up to 5.0 and such a value may be saved; the speech engine's volume is 0 - 100 % and cannot go above 1.0)
+        myConfig.TTSVolume = std::clamp(j.value("TTSVolume", 1.0), 0.0, 1.0);
         myConfig.UseTTS = j["UseTTS"];
         myConfig.displayMode      = j.value("displayMode",      2);
         myConfig.resolutionWidth  = j.value("resolutionWidth",  1920);
@@ -103,6 +108,13 @@ bool Configuration::loadConfig() {
         myConfig.contrast         = std::clamp(j.value("contrast",   1.0), 0.5, 1.5);
         myConfig.emissionEnabled   = j.value("emissionEnabled", true);
         myConfig.emissionIntensity = std::clamp(j.value("emissionIntensity", 1.0), 0.0, 3.0);
+        // Vector system quality: optional keys (older configs do not have them), clamped to the ranges the Video tab offers.
+        myConfig.vectorQuality    = std::clamp(j.value("vectorQuality", 0), 0, 3);
+        myConfig.vectorTargetFps  = std::clamp(j.value("vectorTargetFps", 60), 20, 240);
+        myConfig.vectorDetailDist = std::clamp(j.value("vectorDetailDist", 1.0), 0.5, 2.0);
+        myConfig.vectorShadows    = j.value("vectorShadows", true);
+        myConfig.vectorParticles  = std::clamp(j.value("vectorParticles", 1.0), 0.25, 1.0);
+        myConfig.vectorEffects    = j.value("vectorEffects", true);
         myConfig.chksum = j["chksum"];
     }
     catch (const std::exception& e) {
@@ -184,6 +196,10 @@ bool Configuration::saveConfig() {
         j["msaaSamples"] = myConfig.msaaSamples;
         j["MipMapping"] = myConfig.MipMapping;
         j["BackCulling"] = myConfig.BackCulling;
+        j["aiRecordSessions"] = myConfig.aiRecordSessions;
+        j["aiRecallRecent"] = myConfig.aiRecallRecent;
+        j["aiAdaptiveStrategies"] = myConfig.aiAdaptiveStrategies;
+        j["aiRestartCountdown"] = myConfig.aiRestartCountdown;
         j["showDebugInfo"] = myConfig.showDebugInfo;
         j["fov"] = myConfig.fov;
         j["maxPitch"] = myConfig.maxPitch;
@@ -225,6 +241,12 @@ bool Configuration::saveConfig() {
         j["contrast"]         = myConfig.contrast;
         j["emissionEnabled"]   = myConfig.emissionEnabled;
         j["emissionIntensity"] = myConfig.emissionIntensity;
+        j["vectorQuality"]     = myConfig.vectorQuality;
+        j["vectorTargetFps"]   = myConfig.vectorTargetFps;
+        j["vectorDetailDist"]  = myConfig.vectorDetailDist;
+        j["vectorShadows"]     = myConfig.vectorShadows;
+        j["vectorParticles"]   = myConfig.vectorParticles;
+        j["vectorEffects"]     = myConfig.vectorEffects;
         j["chksum"] = calculateChecksum(myConfig);
 
         configStream << j.dump(4);  // Pretty print the JSON with 4 spaces

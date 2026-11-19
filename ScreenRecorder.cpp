@@ -21,6 +21,20 @@
 #pragma comment(lib, "shell32.lib")
 
 extern Debug debug;
+ScreenRecorder gameplayRecorder;
+
+void ScreenRecorder::SetCaptureEnabled(bool enabled)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_captureEnabled.load() == enabled) return;
+    LARGE_INTEGER now; QueryPerformanceCounter(&now);
+    if (!enabled) m_pauseStart = now.QuadPart;
+    else if (m_pauseStart) {
+        m_pausedTicks += now.QuadPart - m_pauseStart;
+        m_pauseStart = 0; m_lastVideoQpc = now;
+    }
+    m_captureEnabled.store(enabled);
+}
 
 static constexpr UINT32 VIDEO_BITRATE = 10'000'000;
 
@@ -80,7 +94,7 @@ bool ScreenRecorder::StartRecording(UINT width, UINT height,
                                     RecordFPS fps,
                                     const std::wstring& outputPath,
                                     MicMode micMode,
-                                    AudioBitrate audioBitrate)
+                                    AudioBitrate audioBitrate, bool captureAudio)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (m_isRecording.load()) return false;
@@ -99,6 +113,7 @@ bool ScreenRecorder::StartRecording(UINT width, UINT height,
     m_framePeriod         = 10'000'000LL / static_cast<LONGLONG>(fpsVal);
     m_framePeriodSnapshot = m_framePeriod;
     m_videoFrameIndex.store(0);
+    m_captureEnabled.store(true); m_pauseStart = m_pausedTicks = 0;
     m_audioTimestamp      = 0;
     m_micMode             = micMode;
     m_audioBitrate        = audioBitrate;
@@ -166,15 +181,15 @@ bool ScreenRecorder::StartRecording(UINT width, UINT height,
     }
 
     // 4. Game audio
-    bool hasAudio = InitAudioCapture();
-    if (!hasAudio)
+    bool hasAudio = captureAudio && InitAudioCapture();
+    if (captureAudio && !hasAudio)
     {
         debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"ScreenRecorder: Game audio unavailable");
     }
 
     // 5. Mic
     bool hasMic = false;
-    if (micMode != MicMode::Off)
+    if (captureAudio && micMode != MicMode::Off)
     {
         hasMic = InitMicCapture();
         if (!hasMic)
@@ -293,9 +308,9 @@ void ScreenRecorder::CaptureFrame(ID3D12Device*       device,
                                    UINT                frameIndex,
                                    std::mutex*         queueMutex)
 {
-    if (!m_isRecording.load() || !device || !queue || !swapChain) return;
+    if (!m_captureEnabled.load() || !m_isRecording.load() || !device || !queue || !swapChain) return;
     std::lock_guard<std::mutex> lock(m_mutex);
-    if (!m_isRecording.load() || !m_pSinkWriter) return;
+    if (!m_captureEnabled.load() || !m_isRecording.load() || !m_pSinkWriter) return;
 
     // FPS throttle
     LARGE_INTEGER now;
@@ -438,7 +453,7 @@ void ScreenRecorder::CaptureFrame(ID3D11Device*        device,
                                    ID3D11DeviceContext* context,
                                    IDXGISwapChain1*     swapChain)
 {
-    if (!m_isRecording.load() || !device || !context || !swapChain) return;
+    if (!m_captureEnabled.load() || !m_isRecording.load() || !device || !context || !swapChain) return;
     std::lock_guard<std::mutex> lock(m_mutex);
     if (!m_isRecording.load()) return;
 
@@ -515,7 +530,7 @@ void ScreenRecorder::CaptureFrame(ID3D11Device*        device,
 #if defined(__USE_OPENGL__) && defined(PLATFORM_WINDOWS)
 void ScreenRecorder::CaptureFrame(UINT width, UINT height)
 {
-    if (!m_isRecording.load() || !m_pSinkWriter) return;
+    if (!m_captureEnabled.load() || !m_isRecording.load() || !m_pSinkWriter) return;
     std::lock_guard<std::mutex> lock(m_mutex);
     if (!m_isRecording.load()) return;
 
@@ -585,7 +600,7 @@ void ScreenRecorder::CaptureFrame(VkDevice         device,
                                    uint32_t         height,
                                    std::mutex*      queueMutex)
 {
-    if (!m_isRecording.load() || !device || !swapchainImage) return;
+    if (!m_captureEnabled.load() || !m_isRecording.load() || !device || !swapchainImage) return;
 
     // FPS throttle - same QPC clock as the DX11 path
     LARGE_INTEGER now;
@@ -771,6 +786,7 @@ void ScreenRecorder::CleanupVulkanCapture()
 // ---------------------------------------------------------------------------
 void ScreenRecorder::WriteVideoFrame(const BYTE* pData, UINT rowPitch, LONGLONG ts)
 {
+    ts -= m_pausedTicks * 10'000'000LL / m_qpcFreq.QuadPart;
     const UINT packed    = m_width * 4;
     const UINT frameBytes = packed * m_height;
 
