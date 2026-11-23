@@ -14,6 +14,23 @@
 #include <array>
 #include <string>
 
+// ---- Joystick error policy -------------------------------------------------------------------------------------------------------------------------------
+// A joystick is an optional input device.  Losing one must never end the game.
+//
+// "Hard point" in this file means any joystick hardware fault that looks
+// unrecoverable at the time it is seen: the pad was unplugged, there is no
+// driver, the parameters are bad, winmm cannot do what was asked, the
+// capabilities query failed, or a read failed.  Every such fault is reported
+// as a WARNING through the diagnostics path only (see Debug.h:
+// logDiagLevelMessage), never as a higher severity, never by throwing, never
+// with a dialog, and never by quitting.  The engine keeps running, falls back
+// to keyboard input, and reports zeroed axes for the affected pad.  Each
+// warning also updates the last-warning / last-result state and, for a hard
+// point result, dumps a one-line status snapshot to DebugLog.txt so the fault
+// can be diagnosed after the session.  No function in this file uses the
+// fatal UI logging path for a joystick failure.
+// ------------------------------------------------------------------------------------------------------------------------------------------------------------
+
 const int MAX_JOYSTICKS = 2;
 const std::string JoystickMapFilename = "joystick.map";
 
@@ -108,6 +125,14 @@ public:
     static const wchar_t* PadTypeName(PadType t);
     bool ReadRawPad(int joystickID, JOYINFOEX& ji);                                  // locked joyGetPosEx for one slot (false = missing / unplugged); fills dwSize and dwFlags itself
 
+    // Status snapshot for DebugLog.txt.  Writes one line through the diagnostics
+    // path (never a dialog, never quits): active count, each slot's pad type /
+    // vendor / product / buttons / axes / triggersOnZ, the last winmm result and
+    // its text, and the last warning.  Safe to call from any thread.
+    void DumpJoystickStatus(const std::wstring& reason);
+    // The most recent joystick warning text, or empty when none has been raised.
+    std::wstring GetLastJoystickWarning() const;
+
     // New joystick movement functions
     void setMovementMode(MovementMode mode) { m_movementMode = mode; }
     MovementMode getMovementMode() const { return m_movementMode; }
@@ -133,9 +158,27 @@ public:
 private:
     std::vector<int> activeJoysticks;
     std::array<PadInfo, MAX_JOYSTICKS> m_padInfo;                                    // what each slot's pad is (guarded by m_joyMutex)
-    std::recursive_mutex m_joyMutex;                                                 // guards activeJoysticks and every joyGetPosEx call (recursive: readJoystickState is called with it held)
+    mutable std::recursive_mutex m_joyMutex;                                         // guards activeJoysticks and every joyGetPosEx call (recursive: readJoystickState is called with it held); mutable so const status accessors can lock it
     std::atomic<size_t> m_activeCount{ 0 };
     std::unordered_map<int, ButtonMapping> joystickMappings;
+
+    // Last joystick fault, kept for the status snapshot.  Updated only by the
+    // warning helpers below, under m_joyMutex.  A hard point result is never
+    // cleared by a later success, so the snapshot still shows what went wrong.
+    MMRESULT m_lastWinMmResult = JOYERR_NOERROR;
+    std::wstring m_lastWarning;
+
+    // Central warning path.  Every joystick failure in this file goes through
+    // one of these two helpers, which use the diagnostics path only, so a
+    // failure can never show a dialog or quit the application.  The message is
+    // written to DebugLog.txt and identical repeats are throttled by the
+    // diagnostics layer.  LogJoystickWarningWithResult also records the winmm
+    // result and, for a hard point result, dumps a status snapshot.
+    void LogJoystickWarning(const std::wstring& message);
+    void LogJoystickWarningWithResult(const std::wstring& what, MMRESULT result);
+    static std::wstring DescribeWinMmResult(MMRESULT result);
+    static bool IsHardPointResult(MMRESULT result);
+    std::wstring BuildStatusText(const std::wstring& reason) const;
 
     // New movement-related members
     MovementMode m_movementMode = MovementMode::MODE_3D;
@@ -159,4 +202,3 @@ private:
 
     void postKeyEvent(int vkCode);
 };
-
