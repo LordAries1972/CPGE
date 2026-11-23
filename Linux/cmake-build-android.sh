@@ -160,15 +160,12 @@ echo "Android NDK : ${NDK_ROOT}"
 
 # --- Map renderer ---
 RENDERER=""
-RENDERER_DEFINE=""
 case "${ARG1,,}" in
     opengl)
         RENDERER="OpenGL"
-        RENDERER_DEFINE="__USE_OPENGL__"
         ;;
     vulkan)
         RENDERER="Vulkan"
-        RENDERER_DEFINE="__USE_VULKAN__"
         ;;
     *)
         echo "ERROR: Unknown renderer '${ARG1}'"
@@ -210,27 +207,12 @@ if ! command -v "${CMAKE_EXE}" &>/dev/null; then
     exit 1
 fi
 
-# --- Patch Includes.h (Android section) --------------------------------------
-INCLUDES_H="${PROJECT_ROOT}/Includes.h"
-if command -v python3 &>/dev/null && [[ -f "${INCLUDES_H}" ]]; then
-    echo "Patching Includes.h: enabling ${RENDERER_DEFINE} on Android..."
-    python3 - "${RENDERER_DEFINE}" "${INCLUDES_H}" <<'PYEOF'
-import re, sys
-define = sys.argv[1]
-path   = sys.argv[2]
-with open(path, 'r') as f:
-    t = f.read()
-for d in ('OPENGL', 'VULKAN'):
-    t = re.sub(r'(?m)^([ \t]*)(?://)?(#define __USE_' + d + r'__\b.*)', r'\1//\2', t)
-t = re.sub(r'(?m)^([ \t]*)//(' + re.escape('#define ' + define) + r'\b.*)', r'\1\2', t)
-with open(path, 'w') as f:
-    f.write(t)
-PYEOF
-    echo "Includes.h patched."
-else
-    echo "INFO: python3 not found or Includes.h missing — skipping Includes.h patch."
-    echo "      The renderer define is passed via -D${RENDERER_DEFINE} by CMake."
-fi
+# --- Renderer define -------------------------------------------------------
+# NOTE: Includes.h is NOT patched here. The renderer define (__USE_OPENGL__ /
+# __USE_VULKAN__) is passed to CMake via -DRENDERER by Linux/CMakeLists.txt.
+# An earlier version of this script regex-patched Includes.h globally, which
+# touched the defines in every platform section (Linux, Android, macOS,
+# Windows) — that patching was removed; CMake is the single source of truth.
 
 # --- Build ---
 BUILD_DIR="${SCRIPT_DIR}/build-android/${ABI}/${RENDERER}/${CONFIG}"

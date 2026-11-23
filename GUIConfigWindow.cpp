@@ -1,6 +1,18 @@
 
 #include "Includes.h"
-#include <shellapi.h>
+#if defined(PLATFORM_WINDOWS)
+    #include <shellapi.h>
+#endif
+#if !defined(PLATFORM_WINDOWS)
+    #include <cwchar>   // swprintf on Linux
+    #include <unistd.h>   // fork / execl / sleep (SpawnRelaunchForConfiguredRenderer)
+    #include <sys/types.h>  // pid_t
+    // X11 display-size query for ScanDisplayModes() below (KeyCode dance:
+    // X11's KeyCode typedef collides with the engine's enum class KeyCode).
+    #define KeyCode X11KeyCode
+    #include <X11/Xlib.h>
+    #undef KeyCode
+#endif
 #include <thread>
 
 #include "FXManager.h"
@@ -30,6 +42,7 @@ struct DispMode { int w, h, hz; };
 static std::vector<DispMode> ScanDisplayModes()
 {
     std::vector<DispMode> out;
+#if defined(PLATFORM_WINDOWS)
     DEVMODEW dm{};
     dm.dmSize = sizeof(dm);
     for (DWORD i = 0; EnumDisplaySettingsW(nullptr, i, &dm); ++i) {
@@ -41,6 +54,29 @@ static std::vector<DispMode> ScanDisplayModes()
         for (auto& e : out) if (e.w == m.w && e.h == m.h && e.hz == m.hz) { dup = true; break; }
         if (!dup) out.push_back(m);
     }
+#else
+    // Linux: no EnumDisplaySettings — report the primary X11 display's
+    // current resolution as the single available mode (a full RandR mode
+    // enumeration is Phase B polish; the config window only needs one valid
+    // entry to offer the current resolution).
+    Display* display = XOpenDisplay(nullptr);
+    if (display)
+    {
+        const int screen = DefaultScreen(display);
+        const int w = DisplayWidth(display, screen);
+        const int h = DisplayHeight(display, screen);
+        XCloseDisplay(display);
+        if (w >= 800 && h >= 600)
+            out.push_back(DispMode{ w, h, 60 });
+    }
+    if (out.empty())
+    {
+        // Headless / no X server: fall back to the configured resolution so
+        // the config window still has one valid entry.
+        out.push_back(DispMode{ config.myConfig.resolutionWidth,
+                                config.myConfig.resolutionHeight, 60 });
+    }
+#endif
     // Sort: largest resolution first, then highest refresh rate
     std::sort(out.begin(), out.end(), [](const DispMode& a, const DispMode& b) {
         if (a.w != b.w) return a.w > b.w;
@@ -162,6 +198,61 @@ static void SpawnRelaunchForConfiguredRenderer()
             L"[GUIConfigWindow] Relaunch: CreateProcess failed (error %lu).", GetLastError());
     }
 }
+
+#elif defined(PLATFORM_LINUX)
+// ---------------------------------------------------------------------------
+// Relaunch after a video-settings restart (Linux version of the Windows
+// function above).
+//
+// Every renderer is its own executable (OpenGLCPGE / VulkanCPGE — same
+// folder, no .exe suffix), so the binary to start is chosen from the SAVED
+// rendererType, not from the running module. The relaunch must be started
+// BEFORE this process quits: fork, and in the child wait ~3 s (lets this
+// process finish shutting down and release its window / config file), then
+// exec the target binary. Falls back to the running exe if the chosen
+// renderer's binary is not next to it. The child is orphaned when this
+// process exits, so init reaps it — no zombie.
+// ---------------------------------------------------------------------------
+static void SpawnRelaunchForConfiguredRenderer()
+{
+    std::error_code ec;
+    std::filesystem::path self = std::filesystem::read_symlink("/proc/self/exe", ec);
+    if (ec)
+    {
+        debug.logLevelMessage(LogLevel::LOG_WARNING,
+            L"[GUIConfigWindow] Relaunch: cannot resolve /proc/self/exe - restart the game manually.");
+        return;
+    }
+    std::filesystem::path dir = self.parent_path();
+    static const char* const kPrefix[4] = { "DX", "DX12", "OpenGL", "Vulkan" };
+    const int type = std::clamp(config.myConfig.rendererType, 0, 3);
+    // Same concatenation as Windows ({prefix}{GAME_NAME}) but no .exe suffix.
+    std::filesystem::path target = dir / (std::string(kPrefix[type]) + GAME_NAME);
+    if (!std::filesystem::exists(target))
+    {
+        debug.logLevelMessage(LogLevel::LOG_WARNING,
+            L"[GUIConfigWindow] Relaunch: target binary not found - restarting the current executable instead.");
+        target = self;
+    }
+    // Compute the narrow path BEFORE fork: only async-signal-safe calls
+    // (sleep/execl/_exit) may run in the forked child of a multithreaded process.
+    std::string targetStr = target.string();
+
+    const pid_t pid = fork();
+    if (pid < 0)
+    {
+        debug.logLevelMessage(LogLevel::LOG_ERROR,
+            L"[GUIConfigWindow] Relaunch: fork failed - restart the game manually.");
+        return;
+    }
+    if (pid == 0)
+    {
+        sleep(3);
+        execl(targetStr.c_str(), targetStr.c_str(), static_cast<char*>(nullptr));
+        _exit(1);  // exec failed
+    }
+    // Parent: returns immediately; the quit path below closes this process.
+}
 #endif
 
 // ---------------------------------------------------------------------------
@@ -170,7 +261,11 @@ static void SpawnRelaunchForConfiguredRenderer()
 static std::wstring CfgFmtFloat(long double val, int dec = 4)
 {
     wchar_t buf[64];
+#if defined(PLATFORM_WINDOWS)
     swprintf_s(buf, 64, L"%.*f", dec, (double)val);
+#else
+    swprintf(buf, 64, L"%.*f", dec, (double)val);
+#endif
     return buf;
 }
 static std::wstring CfgFmtInt(int val) { return std::to_wstring(val); }
@@ -1378,7 +1473,12 @@ void GUIManager::CreateConfigWindow()
                             self->RemoveWindow(NOTIFY_WIN);
                             SpawnRelaunchForConfiguredRenderer();       // BEFORE closing: it must outlive this process
                             threadManager.threadVars.bIsShuttingDown.store(true);
+                        #if defined(PLATFORM_WINDOWS)
                             PostMessage(hwnd, WM_CLOSE, 0, 0);
+                        #else
+                            // Linux: no window message — the main loop exits on the quit flag.
+                            g_cpgeQuitRequested.store(true);
+                        #endif
                         });
                 };
                 nw->AddControl(c);
@@ -1508,7 +1608,12 @@ void GUIManager::CreateConfigWindow()
                         self->RemoveWindow(NOTIFY_WIN);
                         SpawnRelaunchForConfiguredRenderer();           // BEFORE closing: it must outlive this process
                         threadManager.threadVars.bIsShuttingDown.store(true);
+                    #if defined(PLATFORM_WINDOWS)
                         PostMessage(hwnd, WM_CLOSE, 0, 0);
+                    #else
+                        // Linux: no window message — the main loop exits on the quit flag.
+                        g_cpgeQuitRequested.store(true);
+                    #endif
                     });
             }).detach();
         }, 102);
@@ -1525,7 +1630,12 @@ void GUIManager::CreateConfigWindow()
                     self->RemoveWindow(win);
                     SpawnRelaunchForConfiguredRenderer();               // BEFORE closing: it must outlive this process
                     threadManager.threadVars.bIsShuttingDown.store(true);
+                #if defined(PLATFORM_WINDOWS)
                     PostMessage(hwnd, WM_CLOSE, 0, 0);
+                #else
+                    // Linux: no window message — the main loop exits on the quit flag.
+                    g_cpgeQuitRequested.store(true);
+                #endif
                 });
         }, 102);
 
@@ -1589,7 +1699,9 @@ void GUIManager::CreateConfigWindow()
             auto w = weakWin.lock();
             if (!w) return;
 
-            constexpr float kTH   = TITLEBAR_HEIGHT;
+            // const, not constexpr: `const float` is not usable in a constant
+            // expression on GCC (MSVC accepts it as an extension).
+            const float kTH   = TITLEBAR_HEIGHT;
             constexpr float kVisH = 370.0f;
             const float wx  = w->position.x;
             const float wy  = w->position.y;
@@ -1734,8 +1846,20 @@ void GUIManager::CreateConfigWindow()
             const float tw = CFG_SCROLL_W - 4.0f;
 
             // Active = scrollbar was clicked/dragged within the last 600 ms
-            const bool  scrollActive = (GetTickCount64() - lastScrollClick->load()) < 600;
-            const bool  scrollFlash  = scrollActive && ((GetTickCount64() / 220) % 2 == 0);
+            const bool  scrollActive = (
+            #if defined(PLATFORM_WINDOWS)
+                GetTickCount64()
+            #else
+                static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count())
+            #endif
+            - lastScrollClick->load()) < 600;
+            const bool  scrollFlash  = scrollActive && ((
+            #if defined(PLATFORM_WINDOWS)
+                GetTickCount64()
+            #else
+                static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count())
+            #endif
+            / 220) % 2 == 0);
 
             // Thumb drop shadow
             r->DrawRectangle(Vector2(tx + 1.0f, thumbY + 1.0f), Vector2(tw, thumbH),
@@ -1808,7 +1932,13 @@ void GUIManager::CreateConfigWindow()
             if (my < scrollY || my > scrollY + SCROLL_H)     return;
 
             // Mark scrollbar active so thumb flashes gold while dragging
-            lastScrollClick->store(GetTickCount64());
+            lastScrollClick->store(
+            #if defined(PLATFORM_WINDOWS)
+                GetTickCount64()
+            #else
+                static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count())
+            #endif
+            );
 
             int   t    = *actTab;
             float maxS = std::max(0.0f, tabContentH[t] - kVisH);

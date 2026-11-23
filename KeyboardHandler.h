@@ -41,9 +41,14 @@ extern ExceptionHandler exceptionHandler;
 #include <winuser.h>
 #elif defined(__linux__)
 #define PLATFORM_LINUX
+// X11 typedefs KeyCode (unsigned char), which collides with the engine's
+// enum class KeyCode (KeyboardHandler.h). Rename the X11 typedef at include
+// time so the two can coexist in one translation unit.
+#define KeyCode X11KeyCode
 #include <X11/Xlib.h>
 #include <X11/keysym.h>
 #include <X11/XKBlib.h>
+#undef KeyCode
 #elif defined(__APPLE__)
 #define PLATFORM_MACOS
 #include <Carbon/Carbon.h>

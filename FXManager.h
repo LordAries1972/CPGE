@@ -47,9 +47,10 @@
         #include <GL/glew.h>
         #include <glm/glm.hpp>
         #include <glm/gtc/matrix_transform.hpp>
-        using XMFLOAT3 = glm::vec3;
-        using XMFLOAT4 = glm::vec4;
-        using XMMATRIX = glm::mat4;
+        // NOTE: do NOT re-alias XMFLOAT3/XMFLOAT4/XMMATRIX to glm types here —
+        // Includes.h already defines them (Vector3/Vector4/Matrix4x4) and a
+        // second definition is a compile error in every TU that includes this
+        // header. glm:: types are used directly where GLM math is needed.
     #endif
 
 #elif defined(__USE_VULKAN__)
@@ -63,9 +64,8 @@
     #elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
         #include <glm/glm.hpp>
         #include <glm/gtc/matrix_transform.hpp>
-        using XMFLOAT3 = glm::vec3;
-        using XMFLOAT4 = glm::vec4;
-        using XMMATRIX = glm::mat4;
+        // NOTE: XMFLOAT3/XMFLOAT4/XMMATRIX are already defined by Includes.h
+        // (Vector3/Vector4/Matrix4x4); do not re-alias them to glm types here.
     #endif
 #endif
 
@@ -127,6 +127,14 @@ enum class FXSubType {
     TXT_FADE_OUT,                                                               // Fade out from endColor to fadeOutColor
 };
 
+#ifdef None
+#pragma push_macro("None")
+#undef None
+#define CPGE_NONE_SUSPENDED
+#endif
+// NOTE: X11 defines None as a macro (0L); it is suspended above while
+// this enum is declared, then restored below so X11 code (e.g.
+// glXMakeCurrent(..., None, ...)) keeps working.
 enum class TunnelSpinCycle { None, Clockwise, AntiClockwise, };
 
 enum class ZoomFXFunction {
@@ -1007,3 +1015,15 @@ private:
     std::weak_ptr<Renderer> m_weakRenderer;
 #endif
 };
+
+// X11's None macro was suspended above (before the enum declarations
+// that use None as an enumerator). Restore it here, at the end of this
+// header, so X11 code after the includes (e.g. glXMakeCurrent(...,
+// None, ...)) keeps working. The restore must be at end-of-header,
+// not right after each enum: enumerator uses later in this header
+// (default member initialisers such as TunnelSpinCycle::None) are
+// parsed while the macro is suspended.
+#ifdef CPGE_NONE_SUSPENDED
+#pragma pop_macro("None")
+#undef CPGE_NONE_SUSPENDED
+#endif

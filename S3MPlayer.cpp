@@ -172,7 +172,12 @@ bool S3MPlayer::Initialize(const std::wstring& filename) {
 bool S3MPlayer::LoadS3MFile(const std::wstring& filename) {
     debug.logLevelMessage(LogLevel::LOG_INFO, L"Loading S3M file: " + filename);
 
+#if defined(PLATFORM_WINDOWS)
     std::ifstream file(filename, std::ios::binary);
+#else
+    // libstdc++ has no std::wstring fstream ctor (MSVC extension) — narrow first.
+    std::ifstream file(NarrowPathForFstream(filename), std::ios::binary);
+#endif
     if (!file.is_open()) {
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"S3MPlayer: Failed to open S3M file.");
         return false;

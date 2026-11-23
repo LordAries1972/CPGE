@@ -1310,7 +1310,9 @@ void GUIManager::CreateQuitConfirmDialog()
                             PostMessage(hwnd, WM_CLOSE, 0, 0);
                         }).detach();
                     #else
-                        PostQuitMessage(0);
+                        // Linux / Android: no message loop to quit; request a
+                        // clean shutdown via the shared flag (polled by main).
+                        g_cpgeQuitRequested = true;
                     #endif
                 });
         }

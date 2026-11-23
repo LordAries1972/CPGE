@@ -580,7 +580,13 @@ void ScriptManager::Cmd_Quit()
 {
     debug.Log("[ScriptManager] QUIT — requesting application shutdown.");
     StopExecution();
+#if defined(PLATFORM_WINDOWS)
     PostQuitMessage(0);
+#else
+    // Linux / Android: no message loop to quit; request a clean shutdown
+    // via the shared flag (polled by main).
+    g_cpgeQuitRequested = true;
+#endif
 }
 
 // =============================================================================

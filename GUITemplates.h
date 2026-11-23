@@ -24,6 +24,14 @@ class GUIWindow;
 constexpr float NEWS1_BORDER_THICKNESS = 12.0f;
 
 // Available window visual templates — extend this enum as new chrome styles are added.
+#ifdef None
+#pragma push_macro("None")
+#undef None
+#define CPGE_NONE_SUSPENDED
+#endif
+// NOTE: X11 defines None as a macro (0L); it is suspended above while
+// this enum is declared, then restored below so X11 code (e.g.
+// glXMakeCurrent(..., None, ...)) keeps working.
 enum class GUIWindowTemplateType {
     None,       // No template — caller is responsible for all visual chrome.
     Tech1,      // Military/tech HUD terminal look: black body, cyan-teal border frame,
@@ -68,3 +76,15 @@ void ApplyGUIWindowTemplate(const std::shared_ptr<GUIWindow>& window,
 // so callers can colour-match a control they add themselves — e.g. a close button — to the
 // template's palette. Returns a neutral grey for templates without a gradient title bar.
 MyColor GetGUIWindowTemplateAccentColor(GUIWindowTemplateType templateType);
+
+// X11's None macro was suspended above (before the enum declarations
+// that use None as an enumerator). Restore it here, at the end of this
+// header, so X11 code after the includes (e.g. glXMakeCurrent(...,
+// None, ...)) keeps working. The restore must be at end-of-header,
+// not right after each enum: enumerator uses later in this header
+// (default member initialisers such as TunnelSpinCycle::None) are
+// parsed while the macro is suspended.
+#ifdef CPGE_NONE_SUSPENDED
+#pragma pop_macro("None")
+#undef CPGE_NONE_SUSPENDED
+#endif

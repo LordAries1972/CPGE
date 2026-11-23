@@ -46,6 +46,19 @@
 #include <dxgi.h>                                                               // GPU adapter enumeration
 #endif
 
+#if defined(PLATFORM_LINUX)
+    // GLX_ARB_create_context tokens live in <GL/glxext.h>, which <GL/glx.h>
+    // does not pull in on all distros; define them here if they are missing.
+    #ifndef GLX_CONTEXT_MAJOR_VERSION_ARB
+        #define GLX_CONTEXT_MAJOR_VERSION_ARB   0x2091
+        #define GLX_CONTEXT_MINOR_VERSION_ARB   0x2092
+        #define GLX_CONTEXT_FLAGS_ARB           0x2094
+        #define GLX_CONTEXT_PROFILE_MASK_ARB    0x9126
+        #define GLX_CONTEXT_DEBUG_BIT_ARB       0x00000001
+        #define GLX_CONTEXT_CORE_PROFILE_BIT_ARB 0x00000001
+    #endif
+#endif
+
 // Static member initialization
 std::mutex OpenGLRenderer::s_renderMutex;                                      // Initialize static render synchronization mutex
 std::mutex OpenGLRenderer::s_loaderMutex;                                      // Initialize static loader synchronization mutex
@@ -128,7 +141,7 @@ OpenGLRenderer::~OpenGLRenderer()
 //-----------------------------------------
 // Core Rendering Interface
 //-----------------------------------------
-void OpenGLRenderer::Initialize(HWND hwnd, HINSTANCE hInstance) {
+void OpenGLRenderer::Initialize(NativeWindowHandle hwnd, NativeInstanceHandle hInstance) {
     // Set the Renderer Name
     RendererName(RENDERER_NAME);                                                // Set renderer identification name
     // Use config as the authoritative back-buffer size — winMetrics.clientWidth/Height
@@ -373,6 +386,10 @@ bool OpenGLRenderer::StartRendererThreads()
                 // Transfer GL context ownership from main thread to render thread.
                 // fxManager.Initialize() has already compiled its shaders on the main thread.
                 wglMakeCurrent(nullptr, nullptr);
+            #elif defined(PLATFORM_LINUX)
+                // Transfer GLX context ownership from main thread to render thread.
+                if (m_glContext.display && m_glContext.glxContext)
+                    glXMakeCurrent(m_glContext.display, None, nullptr);
             #endif
 
             threadManager.SetThread(THREAD_RENDERER, [this]() { RenderFrame(); }, true); // Set renderer thread with lambda function
@@ -824,7 +841,7 @@ int OpenGLRenderer::FindMultisamplePixelFormat(HDC realDC, const PIXELFORMATDESC
 // ─────────────────────────────────────────────────────────────────────────────
 // Platform-specific OpenGL context creation (Windows WGL)
 // ─────────────────────────────────────────────────────────────────────────────
-bool OpenGLRenderer::CreateOpenGLContext(HWND hWnd)
+bool OpenGLRenderer::CreateOpenGLContext(NativeWindowHandle hWnd)
 {
     #if defined(_WIN32) || defined(_WIN64)
         m_glContext.windowHandle = hWnd;
@@ -925,8 +942,110 @@ bool OpenGLRenderer::CreateOpenGLContext(HWND hWnd)
 
         debug.logLevelMessage(LogLevel::LOG_INFO, L"[OpenGLRenderer] OpenGL 3.3 Core context created");
         return true;
-    #else
-        // Linux / Android: implemented via GLX / EGL in SetupPlatformSpecificContext
+    #elif defined(PLATFORM_LINUX)
+        // Linux/GLX: the X11 window was created by main.cpp and passed in as
+        // an HWND (an X11 Window carried through uintptr_t — see Platform.h).
+        // Open our own Display connection: the renderer owns its GLX context
+        // and closes this connection again in CleanupPlatformSpecificContext.
+        // (KeyboardHandler opens a second, independent connection for input.)
+        ::Window xWindow = static_cast<::Window>(reinterpret_cast<std::uintptr_t>(hWnd));
+        if (xWindow == 0)
+        {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[OpenGLRenderer] No X11 window passed to CreateOpenGLContext");
+            return false;
+        }
+        m_glContext.display = XOpenDisplay(nullptr);
+        if (!m_glContext.display)
+        {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[OpenGLRenderer] XOpenDisplay failed — no X server available");
+            return false;
+        }
+        m_glContext.window = xWindow;
+
+        // Pick a framebuffer config: RGBA8, 24-bit depth, 8-bit stencil,
+        // double-buffered; 4x MSAA samples when the config asks for it.
+        // main.cpp creates the window from this same first matching config,
+        // so the window visual and the context visual always agree.
+        const bool wantMSAA = config.myConfig.antiAliasingEnabled && config.myConfig.msaaEnabled;
+        int fbAttribs[] = {
+            GLX_X_RENDERABLE,  True,
+            GLX_DRAWABLE_TYPE, GLX_WINDOW_BIT,
+            GLX_RENDER_TYPE,   GLX_RGBA_BIT,
+            GLX_X_VISUAL_TYPE, GLX_TRUE_COLOR,
+            GLX_RED_SIZE,      8,
+            GLX_GREEN_SIZE,    8,
+            GLX_BLUE_SIZE,     8,
+            GLX_ALPHA_SIZE,    8,
+            GLX_DEPTH_SIZE,    24,
+            GLX_STENCIL_SIZE,  8,
+            GLX_DOUBLEBUFFER,  True,
+            GLX_SAMPLE_BUFFERS, wantMSAA ? 1 : 0,
+            GLX_SAMPLES,        wantMSAA ? 4 : 0,
+            None
+        };
+        int fbCount = 0;
+        GLXFBConfig* fbConfigs = glXChooseFBConfig(m_glContext.display, DefaultScreen(m_glContext.display), fbAttribs, &fbCount);
+        if (!fbConfigs || fbCount == 0)
+        {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[OpenGLRenderer] glXChooseFBConfig found no suitable framebuffer config");
+            if (fbConfigs) XFree(fbConfigs);
+            XCloseDisplay(m_glContext.display); m_glContext.display = nullptr;
+            return false;
+        }
+        GLXFBConfig fbConfig = fbConfigs[0];
+        m_glContext.visualInfo = glXGetVisualFromFBConfig(m_glContext.display, fbConfig);
+        if (!m_glContext.visualInfo)
+        {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[OpenGLRenderer] glXGetVisualFromFBConfig failed");
+            XFree(fbConfigs);
+            XCloseDisplay(m_glContext.display); m_glContext.display = nullptr;
+            return false;
+        }
+
+        // Create a 3.3 core-profile context. glXCreateContextAttribsARB is an
+        // extension, so load it directly with glXGetProcAddress (GLEW is not
+        // initialised yet — that happens in InitializeOpenGLExtensions after
+        // this call returns). Fall back to a legacy context if unavailable.
+        using PFNGLXCREATECONTEXTATTRIBSARBPROC = GLXContext (*)(Display*, GLXFBConfig, GLXContext, Bool, const int*);
+        auto glXCreateContextAttribsARB = reinterpret_cast<PFNGLXCREATECONTEXTATTRIBSARBPROC>(
+            glXGetProcAddress(reinterpret_cast<const GLubyte*>("glXCreateContextAttribsARB")));
+        if (glXCreateContextAttribsARB)
+        {
+            int ctxAttribs[] = {
+                GLX_CONTEXT_MAJOR_VERSION_ARB, 3,
+                GLX_CONTEXT_MINOR_VERSION_ARB, 3,
+                GLX_CONTEXT_PROFILE_MASK_ARB,  GLX_CONTEXT_CORE_PROFILE_BIT_ARB,
+                #if defined(_DEBUG)
+                    GLX_CONTEXT_FLAGS_ARB, GLX_CONTEXT_DEBUG_BIT_ARB,
+                #endif
+                None
+            };
+            m_glContext.glxContext = glXCreateContextAttribsARB(m_glContext.display, fbConfig, nullptr, True, ctxAttribs);
+        }
+        XFree(fbConfigs);
+        if (!m_glContext.glxContext)
+            m_glContext.glxContext = glXCreateContext(m_glContext.display, m_glContext.visualInfo, nullptr, True);
+        if (!m_glContext.glxContext)
+        {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[OpenGLRenderer] GLX context creation failed");
+            XFree(m_glContext.visualInfo); m_glContext.visualInfo = nullptr;
+            XCloseDisplay(m_glContext.display); m_glContext.display = nullptr;
+            return false;
+        }
+        if (!glXMakeCurrent(m_glContext.display, m_glContext.window, m_glContext.glxContext))
+        {
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[OpenGLRenderer] glXMakeCurrent failed");
+            glXDestroyContext(m_glContext.display, m_glContext.glxContext); m_glContext.glxContext = nullptr;
+            XFree(m_glContext.visualInfo); m_glContext.visualInfo = nullptr;
+            XCloseDisplay(m_glContext.display); m_glContext.display = nullptr;
+            return false;
+        }
+
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[OpenGLRenderer] GLX OpenGL 3.3 Core context created");
+        return true;
+    #elif defined(PLATFORM_ANDROID)
+        // Android/EGL: not implemented in this phase — SetupPlatformSpecificContext
+        // is a no-op there (Android app entry is Phase D work).
         return SetupPlatformSpecificContext(), true;
     #endif
 }
@@ -952,6 +1071,15 @@ void OpenGLRenderer::SetupPlatformSpecificContext()
     #if defined(_WIN32) || defined(_WIN64)
         if (WGLEW_EXT_swap_control)
             wglSwapIntervalEXT(config.myConfig.enableVSync ? 1 : 0);
+    #elif defined(PLATFORM_LINUX)
+        // VSync via GLX_EXT_swap_control, loaded directly (this also runs
+        // before GLEW is initialised, so glXGetProcAddress is used instead
+        // of the GLEW extension pointer).
+        using PFNGLXSWAPINTERVALEXTPROC = void (*)(Display*, GLXDrawable, int);
+        auto glXSwapIntervalEXT = reinterpret_cast<PFNGLXSWAPINTERVALEXTPROC>(
+            glXGetProcAddress(reinterpret_cast<const GLubyte*>("glXSwapIntervalEXT")));
+        if (glXSwapIntervalEXT && m_glContext.display && m_glContext.window)
+            glXSwapIntervalEXT(m_glContext.display, m_glContext.window, config.myConfig.enableVSync ? 1 : 0);
     #endif
 }
 
@@ -976,6 +1104,14 @@ void OpenGLRenderer::CleanupPlatformSpecificContext()
             glXMakeCurrent(m_glContext.display, None, nullptr);
             glXDestroyContext(m_glContext.display, m_glContext.glxContext);
             m_glContext.glxContext = nullptr;
+        }
+        if (m_glContext.visualInfo) {
+            XFree(m_glContext.visualInfo);
+            m_glContext.visualInfo = nullptr;
+        }
+        if (m_glContext.display) {
+            XCloseDisplay(m_glContext.display);
+            m_glContext.display = nullptr;
         }
     #elif defined(__ANDROID__)
         if (m_glContext.eglDisplay != EGL_NO_DISPLAY) {

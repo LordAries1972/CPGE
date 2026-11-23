@@ -92,7 +92,12 @@ bool MODPlayer::Initialize(const std::wstring& filename) {
 bool MODPlayer::LoadMODFile(const std::wstring& filename) {
     debug.logLevelMessage(LogLevel::LOG_INFO, L"Loading MOD file: " + filename);
 
+#if defined(PLATFORM_WINDOWS)
     std::ifstream file(filename, std::ios::binary);
+#else
+    // libstdc++ has no std::wstring fstream ctor (MSVC extension) — narrow first.
+    std::ifstream file(NarrowPathForFstream(filename), std::ios::binary);
+#endif
     if (!file.is_open()) {
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"MODPlayer: Failed to open MOD file.");
         return false;

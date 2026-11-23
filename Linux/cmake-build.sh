@@ -61,11 +61,15 @@ Config (second argument, used by opengl / vulkan / all):
   release   Release build
 
 What a build does:
-  1. Patches the Linux section of Includes.h (via python3) so only the
-     chosen renderer #define is active. Skipped if python3 is missing.
-  2. Reads GAME_NAME from Includes.h.
-  3. Configures and builds into Linux/build/<Renderer>/<Config>
+  1. Reads GAME_NAME from Includes.h.
+  2. Configures and builds into Linux/build/<Renderer>/<Config>
      using all CPU cores.
+  NOTE: this script never edits Includes.h. The renderer define
+  (__USE_OPENGL__ / __USE_VULKAN__) is passed to the compiler by CMake
+  (-D via Linux/CMakeLists.txt), which is the single source of truth.
+  An earlier version of this script patched Includes.h with a global
+  regex; that mutated the working tree and uncommented the define in
+  every platform section, so it was removed.
 
 Environment:
   CMAKE_EXE   Path to the cmake binary (default: cmake on PATH).
@@ -118,7 +122,7 @@ fi
 
 # --- Build ALL pipelines ---
 # Iterates over every Linux-supported renderer, calling this script for each
-# one so Includes.h patching and the full build steps run as normal.
+# one so the full build steps run as normal.
 # Uses 'if ! command' to suppress set -e so a failing pipeline doesn't abort
 # the remaining ones; a summary is printed and exit 1 if any build failed.
 if [[ "${ARG1,,}" == "all" ]]; then
@@ -212,33 +216,14 @@ if ! command -v "${CMAKE_EXE}" &>/dev/null; then
     exit 1
 fi
 
-# --- Patch Includes.h (Linux section) ----------------------------------------
-# The Windows section uses a different indent pattern and is left untouched.
-# We use Python3 to comment out all Linux/Android renderer defines then
-# uncomment only the one requested — so IDEs on Linux pick up the right renderer.
-INCLUDES_H="${PROJECT_ROOT}/Includes.h"
-if command -v python3 &>/dev/null && [[ -f "${INCLUDES_H}" ]]; then
-    echo "Patching Includes.h: enabling ${RENDERER_DEFINE} on Linux..."
-    python3 - "${RENDERER_DEFINE}" "${INCLUDES_H}" <<'PYEOF'
-import re, sys
-define = sys.argv[1]          # e.g. "__USE_VULKAN__"
-path   = sys.argv[2]
-with open(path, 'r') as f:
-    t = f.read()
-# Linux/Android defines have the form:  "    //#define __USE_X__"
-# (4-space indent, no gap between // and #define).
-# First comment everything out (idempotent), then uncomment the chosen one.
-for d in ('OPENGL', 'VULKAN'):
-    t = re.sub(r'(?m)^([ \t]*)(?://)?(#define __USE_' + d + r'__\b.*)', r'\1//\2', t)
-t = re.sub(r'(?m)^([ \t]*)//(' + re.escape('#define ' + define) + r'\b.*)', r'\1\2', t)
-with open(path, 'w') as f:
-    f.write(t)
-PYEOF
-    echo "Includes.h patched."
-else
-    echo "INFO: python3 not found or Includes.h missing — skipping Includes.h patch."
-    echo "      The renderer define is passed via -D${RENDERER_DEFINE} by CMake."
-fi
+# --- Renderer define: CMake only, no Includes.h patching -------------------
+# The renderer define (__USE_OPENGL__ / __USE_VULKAN__) is passed to the
+# compiler by CMake (Linux/CMakeLists.txt, -D). Do NOT patch Includes.h here:
+# a global regex would uncomment the define in the Linux, Android AND macOS
+# sections at once and dirty the working tree on every build. The commented-out
+# defines in the Linux/Android sections of Includes.h are intentional — CMake
+# is the single source of truth for the active renderer.
+# (RENDERER_DEFINE is kept for the informational echo below.)
 
 # --- Extract GAME_NAME from Includes.h ---
 GAME_NAME_VAL=$(sed -n 's/^#define GAME_NAME[[:space:]]*"\([^"]*\)".*/\1/p' "${PROJECT_ROOT}/Includes.h" | head -1)

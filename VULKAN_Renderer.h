@@ -227,7 +227,7 @@ public:
     // Public Renderer interface overrides
     // ------------------------------------------
     void RendererName(std::string sThisName) override;
-    void Initialize(HWND hwnd, HINSTANCE hInstance) override;
+    void Initialize(NativeWindowHandle hwnd, NativeInstanceHandle hInstance) override;
     void Cleanup() override;
 
     void* GetDevice()        override;
@@ -272,13 +272,21 @@ public:
     float CalculateTextWidth(const std::wstring& text, float FontSize, float containerWidth) override;
     float CalculateTextHeight(const std::wstring& text, float FontSize, float containerHeight) override;
 
-#if defined(PLATFORM_WINDOWS)
+    // 2D blits — declared on every platform: the base declares them pure
+    // virtual for all renderers, and the bodies are Direct2D on Windows and
+    // no-ops on Linux/Android until the native Vulkan 2D blits land
+    // (Phase C). Only Blit2DColoredPixel differs by platform: on
+    // Linux/Android XMFLOAT4 aliases to Vector4 (Includes.h), so the base
+    // declares the Vector4 overload there.
     void Blit2DWrappedObjectAtOffset(BlitObj2DIndexType iIndex, int iBlitX, int iBlitY, int iXOffset, int iYOffset, int iTileSizeX, int iTileSizeY) override;
     void Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, int iDestY, int iDestW, int iDestH, float zoomFactor) override;
     void Blit2DObjectToSizeWithAlpha(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float alpha) override;
-    void Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 color) override;
     void Blit2DAtlasTile(BlitObj2DIndexType iIndex, int iTileIndex, int iTileSizeX, int iTileSizeY, int iDestX, int iDestY) override;
     void Blit2DScrollingObjectToSize(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float scrollFraction, bool reverseDirection) override;
+#if defined(PLATFORM_WINDOWS)
+    void Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 color) override;
+#else
+    void Blit2DColoredPixel(int x, int y, float pixelSize, const Vector4& color) override;
 #endif
 
     // ------------------------------------------
@@ -584,6 +592,29 @@ private:
     // ------------------------------------------
     // 2D overlay — D2D on Windows, WIC bitmap as CPU render target
     // ------------------------------------------
+    // 2D overlay Vulkan texture  (receives the D2D WIC output each frame on
+    // Windows; a CPU RGBA buffer on Linux/Android — see UploadOverlayToVulkan)
+    VulkanTexture m_overlayTexture;
+    VkBuffer      m_overlayStagingBuffer  = VK_NULL_HANDLE;
+    VkDeviceMemory m_overlayStagingMemory = VK_NULL_HANDLE;
+    uint32_t      m_overlayWidth  = 0;
+    uint32_t      m_overlayHeight = 0;
+    bool          m_overlayDirty  = false;
+
+    // Background (pre-3D) overlay — starfield only, composited BEFORE 3D models.
+    // Its Vulkan texture/staging are plain Vulkan state, so they live on every
+    // platform; only the WIC bitmap / D2D target that fill them are Windows-only.
+    VulkanTexture             m_bgOverlayTexture;
+    VkBuffer                  m_bgStagingBuffer  = VK_NULL_HANDLE;
+    VkDeviceMemory            m_bgStagingMemory  = VK_NULL_HANDLE;
+    bool                      m_bgOverlayDirty   = false;
+    bool                      m_drawToBackground = false;
+
+    // Upload the CPU-side overlay into the overlay texture: the D2D WIC bitmap
+    // on Windows, the RGBA staging buffer on Linux/Android.
+    void UploadOverlayToVulkan(VkCommandBuffer cmd);
+    void UploadBgOverlayToVulkan(VkCommandBuffer cmd);
+
 #if defined(PLATFORM_WINDOWS)
     // D2D bitmaps for Blit2D operations — one per 2D texture slot, created alongside
     // the VulkanTexture in LoadTexture so D2D drawing calls can actually render them.
@@ -601,22 +632,9 @@ private:
     ComPtr<ID2D1RenderTarget>   m_d2dRenderTarget;
     ComPtr<IDWriteFactory>      m_dwriteFactory;
 
-    // 2D overlay Vulkan texture  (receives the D2D WIC output each frame)
-    VulkanTexture m_overlayTexture;
-    VkBuffer      m_overlayStagingBuffer  = VK_NULL_HANDLE;
-    VkDeviceMemory m_overlayStagingMemory = VK_NULL_HANDLE;
-    uint32_t      m_overlayWidth  = 0;
-    uint32_t      m_overlayHeight = 0;
-    bool          m_overlayDirty  = false;
-
     // Background (pre-3D) overlay — starfield only, composited BEFORE 3D models
     ComPtr<IWICBitmap>        m_bgWicBitmap;
     ComPtr<ID2D1RenderTarget> m_bgD2dRenderTarget;
-    VulkanTexture             m_bgOverlayTexture;
-    VkBuffer                  m_bgStagingBuffer  = VK_NULL_HANDLE;
-    VkDeviceMemory            m_bgStagingMemory  = VK_NULL_HANDLE;
-    bool                      m_bgOverlayDirty   = false;
-    bool                      m_drawToBackground = false;
 
     // Text format cache
     struct TextFormatKey {
@@ -644,8 +662,6 @@ private:
                      float ctrlW = 0.0f, float ctrlH = 0.0f);
     void BlitTextureD2D(BlitObj2DIndexType idx, int x, int y, int w, int h,
                         int srcOffX, int srcOffY, int tileW, int tileH, bool wrap);
-    void UploadOverlayToVulkan(VkCommandBuffer cmd);
-    void UploadBgOverlayToVulkan(VkCommandBuffer cmd);
 
     HWND     m_hwnd   = nullptr;
     HINSTANCE m_hInst = nullptr;
@@ -686,7 +702,7 @@ private:
     // ------------------------------------------
     void CreateInstance();
     void SetupDebugMessenger();
-    void CreateSurface(HWND hwnd);                          // platform-dispatched
+    void CreateSurface(NativeWindowHandle hwnd);               // platform-dispatched
     void PickPhysicalDevice();
     void CreateLogicalDevice();
     void CreateSwapChain(uint32_t width, uint32_t height);
@@ -787,8 +803,12 @@ private:
         bool m_hasGetSurface2Ext     = false;  // VK_KHR_get_surface_capabilities2 was enabled at instance level
         bool m_supportsVkExclusiveFS = false;  // VK_EXT_full_screen_exclusive enabled at device level
         bool m_isVkExclusiveActive   = false;  // vkAcquireFullScreenExclusiveModeEXT currently held
-        bool m_requestExclusiveMode  = false;  // signals CreateSwapChain to chain VkSurfaceFullScreenExclusiveInfoEXT
     #endif
+
+    // Set by the cross-platform SetDisplayMode() so CreateSwapChain knows to
+    // chain VkSurfaceFullScreenExclusiveInfoEXT; the acquire/release and the
+    // Win32 surface info above stay Windows-only.
+    bool m_requestExclusiveMode = false;  // signals CreateSwapChain to chain VkSurfaceFullScreenExclusiveInfoEXT
 };
 
 // Global extern refs (mirrors DX11Renderer pattern)

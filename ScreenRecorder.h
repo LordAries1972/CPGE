@@ -24,24 +24,28 @@
     #include <d3d12.h>
     #include <dxgi1_4.h>
 #endif
-#include <mfapi.h>
-#include <mfidl.h>
-#include <mfreadwrite.h>
-#include <mmdeviceapi.h>
-#include <audioclient.h>
+#if defined(PLATFORM_WINDOWS)
+    #include <mfapi.h>
+    #include <mfidl.h>
+    #include <mfreadwrite.h>
+    #include <mmdeviceapi.h>
+    #include <audioclient.h>
+#endif
 #include <atomic>
 #include <mutex>
 #include <thread>
 #include <string>
 #include <vector>
 
-#pragma comment(lib, "mf.lib")
-#pragma comment(lib, "mfplat.lib")
-#pragma comment(lib, "mfreadwrite.lib")
-#pragma comment(lib, "mfuuid.lib")
-#pragma comment(lib, "ole32.lib")
+#if defined(PLATFORM_WINDOWS)
+    #pragma comment(lib, "mf.lib")
+    #pragma comment(lib, "mfplat.lib")
+    #pragma comment(lib, "mfreadwrite.lib")
+    #pragma comment(lib, "mfuuid.lib")
+    #pragma comment(lib, "ole32.lib")
+#endif
 
-enum class RecordFPS : UINT32
+enum class RecordFPS : std::uint32_t
 {
     FPS_15  = 15,
     FPS_30  = 30,
@@ -53,7 +57,7 @@ enum class RecordFPS : UINT32
 
 // AAC audio bitrate — applied to every audio stream (game + mic).
 // All streams are timestamp-locked to the video FPS clock regardless of bitrate.
-enum class AudioBitrate : UINT32
+enum class AudioBitrate : std::uint32_t
 {
     Kbps_64  =  64'000,
     Kbps_96  =  96'000,
@@ -136,6 +140,7 @@ public:
     float GetMicRecordGain () const  { return m_micRecordGain;  }
 
 private:
+#if defined(PLATFORM_WINDOWS)
     void WriteVideoFrame(const BYTE* pData, UINT rowPitch, LONGLONG ts);
 
     bool InitAudioCapture();
@@ -242,6 +247,34 @@ private:
     std::atomic<bool>       m_captureEnabled { true };
     LONGLONG m_pauseStart = 0, m_pausedTicks = 0;
     std::mutex              m_mutex;
+#else
+    // Linux / Android stub state (Phase A): no Media Foundation / WASAPI.
+    // Only the state the inline accessors and the stub .cpp need is kept.
+    UINT                    m_width;
+    UINT                    m_height;
+    RecordFPS               m_targetFPS;
+    AudioBitrate            m_audioBitrate;
+    LONGLONG                m_framePeriod;
+    std::atomic<LONGLONG>   m_videoFrameIndex;
+    LONGLONG                m_framePeriodSnapshot;
+    LONGLONG                m_audioTimestamp;
+    std::thread             m_audioThread;
+    MicMode                 m_micMode;
+    std::vector<BYTE>       m_micAccum;
+    size_t                  m_micAccumRead;
+    bool                    m_micDataLogged;
+    float                   m_micDiagPeak;
+    std::uint64_t           m_micDiagFrames;
+    std::thread             m_micThread;
+    DWORD                   m_micStreamIndex;
+    LONGLONG                m_micAudioTimestamp;
+    std::atomic<float>      m_micMonitorGain;
+    std::atomic<float>      m_micRecordGain;
+    std::atomic<bool>       m_isRecording;
+    std::atomic<bool>       m_captureEnabled { true };
+    LONGLONG m_pauseStart = 0, m_pausedTicks = 0;
+    std::mutex              m_mutex;
+#endif
 };
 
 // Independent of the user's manual screen recording session.

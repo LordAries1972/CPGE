@@ -26,7 +26,11 @@ MyConfig Configuration::GetConfig() const {
 
 // Instance method to load the configuration from a file
 bool Configuration::loadConfig() {
+#if defined(PLATFORM_WINDOWS)
     std::ifstream configStream(configFile);
+#else
+    std::ifstream configStream(NarrowPathForFstream(configFile));
+#endif
     if (!configStream.is_open()) {
         debug.logLevelMessage(LogLevel::LOG_WARNING,
             L"[Configuration] GameConfig.cfg not found - saving and using default configuration.");
@@ -170,7 +174,11 @@ bool Configuration::loadConfig() {
 
 // Instance method to save the current configuration to a file
 bool Configuration::saveConfig() {
+#if defined(PLATFORM_WINDOWS)
     std::ofstream configStream(configFile);
+#else
+    std::ofstream configStream(NarrowPathForFstream(configFile));
+#endif
     if (!configStream.is_open()) {
         std::wstring msg = L"Error opening config file for saving: " + configFile;
         debug.logLevelMessage(LogLevel::LOG_ERROR, msg);
@@ -335,7 +343,16 @@ int Configuration::ValidateRendererForPlatform(int type)
             break;
 #endif
     }
-    return 0;
+    // Fall back to whatever renderer was compiled into this binary (mirrors
+    // the Windows branch above). Returning a hard-coded 0 here broke every
+    // Vulkan-only build: a config (or a checksum reset to defaults) with
+    // rendererType 0 stayed 0, and CreateRendererInstance has no case 0
+    // without __USE_OPENGL__ — "No valid renderer selected".
+    #if defined(__USE_VULKAN__)
+        return 1;
+    #else
+        return 0;
+    #endif
 #else
     // iOS / macOS — OpenGL only
     return 0;

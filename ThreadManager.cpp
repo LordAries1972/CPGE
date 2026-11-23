@@ -76,6 +76,10 @@
 #include "Includes.h"
 #include "ThreadManager.h"
 #include "Debug.h"
+#if !defined(PLATFORM_WINDOWS)
+    #include <cstdlib>  // std::mbstowcs
+    #include <cwchar>   // std::mbstowcs
+#endif
 
 extern Debug debug;
 
@@ -123,10 +127,20 @@ std::string ThreadManager::getThreadName(ThreadNameID id) {
 
 std::wstring ThreadManager::StringToWString(const std::string& str) {
     if (str.empty()) return L"";
+#if defined(PLATFORM_WINDOWS)
     int size_needed = MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), NULL, 0);
     std::wstring wstr(size_needed, 0);
     MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), &wstr[0], size_needed);
     return wstr;
+#else
+    // Linux / Android: mbstowcs converts from the current locale (UTF-8 on
+    // Linux); ASCII input converts identically to the Windows path above.
+    const size_t size_needed = std::mbstowcs(nullptr, str.c_str(), 0);
+    if (size_needed == static_cast<size_t>(-1)) return L"";
+    std::wstring wstr(size_needed, 0);
+    std::mbstowcs(&wstr[0], str.c_str(), size_needed);
+    return wstr;
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------

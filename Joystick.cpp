@@ -39,8 +39,10 @@ extern Debug debug;
 
 const std::string lpCONFIG_FILENAME = "GameConfig.cfg";
 
+#if defined(PLATFORM_WINDOWS)
 #pragma warning(push)
 #pragma warning(disable: 4101)
+#endif
 
 // Narrow (char) to wide conversion for std::exception::what() text.  The
 // what() string is plain ASCII in practice; an empty result is returned for
@@ -62,6 +64,7 @@ static const float kJoystickRotSensitivityMin = 0.00000001f;
 static const float kJoystickRotSensitivityMax = 1.0f;
 static const float kJoystickRotSensitivityDefault = 0.00000002f;
 
+#if defined(PLATFORM_WINDOWS)
 std::wstring Joystick::DescribeWinMmResult(MMRESULT result)
 {
     std::wostringstream out;
@@ -97,7 +100,17 @@ std::wstring Joystick::DescribeWinMmResult(MMRESULT result)
     out << L")";
     return out.str();
 }
+#else
+std::wstring Joystick::DescribeWinMmResult(MMRESULT result)
+{
+    // No winmm on Linux/Android: there is no winmm result to describe.
+    std::wostringstream out;
+    out << L"0x" << std::hex << std::uppercase << static_cast<unsigned int>(result) << std::dec << L" (no winmm result on Linux)";
+    return out.str();
+}
+#endif
 
+#if defined(PLATFORM_WINDOWS)
 bool Joystick::IsHardPointResult(MMRESULT result)
 {
     switch (result)
@@ -116,7 +129,16 @@ bool Joystick::IsHardPointResult(MMRESULT result)
         return false;
     }
 }
+#else
+bool Joystick::IsHardPointResult(MMRESULT result)
+{
+    // No winmm results exist on Linux/Android, so no result is a hard point.
+    (void)result;
+    return false;
+}
+#endif
 
+#if defined(PLATFORM_WINDOWS)
 std::wstring Joystick::BuildStatusText(const std::wstring& reason) const
 {
     std::lock_guard<std::recursive_mutex> lock(m_joyMutex);
@@ -140,6 +162,33 @@ std::wstring Joystick::BuildStatusText(const std::wstring& reason) const
     out << L" | lastWarning=" << (m_lastWarning.empty() ? L"none" : m_lastWarning);
     return out.str();
 }
+#else
+std::wstring Joystick::BuildStatusText(const std::wstring& reason) const
+{
+    std::lock_guard<std::recursive_mutex> lock(m_joyMutex);
+    std::wostringstream out;
+    out << L"STATUS [" << reason << L"] active=" << m_activeCount.load(std::memory_order_relaxed);
+    for (int i = 0; i < MAX_JOYSTICKS; ++i)
+    {
+        const PadInfo& pi = m_padInfo[static_cast<size_t>(i)];
+        out << L" | slot " << i << L": ";
+        if (!pi.valid())
+        {
+            out << L"empty";
+            continue;
+        }
+        // Portable VID/PID formatting (no _snwprintf_s on Linux/Android).
+        std::wostringstream ids;
+        ids << L"VID " << std::hex << std::uppercase << std::setw(4) << std::setfill(L'0') << pi.vendorId
+            << L" PID " << std::setw(4) << std::setfill(L'0') << pi.productId;
+        out << pi.typeName << L" (" << ids.str() << L", " << pi.numButtons << L" buttons, " << pi.numAxes << L" axes"
+            << L", triggersOnZ=" << (pi.triggersOnZ ? L"yes" : L"no") << L")";
+    }
+    out << L" | lastResult=" << DescribeWinMmResult(m_lastWinMmResult);
+    out << L" | lastWarning=" << (m_lastWarning.empty() ? L"none" : m_lastWarning);
+    return out.str();
+}
+#endif
 
 void Joystick::DumpJoystickStatus(const std::wstring& reason)
 {
@@ -180,6 +229,25 @@ void Joystick::LogJoystickWarningWithResult(const std::wstring& what, MMRESULT r
     LogJoystickWarning(what + L" (" + DescribeWinMmResult(result) + L")");
 }
 
+#if !defined(PLATFORM_WINDOWS)
+// Linux/Android stub (Phase A): one-time warning that joystick input is
+// unavailable on Linux in this phase.  The message is also stored as the
+// last warning so GetLastJoystickWarning() / DumpJoystickStatus() report it.
+void Joystick::LogLinuxStubWarningOnce()
+{
+    static bool warned = false;
+    if (warned) return;
+    warned = true;
+    std::wstring warning;
+    {
+        std::lock_guard<std::recursive_mutex> lock(m_joyMutex);
+        m_lastWarning = L"Joystick input is unavailable on Linux in this phase (no evdev backend yet); keyboard input is used instead";
+        warning = m_lastWarning;
+    }
+    Debug::logDiagLevelMessage(LogLevel::LOG_WARNING, L"[Joystick] " + warning);
+}
+#endif
+
 Joystick::Joystick() {
     try
     {
@@ -211,6 +279,7 @@ Joystick::~Joystick()
 }
 
 // ---- pad identification ------------------------------------------------------------------------------------------------------------------------------------------
+#if defined(PLATFORM_WINDOWS)
 static bool PadNameHas(const std::wstring& name, const wchar_t* part)                  // case-insensitive "contains"
 {
     std::wstring a = name, b = part;
@@ -242,6 +311,7 @@ static PadType ClassifyPad(uint16_t vid, uint16_t pid, const std::wstring& name,
     typeName = Joystick::PadTypeName(t);
     return t;
 }
+#endif
 const wchar_t* Joystick::PadTypeName(PadType t)
 {
     switch (t)
@@ -274,6 +344,7 @@ PadInfo Joystick::GetPrimaryPad()
     for (int id : activeJoysticks) if (id >= 0 && id < MAX_JOYSTICKS && m_padInfo[static_cast<size_t>(id)].valid()) return m_padInfo[static_cast<size_t>(id)];
     return PadInfo();
 }
+#if defined(PLATFORM_WINDOWS)
 // Raw winmm button numbers (1-based, as in JOY_BUTTONn) for each logical button, per family.  Zero = "not a digital button on this pad".
 //   Xbox / generic : A B X Y = 1 2 3 4, LB RB = 5 6, Back Start = 7 8, stick clicks 9 10; triggers are the Z axis.
 //   DualShock 4/5  : square cross circle triangle = 1 2 3 4, L1 R1 = 5 6, L2 R2 = 7 8, share options = 9 10, stick clicks 11 12, PS button 13.
@@ -284,6 +355,8 @@ static const PadMap kMapXbox = { 1, 2, 3, 4, 5, 6, 0, 0, 7, 8, 9, 10, 0 };
 static const PadMap kMapPS4  = { 2, 3, 1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13 };
 static const PadMap kMapPS3  = { 15, 14, 16, 13, 11, 12, 9, 10, 1, 4, 2, 3, 17 };
 static const PadMap kMapSwitch = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13 };
+#endif
+#if defined(PLATFORM_WINDOWS)
 uint32_t Joystick::ReadPadButtons(int slot, const JOYINFOEX& ji, float* leftTrigger, float* rightTrigger)
 {
     if (slot < 0 || slot >= MAX_JOYSTICKS)
@@ -325,7 +398,19 @@ uint32_t Joystick::ReadPadButtons(int slot, const JOYINFOEX& ji, float* leftTrig
     if (rightTrigger) *rightTrigger = rt;
     return out;
 }
+#else
+uint32_t Joystick::ReadPadButtons(int slot, const JOYINFOEX& ji, float* leftTrigger, float* rightTrigger)
+{
+    (void)slot;
+    (void)ji;
+    if (leftTrigger) *leftTrigger = 0.0f;
+    if (rightTrigger) *rightTrigger = 0.0f;
+    LogLinuxStubWarningOnce();
+    return 0;
+}
+#endif
 
+#if defined(PLATFORM_WINDOWS)
 void Joystick::detectJoysticks() {
     std::lock_guard<std::recursive_mutex> lock(m_joyMutex);                          // no other thread may be inside winmm or reading the list during a re-scan
     // Build the new list first and swap it in, so the list is never seen half rebuilt (it used to be cleared, then refilled).
@@ -387,7 +472,19 @@ void Joystick::detectJoysticks() {
         debug.logLevelMessage(LogLevel::LOG_INFO, L"Detected " + std::to_wstring(activeJoysticks.size()) + L" joysticks.");
     #endif
 }
+#else
+void Joystick::detectJoysticks() {
+    std::lock_guard<std::recursive_mutex> lock(m_joyMutex);
+    // Linux/Android stub (Phase A): no evdev backend yet, so no pad is ever
+    // found.  Clear any previous state and report zero active controllers.
+    activeJoysticks.clear();
+    m_padInfo = std::array<PadInfo, MAX_JOYSTICKS>{};
+    m_activeCount.store(0, std::memory_order_relaxed);
+    LogLinuxStubWarningOnce();
+}
+#endif
 
+#if defined(PLATFORM_WINDOWS)
 bool Joystick::ReadRawPad(int joystickID, JOYINFOEX& ji) {
     std::lock_guard<std::recursive_mutex> lock(m_joyMutex);
     if (joystickID < 0 || joystickID >= MAX_JOYSTICKS) {
@@ -405,6 +502,15 @@ bool Joystick::ReadRawPad(int joystickID, JOYINFOEX& ji) {
     }
     return true;
 }
+#else
+bool Joystick::ReadRawPad(int joystickID, JOYINFOEX& ji) {
+    std::lock_guard<std::recursive_mutex> lock(m_joyMutex);
+    (void)joystickID;
+    ji = {};
+    LogLinuxStubWarningOnce();
+    return false;
+}
+#endif
 
 size_t Joystick::PollControllers() {
     size_t prevCount = m_activeCount.load(std::memory_order_relaxed);
@@ -420,6 +526,7 @@ size_t Joystick::PollControllers() {
     return newCount;
 }
 
+#if defined(PLATFORM_WINDOWS)
 bool Joystick::readJoystickState(int joystickID, JoystickState& state) {
     std::lock_guard<std::recursive_mutex> lock(m_joyMutex);
     if (std::find(activeJoysticks.begin(), activeJoysticks.end(), joystickID) == activeJoysticks.end()) {
@@ -438,6 +545,15 @@ bool Joystick::readJoystickState(int joystickID, JoystickState& state) {
     }
     return true;
 }
+#else
+bool Joystick::readJoystickState(int joystickID, JoystickState& state) {
+    std::lock_guard<std::recursive_mutex> lock(m_joyMutex);
+    state.joystickID = joystickID;
+    state.info = {};
+    LogLinuxStubWarningOnce();
+    return false;
+}
+#endif
 
 bool Joystick::loadMapping(const std::string& filename) {
     std::ifstream file(filename);
@@ -593,6 +709,7 @@ void Joystick::processJoystickInput() {
     }
 }
 
+#if defined(PLATFORM_WINDOWS)
 void Joystick::postKeyEvent(int vkCode) {
     if (vkCode < 0 || vkCode > 255) {
         LogJoystickWarning(L"postKeyEvent: invalid virtual-key code " + std::to_wstring(vkCode) + L", expected 0..255, key event ignored");
@@ -615,6 +732,16 @@ void Joystick::postKeyEvent(int vkCode) {
         debug.logLevelMessage(LogLevel::LOG_INFO, L"Posted WM_KEYUP event for key: " + std::to_wstring(vkCode));
     #endif
 }
+#else
+void Joystick::postKeyEvent(int vkCode) {
+    if (vkCode < 0 || vkCode > 255) {
+        LogJoystickWarning(L"postKeyEvent: invalid virtual-key code " + std::to_wstring(vkCode) + L", expected 0..255, key event ignored");
+        return;
+    }
+    // Linux/Android stub (Phase A): no SendInput backend, so the key event is dropped.
+    LogLinuxStubWarningOnce();
+}
+#endif
 
 //---------------------------------------------------------------------------------
 // New Joystick Movement Functions
@@ -913,4 +1040,6 @@ void Joystick::SwitchModes(Camera& camera, bool& isNewMode)
     #endif
 }
 
+#if defined(PLATFORM_WINDOWS)
 #pragma warning(pop)
+#endif

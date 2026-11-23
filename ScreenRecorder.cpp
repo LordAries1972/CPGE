@@ -13,15 +13,18 @@
 #include "Includes.h"
 #include "ScreenRecorder.h"
 #include "Debug.h"
-#include <shellapi.h>
-#include <mmreg.h>
-#include <functiondiscoverykeys_devpkey.h>   // PKEY_Device_FriendlyName / PKEY_AudioEndpoint_FormFactor
+#if defined(PLATFORM_WINDOWS)
+    #include <shellapi.h>
+    #include <mmreg.h>
+    #include <functiondiscoverykeys_devpkey.h>   // PKEY_Device_FriendlyName / PKEY_AudioEndpoint_FormFactor
+    #pragma comment(lib, "shell32.lib")
+#endif
 #include <cmath>                              // log10f - mic level diagnostic
-
-#pragma comment(lib, "shell32.lib")
 
 extern Debug debug;
 ScreenRecorder gameplayRecorder;
+
+#if defined(PLATFORM_WINDOWS)
 
 void ScreenRecorder::SetCaptureEnabled(bool enabled)
 {
@@ -1720,3 +1723,73 @@ void ScreenRecorder::CleanupMic()
     if (m_pMicWaveFormat)    { CoTaskMemFree(m_pMicWaveFormat); m_pMicWaveFormat    = nullptr; }
     m_micAudioTimestamp = 0;
 }
+
+#else
+// ============================================================================
+// Linux / Android stub (Phase A)
+// No Media Foundation / WASAPI backend yet, so recording is a safe no-op:
+// StartRecording logs one warning the first time the subsystem is used and
+// returns false; IsRecording() stays false so every call site (main loop,
+// renderers, key handlers) simply skips capture. Nothing here throws or quits.
+// No CaptureFrame overload is defined here: none is declared on Linux (every
+// overload in ScreenRecorder.h is renderer- and Windows-guarded).
+// ============================================================================
+namespace {
+    // One warning per process, however often the stub is used.
+    void LogScreenRecorderUnavailableOnce()
+    {
+        static std::atomic<bool> warned{ false };
+        if (!warned.exchange(true))
+        {
+            Debug::logDiagLevelMessage(LogLevel::LOG_WARNING,
+                L"ScreenRecorder is unavailable on Linux in this phase (Media Foundation / WASAPI are Windows-only); screen recording is disabled.");
+        }
+    }
+}
+
+ScreenRecorder::ScreenRecorder()
+    : m_width(0), m_height(0)
+    , m_targetFPS(RecordFPS::FPS_60)
+    , m_audioBitrate(AudioBitrate::Kbps_192)
+    , m_framePeriod(0), m_videoFrameIndex(-1), m_framePeriodSnapshot(0)
+    , m_audioTimestamp(0)
+    , m_micMode(MicMode::Off)
+    , m_micAccumRead(0)
+    , m_micDataLogged(false)
+    , m_micDiagPeak(0.0f), m_micDiagFrames(0)
+    , m_micStreamIndex(0), m_micAudioTimestamp(0)
+    , m_micMonitorGain(2.5f), m_micRecordGain(2.5f)
+    , m_isRecording(false)
+{
+}
+
+ScreenRecorder::~ScreenRecorder()
+{
+    if (m_isRecording.load()) StopRecording();
+}
+
+bool ScreenRecorder::StartRecording(UINT width, UINT height,
+                                    RecordFPS fps,
+                                    const std::wstring& outputPath,
+                                    MicMode micMode,
+                                    AudioBitrate audioBitrate, bool captureAudio)
+{
+    (void)width; (void)height; (void)fps; (void)outputPath;
+    (void)micMode; (void)audioBitrate; (void)captureAudio;
+    LogScreenRecorderUnavailableOnce();
+    return false;
+}
+
+void ScreenRecorder::SetCaptureEnabled(bool enabled)
+{
+    LogScreenRecorderUnavailableOnce();
+    m_captureEnabled.store(enabled);
+}
+
+void ScreenRecorder::StopRecording()
+{
+    LogScreenRecorderUnavailableOnce();
+    m_isRecording.store(false);
+}
+
+#endif // !PLATFORM_WINDOWS

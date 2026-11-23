@@ -28,6 +28,28 @@
 #include "ScreenRecorder.h"
 #include "assembly.h"
 
+// shaderc — optional runtime GLSL → SPIR-V (see CreateShaderModuleFromGLSL
+// below). File scope only: the header has extern "C" at top level and cannot
+// be included inside a function body.
+#if __has_include(<shaderc/shaderc.hpp>)
+    #include <shaderc/shaderc.hpp>
+    #define HAS_SHADERC 1
+#else
+    #define HAS_SHADERC 0
+#endif
+
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    // stb_image declarations for LoadTexture's Linux/Android branch below.
+    // The implementation lives in VulkanModels.cpp (which defines
+    // STB_IMAGE_IMPLEMENTATION) — defining it here too would duplicate every
+    // stb_* symbol at link time. Must be at file scope: including the header
+    // inside LoadTexture's function body is a compile error (extern "C" and
+    // typedefs are not allowed at block scope).
+    #if __has_include("stb_image.h")
+        #include "stb_image.h"
+    #endif
+#endif
+
 // ---------------------------------------------------------------------------------------------------------------
 // Externals
 // ---------------------------------------------------------------------------------------------------------------
@@ -139,7 +161,7 @@ void VulkanRenderer::RendererName(std::string sThisName)
 // ---------------------------------------------------------------------------------------------------------------
 // Initialize
 // ---------------------------------------------------------------------------------------------------------------
-void VulkanRenderer::Initialize(HWND hwnd, HINSTANCE hInstance)
+void VulkanRenderer::Initialize(NativeWindowHandle hwnd, NativeInstanceHandle hInstance)
 {
     exceptionHandler.RecordFunctionCall("VulkanRenderer::Initialize");
 
@@ -548,7 +570,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL VulkanRenderer::DebugCallback(
 // ---------------------------------------------------------------------------------------------------------------
 // CreateSurface  (platform-dispatched)
 // ---------------------------------------------------------------------------------------------------------------
-void VulkanRenderer::CreateSurface(HWND hwnd)
+void VulkanRenderer::CreateSurface(NativeWindowHandle hwnd)
 {
 #if defined(PLATFORM_WINDOWS)
     VkWin32SurfaceCreateInfoKHR ci{};
@@ -1455,8 +1477,7 @@ VkShaderModule VulkanRenderer::CreateShaderModuleFromGLSL(const std::string& gls
 {
     // Runtime GLSL → SPIR-V compilation via shaderc (Vulkan SDK)
     // If shaderc is not linked, this will fail to compile — install the Vulkan SDK.
-#if __has_include(<shaderc/shaderc.hpp>)
-    #include <shaderc/shaderc.hpp>
+#if HAS_SHADERC
     shaderc::Compiler       compiler;
     shaderc::CompileOptions opts;
     opts.SetOptimizationLevel(shaderc_optimization_level_size);
@@ -1961,6 +1982,10 @@ void VulkanRenderer::CreateOverlayResources(uint32_t width, uint32_t height)
     }
 #endif
 
+#if defined(PLATFORM_WINDOWS)
+    // Background overlay texture/staging exist only when the WIC bitmap was
+    // created above (Windows-only); on Linux/Android the bg overlay stays
+    // uncreated and m_bgOverlayDirty is never set.
     if (m_bgWicBitmap) {
         m_bgOverlayTexture = CreateTextureFromRGBA(nullptr, width, height, VK_FORMAT_B8G8R8A8_SRGB);
         CreateBuffer(bufSize,
@@ -1968,6 +1993,7 @@ void VulkanRenderer::CreateOverlayResources(uint32_t width, uint32_t height)
                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                      m_bgStagingBuffer, m_bgStagingMemory);
     }
+#endif
 
     debug.logLevelMessage(LogLevel::LOG_INFO, L"[VulkanRenderer] Overlay resources created.");
 }
@@ -2101,6 +2127,11 @@ bool VulkanRenderer::Resize(uint32_t width, uint32_t height)
     m_bgD2dRenderTarget.Reset();
     m_wicBitmap.Reset();
     m_bgWicBitmap.Reset();
+    InvalidateTextFormatCache();
+#endif
+    // Staging buffers are plain Vulkan resources (created on every platform
+    // by CreateOverlayResources) — destroy them here too, or Resize leaks a
+    // staging buffer pair per resize on Linux/Android.
     if (m_overlayStagingBuffer  != VK_NULL_HANDLE) vkDestroyBuffer(m_device, m_overlayStagingBuffer, nullptr);
     if (m_overlayStagingMemory  != VK_NULL_HANDLE) vkFreeMemory(m_device, m_overlayStagingMemory, nullptr);
     m_overlayStagingBuffer = VK_NULL_HANDLE;
@@ -2109,8 +2140,6 @@ bool VulkanRenderer::Resize(uint32_t width, uint32_t height)
     if (m_bgStagingMemory != VK_NULL_HANDLE) vkFreeMemory(m_device, m_bgStagingMemory, nullptr);
     m_bgStagingBuffer = VK_NULL_HANDLE;
     m_bgStagingMemory = VK_NULL_HANDLE;
-    InvalidateTextFormatCache();
-#endif
     CreateOverlayResources(width, height);
 
     threadManager.threadVars.bIsResizing.store(false);
@@ -2776,10 +2805,9 @@ bool VulkanRenderer::LoadTexture(int textureId, const std::wstring& filename, bo
     return loaded;
 
 #elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
-    // Use stb_image if available; include path must be set by user.
-    // #define STB_IMAGE_IMPLEMENTATION and #include "stb_image.h" in your project.
+    // Use stb_image if available (included at file scope above; the
+    // implementation lives in VulkanModels.cpp).
     #if __has_include("stb_image.h")
-        #include "stb_image.h"
         int w, h, ch;
         std::string path = fullPath.string();
         uint8_t* pixels = stbi_load(path.c_str(), &w, &h, &ch, STBI_rgb_alpha);
@@ -4403,11 +4431,15 @@ IDWriteTextFormat* VulkanRenderer::GetOrCreateTextFormat(const wchar_t* fontName
 }
 
 void VulkanRenderer::InvalidateTextFormatCache() { m_textFormatCache.clear(); }
+#endif // PLATFORM_WINDOWS (D2D helpers above; the overlay uploads below run on every platform)
 
 void VulkanRenderer::UploadOverlayToVulkan(VkCommandBuffer cmd)
 {
-    if (!m_overlayDirty || !m_wicBitmap || !m_overlayTexture.isValid) return;
+    if (!m_overlayDirty || !m_overlayTexture.isValid) return;
     if (m_overlayTexture.image == VK_NULL_HANDLE) return;  // guard: image must be valid
+
+#if defined(PLATFORM_WINDOWS)
+    if (!m_wicBitmap) return;
 
     // Lock WIC bitmap and copy to staging buffer
     WICRect lockRect = { 0, 0, static_cast<INT>(m_overlayWidth), static_cast<INT>(m_overlayHeight) };
@@ -4428,6 +4460,10 @@ void VulkanRenderer::UploadOverlayToVulkan(VkCommandBuffer cmd)
     for (uint32_t row = 0; row < m_overlayHeight; ++row)
         MemoryCopy(dataPtr + row * stride, dstBase + row * rowBytes, static_cast<size_t>(rowBytes));
     vkUnmapMemory(m_device, m_overlayStagingMemory);
+#else
+    // Linux/Android: no D2D/WIC — the staging buffer already holds CPU RGBA
+    // (movie frames are copied in by VULKAN_RenderFrame.cpp); upload it as-is.
+#endif
 
     // Transition overlay to TRANSFER_DST
     VkImageMemoryBarrier toTransfer{};
@@ -4465,7 +4501,10 @@ void VulkanRenderer::UploadOverlayToVulkan(VkCommandBuffer cmd)
 
 void VulkanRenderer::UploadBgOverlayToVulkan(VkCommandBuffer cmd)
 {
-    if (!m_bgOverlayDirty || !m_bgWicBitmap || !m_bgOverlayTexture.isValid) return;
+    if (!m_bgOverlayDirty || !m_bgOverlayTexture.isValid) return;
+
+#if defined(PLATFORM_WINDOWS)
+    if (!m_bgWicBitmap) return;
 
     WICRect lockRect = { 0, 0, static_cast<INT>(m_overlayWidth), static_cast<INT>(m_overlayHeight) };
     ComPtr<IWICBitmapLock> lock;
@@ -4484,6 +4523,11 @@ void VulkanRenderer::UploadBgOverlayToVulkan(VkCommandBuffer cmd)
     for (uint32_t row = 0; row < m_overlayHeight; ++row)
         MemoryCopy(dataPtr + row * stride, dstBase + row * rowBytes, static_cast<size_t>(rowBytes));
     vkUnmapMemory(m_device, m_bgStagingMemory);
+#else
+    // Linux/Android: the background overlay is never drawn (no D2D starfield),
+    // so m_bgOverlayDirty stays false and this returns above; the shared
+    // upload tail below is kept for symmetry with UploadOverlayToVulkan.
+#endif
 
     VkImageMemoryBarrier toTransfer{};
     toTransfer.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -4516,7 +4560,6 @@ void VulkanRenderer::UploadBgOverlayToVulkan(VkCommandBuffer cmd)
 
     m_bgOverlayDirty = false;
 }
-#endif // PLATFORM_WINDOWS
 
 // ---------------------------------------------------------------------------------------------------------------
 // DrawMyText overloads
@@ -4837,11 +4880,12 @@ void VulkanRenderer::Blit2DObjectAtOffset(BlitObj2DIndexType iIndex, int iBlitX,
 #endif
 }
 
-#if defined(PLATFORM_WINDOWS)
 void VulkanRenderer::Blit2DWrappedObjectAtOffset(BlitObj2DIndexType iIndex, int iBlitX, int iBlitY,
                                                    int iXOffset, int iYOffset, int iTileSizeX, int iTileSizeY)
 {
-    // Wrapping atlas blit: same as offset blit for single-tile use-cases in Vulkan
+    // Wrapping atlas blit: same as offset blit for single-tile use-cases in Vulkan.
+    // Platform-independent: Blit2DObjectAtOffset is Direct2D on Windows and a
+    // no-op on Linux/Android (native Vulkan 2D blits are Phase C).
     Blit2DObjectAtOffset(iIndex, iBlitX, iBlitY, iXOffset, iYOffset, iTileSizeX, iTileSizeY);
     (void)iIndex; (void)iBlitX; (void)iBlitY; (void)iXOffset; (void)iYOffset; (void)iTileSizeX; (void)iTileSizeY;
 }
@@ -4851,6 +4895,7 @@ void VulkanRenderer::Blit2DWrappedObjectAtOffset(BlitObj2DIndexType iIndex, int 
 // existing Blit2DObjectAtOffset (which already blits an explicit source sub-rect).
 void VulkanRenderer::Blit2DAtlasTile(BlitObj2DIndexType iIndex, int iTileIndex, int iTileSizeX, int iTileSizeY, int iDestX, int iDestY)
 {
+#if defined(PLATFORM_WINDOWS)
     int idx = static_cast<int>(iIndex);
     if (idx < 0 || idx >= MAX_TEXTURE_BUFFERS) return;
     if (iTileIndex < 0 || iTileSizeX <= 0 || iTileSizeY <= 0) return;
@@ -4871,6 +4916,11 @@ void VulkanRenderer::Blit2DAtlasTile(BlitObj2DIndexType iIndex, int iTileIndex, 
     if (tileRow >= tilesPerCol) return;                                        // Out-of-range index — guard against corrupt map data
 
     Blit2DObjectAtOffset(iIndex, iDestX, iDestY, tileCol * iTileSizeX, tileRow * iTileSizeY, iTileSizeX, iTileSizeY);
+#else
+    // No 2D blit backend on Linux/Android yet (Phase C): the tile routing
+    // needs the Direct2D bitmap size, which does not exist here.
+    (void)iIndex; (void)iTileIndex; (void)iTileSizeX; (void)iTileSizeY; (void)iDestX; (void)iDestY;
+#endif
 }
 
 // Stretches the image to iWidth x iHeight while shifting its sampled content HORIZONTALLY by
@@ -4879,6 +4929,7 @@ void VulkanRenderer::Blit2DAtlasTile(BlitObj2DIndexType iIndex, int iTileIndex, 
 // DrawBitmap calls. reverseDirection=false travels left->right, true travels right->left.
 void VulkanRenderer::Blit2DScrollingObjectToSize(BlitObj2DIndexType iIndex, int iX, int iY, int iWidth, int iHeight, float scrollFraction, bool reverseDirection)
 {
+#if defined(PLATFORM_WINDOWS)
     int idx = static_cast<int>(iIndex);
     if (idx < 0 || idx >= MAX_TEXTURE_BUFFERS) return;
     ComPtr<ID2D1Bitmap>       bitmap = m_d2dTextures[idx];
@@ -4913,10 +4964,15 @@ void VulkanRenderer::Blit2DScrollingObjectToSize(BlitObj2DIndexType iIndex, int 
                                          static_cast<float>(iX + iWidth), static_cast<float>(iY + iHeight));
         rt->DrawBitmap(bitmap.Get(), dest2, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, src2);
     }
+#else
+    // No 2D blit backend on Linux/Android yet (Phase C).
+    (void)iIndex; (void)iX; (void)iY; (void)iWidth; (void)iHeight; (void)scrollFraction; (void)reverseDirection;
+#endif
 }
 
 void VulkanRenderer::Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, int iDestY, int iDestW, int iDestH, float zoomFactor)
 {
+#if defined(PLATFORM_WINDOWS)
     int idx = static_cast<int>(iIndex);
     if (idx < 0 || idx >= MAX_TEXTURE_BUFFERS) return;
     ComPtr<ID2D1Bitmap>       bitmap = m_d2dTextures[idx];
@@ -4943,8 +4999,13 @@ void VulkanRenderer::Blit2DCenteredZoom(BlitObj2DIndexType iIndex, int iDestX, i
     // Mark the appropriate overlay dirty so UploadBgOverlayToVulkan sees the change
     if (m_drawToBackground)
         m_bgOverlayDirty = true;
+#else
+    // No 2D blit backend on Linux/Android yet (Phase C).
+    (void)iIndex; (void)iDestX; (void)iDestY; (void)iDestW; (void)iDestH; (void)zoomFactor;
+#endif
 }
 
+#if defined(PLATFORM_WINDOWS)
 void VulkanRenderer::Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 color)
 {
     if (m_drawToBackground ? !m_bgD2dRenderTarget : !m_d2dRenderTarget) return;
@@ -4956,6 +5017,14 @@ void VulkanRenderer::Blit2DColoredPixel(int x, int y, float pixelSize, XMFLOAT4 
         m_bgOverlayDirty = true;
     else
         m_overlayDirty = true;
+}
+#else
+// On Linux/Android XMFLOAT4 aliases to Vector4 (Includes.h), so this is the
+// overload the base declares there. No-op until the native Vulkan 2D blits
+// land (Phase C) — same as the other Blit2D* stubs above.
+void VulkanRenderer::Blit2DColoredPixel(int x, int y, float pixelSize, const Vector4& color)
+{
+    (void)x; (void)y; (void)pixelSize; (void)color;
 }
 #endif
 

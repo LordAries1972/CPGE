@@ -64,12 +64,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
 #include "SoundManager.h"
 #include "Debug.h"
 
-#pragma warning(push)
-#pragma warning(disable: 4267)                  // Suppress size_t conversion warnings
+#if defined(PLATFORM_WINDOWS)
+    #pragma warning(push)
+    #pragma warning(disable: 4267)              // Suppress size_t conversion warnings
 
-#pragma comment(lib, "dsound.lib")
-#pragma comment(lib, "dxguid.lib")
-#pragma comment(lib, "winmm.lib")
+    #pragma comment(lib, "dsound.lib")
+    #pragma comment(lib, "dxguid.lib")
+    #pragma comment(lib, "winmm.lib")
+#endif
 
 using namespace SoundSystem;
 
@@ -109,7 +111,7 @@ bool SoundManager::Initialize(HWND hwnd) {
         return true;
     }
 
-// DirectSound is a Windows API regardless of renderer � guard on PLATFORM_WINDOWS,
+// DirectSound is a Windows API regardless of renderer — guard on PLATFORM_WINDOWS,
 // not __USE_DIRECTX_11__, so it works under Vulkan and OpenGL builds on Windows too.
 #if defined(PLATFORM_WINDOWS)
     HRESULT hr = DirectSoundCreate8(NULL, &m_directSound, NULL);
@@ -132,6 +134,14 @@ bool SoundManager::Initialize(HWND hwnd) {
     if (FAILED(hr)) {
         debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"CreateSoundBuffer (primary) failed");
         return false;
+    }
+#else
+    // Linux / Android (Phase A): no DirectSound backend. Succeed with no audio
+    // so main.cpp does not abort; every playback call below is a silent no-op.
+    {
+        static std::atomic<bool> warned{ false };
+        if (!warned.exchange(true))
+            Debug::logDiagLevelMessage(LogLevel::LOG_WARNING, L"SoundManager is unavailable on Linux in this phase (DirectSound is Windows-only); sounds are silent.");
     }
 #endif
 
@@ -331,7 +341,12 @@ bool SoundManager::ParseWaveFile(const BYTE* data, size_t size, LoadedSFX& resul
 }
 
 bool SoundManager::LoadSFXFile(const std::wstring& filename, LoadedSFX& outSfx) {
+#if defined(PLATFORM_WINDOWS)
     std::ifstream file(filename, std::ios::binary | std::ios::ate);
+#else
+    // libstdc++ has no std::wstring fstream ctor (MSVC extension) — narrow first.
+    std::ifstream file(NarrowPathForFstream(filename), std::ios::binary | std::ios::ate);
+#endif
     if (!file.is_open()) {
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to open SFX file: " + filename);
         return false;
@@ -752,4 +767,6 @@ void SoundManager::StopPlaybackThread() {
     }
 }
 
-#pragma warning(pop)
+#if defined(PLATFORM_WINDOWS)
+    #pragma warning(pop)
+#endif

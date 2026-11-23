@@ -42,9 +42,12 @@
 
 #if defined(PLATFORM_WINDOWS)
     #include "WinSystem.h"
-    #include "ScreenRecorder.h"
     #include "ConsoleWindow.h"
 #endif
+// ScreenRecorder.h is included on every platform (the Linux stub logs a
+// warning; the OpenGL render frame includes it the same way) — the timing
+// and REC-indicator code below uses screenRecorder unguarded.
+#include "ScreenRecorder.h"
 
 // ---------------------------------------------------------------------------------------------------------------
 // Externals (same external references as DXRenderFrame.cpp)
@@ -54,9 +57,12 @@ extern HWND                  hwnd;
 extern HINSTANCE             hInst;
 extern SystemUtils           sysUtils;
 extern WindowMetrics         winMetrics;
-extern ScreenRecorder        screenRecorder;
 extern ConsoleWindow         consoleWindow;
 #endif
+// screenRecorder is declared on every platform (the Linux stub logs a
+// warning; the OpenGL render frame declares it the same way) — the timing
+// and REC-indicator code below uses it unguarded.
+extern ScreenRecorder        screenRecorder;
 extern GUIManager            guiManager;
 extern Debug                 debug;
 extern ExceptionHandler      exceptionHandler;
@@ -351,7 +357,12 @@ void VulkanRenderer::DrawModelsVK(VkCommandBuffer cmd, const glm::mat4& view, co
         // asm MatrixCopy4x4F: 4 SSE MOVUPS loads+stores for 64 bytes — no loop overhead
         MatrixCopy4x4F(&worldF, ubo.model);
 #else
-        std::memcpy(ubo.model, glm::value_ptr(m.GetWorldMatrix()), sizeof(ubo.model));
+        // Matrix4x4 is row-major float m[4][4] with the same layout as
+        // XMFLOAT4X4 (Includes.h), so copy the raw bytes like the Windows
+        // branch does — the byte layout is the transpose GLSL expects, so
+        // do NOT transpose here (see the Windows comment above).
+        Matrix4x4 worldMat = m.GetWorldMatrix();
+        std::memcpy(ubo.model, &worldMat.m[0][0], sizeof(ubo.model));
 #endif
         // Copy view + projection matrices into the UBO
         #if defined(PLATFORM_WINDOWS)

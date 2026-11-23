@@ -304,6 +304,16 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
     // Linux — enable renderers you have installed; runtime selection via rendererType: 0=OpenGL  1=Vulkan
     //#define __USE_OPENGL__
     //#define __USE_VULKAN__
+
+    // Vulkan API types (VkImage, VkBuffer, VkShaderModule, ...) are used by
+    // shared headers (Models.h, ShaderManager.h, ScreenRecorder.h) under
+    // __USE_VULKAN__. On Windows these arrive via the Windows renderer branch
+    // above; on Linux nothing includes the Vulkan header, so include it here
+    // when the renderer is selected (CMake passes -D__USE_VULKAN__).
+    #if defined(__USE_VULKAN__)
+        #define VK_USE_PLATFORM_XCB_KHR
+        #include <vulkan/vulkan.h>
+    #endif
 #elif defined(PLATFORM_ANDROID)
     #ifndef PLATFORM_ANDROID
         #define PLATFORM_ANDROID
@@ -312,6 +322,14 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
     // Android — enable renderers you have installed; runtime selection via rendererType: 0=OpenGL  1=Vulkan
     //#define __USE_OPENGL__
     //#define __USE_VULKAN__
+
+    // Same Vulkan-header gap as Linux above (shared headers need Vk* types
+    // under __USE_VULKAN__); the Android surface extension is declared in
+    // <vulkan/vulkan_android.h> by VULKAN_Renderer.h.
+    #if defined(__USE_VULKAN__)
+        #define VK_USE_PLATFORM_ANDROID_KHR
+        #include <vulkan/vulkan.h>
+    #endif
 #elif defined(PLATFORM_MACOS)
     #ifndef PLATFORM_APPLE
         #define PLATFORM_APPLE
@@ -707,15 +725,12 @@ NOTE:   Becareful to not alter the order of the includes or directive conditiona
     namespace DirectX {}
 #endif // !__USE_DIRECTX_11__ && !__USE_DIRECTX_12__ && !(VULKAN && PLATFORM_WINDOWS)
 
-// ── Assembly optimisation routines (Windows x64 only) ───────────────────────
-// MemoryCopy / MemoryZero / MatrixCopy4x4F — ml64.exe MASM routines.
-// These replace memcpy / memset in all render-frame hot paths for
-// hardware-bandwidth throughput (REP MOVSQ / REP STOSQ / SSE MOVUPS).
-// Header is included unconditionally on _WIN64; non-Windows builds
-// retain their CRT implementations via standard memcpy / memset.
-#if defined(_WIN64)
-    #include "assembly.h"
-#endif
+// ── Assembly optimisation routines ──────────────────────────────────────────
+// MemoryCopy / MemoryZero / MatrixCopy4x4F — ml64.exe MASM routines on Windows
+// x64; portable inline memcpy/memset wrappers on every other platform (see
+// assembly.h). Included on all platforms so the render-frame files can call
+// them without a per-file include; the header itself selects the backend.
+#include "assembly.h"
 
 //------------------------------------------
 // XM / MP3 Modules
@@ -801,13 +816,16 @@ const int SLOT_SAMPLER_STATE = 0;
 const int SLOT_ENVIRO_SAMPLER_STATE = 1;
 const int SLOT_SHADOW_SAMPLER_STATE = 2;                                        // Shadow Comparison Sampler (PCF)
 
+// Loader text vertical position as a fraction of screen height (all pipelines).
+// Platform-independent, so it lives outside the PLATFORM_WINDOWS block below
+// (FXManager / IOLoaderThread use it on Linux too).
+constexpr float LOADER_TEXT_Y_RATIO = 0.65f;
+
 #if defined(PLATFORM_WINDOWS)
     //------------------------------------------
     // VIDEO & Window Specs: Default Settings
     //------------------------------------------
     const bool START_IN_FULLSCREEN = false;
-    // Loader text vertical position as a fraction of screen height (all pipelines)
-    constexpr float LOADER_TEXT_Y_RATIO = 0.65f;
 
     const int MAX_WINDOWS = 32;
     const int MAX_SCREEN_MODES = 64;
@@ -882,3 +900,29 @@ inline float LookupAspectRatio(int w, int h)
 // Model Names
 const std::wstring ShipName1 = L"Ship1";
 
+// ----------------------------------------------------------------------------------------------
+// Linux/POSIX helpers (non-Windows only; the Windows build is untouched)
+// ----------------------------------------------------------------------------------------------
+#if !defined(PLATFORM_WINDOWS)
+    #include <cwchar>   // std::wcstombs (NarrowPathForFstream)
+    #include <cstdlib>  // std::size_t
+
+    // NarrowPathForFstream() — libstdc++ has no std::wstring fstream constructor
+    // (that is an MSVC extension), so wide paths must be narrowed before opening
+    // a file. Engine paths are ASCII; wcstombs with a byte-wise fallback keeps
+    // this correct even in the C locale.
+    inline std::string NarrowPathForFstream(const std::wstring& wide)
+    {
+        std::string narrow(wide.size(), '\0');
+        std::size_t converted = std::wcstombs(narrow.data(), wide.c_str(), narrow.size());
+        if (converted == static_cast<std::size_t>(-1))
+        {
+            narrow.clear();
+            for (wchar_t ch : wide)
+                narrow.push_back(ch <= 0x7F ? static_cast<char>(ch) : '?');
+            return narrow;
+        }
+        narrow.resize(converted);
+        return narrow;
+    }
+#endif // !PLATFORM_WINDOWS

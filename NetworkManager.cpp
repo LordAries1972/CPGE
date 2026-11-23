@@ -62,7 +62,22 @@ NetworkManager::~NetworkManager() {
     }
 }
 
+#if !defined(PLATFORM_WINDOWS)
+// Linux/Android stub (Phase A): one-time warning that networking is
+// unavailable on Linux in this phase.  The message is also stored as the
+// last error so GetLastErrorMessage() reports it.
+void NetworkManager::LogLinuxStubWarningOnce()
+{
+    static bool warned = false;
+    if (warned) return;
+    warned = true;
+    m_lastErrorMessage = "Networking is unavailable on Linux in this phase (no Winsock backend); connections and packets are unavailable";
+    Debug::logDiagLevelMessage(LogLevel::LOG_WARNING, L"[NetworkManager] Networking is unavailable on Linux in this phase (no Winsock backend); Initialize() succeeds so the engine can start, but all connections and packets are unavailable");
+}
+#endif
+
 // Initialize the network subsystem and prepare for connections
+#if defined(PLATFORM_WINDOWS)
 bool NetworkManager::Initialize() {
     #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
         debug.logLevelMessage(LogLevel::LOG_INFO, L"NetworkManager::Initialize() called");
@@ -96,8 +111,33 @@ bool NetworkManager::Initialize() {
 
     return true;
 }
+#else
+bool NetworkManager::Initialize() {
+    // Prevent double initialization
+    if (m_isInitialized) {
+        return true;
+    }
+
+    // Linux/Android stub (Phase A): no Winsock backend, so networking is
+    // unavailable — but report success so the engine can start (main.cpp
+    // aborts if Initialize() returns false).
+    LogLinuxStubWarningOnce();
+
+    // Reset all statistics to zero
+    ResetStatistics();
+
+    // Clear any previous error messages
+    ClearLastError();
+
+    // Mark as successfully initialized
+    m_isInitialized = true;
+
+    return true;
+}
+#endif
 
 // Clean up all network resources and shutdown connections
+#if defined(PLATFORM_WINDOWS)
 void NetworkManager::Cleanup() {
     #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
         debug.logLevelMessage(LogLevel::LOG_INFO, L"NetworkManager::Cleanup() called");
@@ -149,8 +189,43 @@ void NetworkManager::Cleanup() {
         debug.logLevelMessage(LogLevel::LOG_INFO, L"NetworkManager cleanup completed");
     #endif
 }
+#else
+void NetworkManager::Cleanup() {
+    // Prevent double cleanup
+    if (m_isCleanedUp) {
+        return;
+    }
+
+    // No network thread ever runs on Linux in this phase.
+    m_networkThreadRunning.store(false);
+
+    // Close socket if open (never opened on Linux, but keep the state consistent).
+    if (m_connection.socket != INVALID_SOCKET) {
+        m_connection.socket = INVALID_SOCKET;
+    }
+
+    // Clear all packet queues
+    while (!m_incomingPackets.empty()) {
+        m_incomingPackets.pop();
+    }
+    while (!m_outgoingPackets.empty()) {
+        m_outgoingPackets.pop();
+    }
+
+    // No ThreadManager locks are ever created on Linux, and there is no
+    // Winsock to clean up.
+    m_connection.state = ConnectionState::DISCONNECTED;
+    m_currentUser = UserCredentials();
+    m_lastAuthResult = AuthResult::NETWORK_ERROR;
+
+    // Reset initialization state
+    m_isInitialized = false;
+    m_isCleanedUp = true;
+}
+#endif
 
 // Establish connection to game server
+#if defined(PLATFORM_WINDOWS)
 bool NetworkManager::ConnectToServer(const std::string& serverAddress, uint16_t port, NetworkProtocol protocol) {
     #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
         debug.logDebugMessage(LogLevel::LOG_INFO, L"Attempting to connect to server: %S:%d",
@@ -205,8 +280,20 @@ bool NetworkManager::ConnectToServer(const std::string& serverAddress, uint16_t 
 
     return true;
 }
+#else
+bool NetworkManager::ConnectToServer(const std::string& serverAddress, uint16_t port, NetworkProtocol protocol) {
+    (void)serverAddress;
+    (void)port;
+    (void)protocol;
+    LogLinuxStubWarningOnce();
+    SetLastError("Networking is unavailable on Linux in this phase");
+    UpdateConnectionState(ConnectionState::ERROR_STATE);
+    return false;
+}
+#endif
 
 // Gracefully disconnect from the server
+#if defined(PLATFORM_WINDOWS)
 void NetworkManager::DisconnectFromServer() {
     #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
         debug.logLevelMessage(LogLevel::LOG_INFO, L"Disconnecting from server");
@@ -235,8 +322,24 @@ void NetworkManager::DisconnectFromServer() {
         debug.logLevelMessage(LogLevel::LOG_INFO, L"Disconnected from server");
     #endif
 }
+#else
+void NetworkManager::DisconnectFromServer() {
+    // No socket is ever opened on Linux, but keep the state consistent.
+    if (m_connection.socket != INVALID_SOCKET) {
+        m_connection.socket = INVALID_SOCKET;
+    }
+
+    // Clear user authentication
+    m_currentUser = UserCredentials();
+    m_lastAuthResult = AuthResult::NETWORK_ERROR;
+
+    // Update connection state
+    UpdateConnectionState(ConnectionState::DISCONNECTED);
+}
+#endif
 
 // Check if currently connected to server
+#if defined(PLATFORM_WINDOWS)
 bool NetworkManager::IsConnected() const {
     ThreadLockHelper connectionLock(threadManager, LOCK_CONNECTION_STATE, 1000);
     if (!connectionLock.IsLocked()) {
@@ -248,8 +351,18 @@ bool NetworkManager::IsConnected() const {
         m_connection.state == ConnectionState::AUTHENTICATED ||
         m_connection.state == ConnectionState::AUTHENTICATING);
 }
+#else
+bool NetworkManager::IsConnected() const {
+    // Linux/Android stub: no ThreadManager lock — the stub never runs a
+    // network thread, so direct state access is safe.
+    return (m_connection.state == ConnectionState::CONNECTED ||
+        m_connection.state == ConnectionState::AUTHENTICATED ||
+        m_connection.state == ConnectionState::AUTHENTICATING);
+}
+#endif
 
 // Get current connection state
+#if defined(PLATFORM_WINDOWS)
 ConnectionState NetworkManager::GetConnectionState() const {
     ThreadLockHelper connectionLock(threadManager, LOCK_CONNECTION_STATE, 1000);
     if (!connectionLock.IsLocked()) {
@@ -259,8 +372,14 @@ ConnectionState NetworkManager::GetConnectionState() const {
 
     return m_connection.state;
 }
+#else
+ConnectionState NetworkManager::GetConnectionState() const {
+    return m_connection.state;
+}
+#endif
 
 // Authenticate user with server
+#if defined(PLATFORM_WINDOWS)
 bool NetworkManager::AuthenticateUser(const std::string& username, const std::string& password) {
     #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
         debug.logDebugMessage(LogLevel::LOG_INFO, L"Authenticating user: %S", username.c_str());
@@ -310,8 +429,19 @@ bool NetworkManager::AuthenticateUser(const std::string& username, const std::st
 
     return true;
 }
+#else
+bool NetworkManager::AuthenticateUser(const std::string& username, const std::string& password) {
+    (void)username;
+    (void)password;
+    LogLinuxStubWarningOnce();
+    SetLastError("Not connected to server");
+    m_lastAuthResult = AuthResult::NETWORK_ERROR;
+    return false;
+}
+#endif
 
 // Logout current user
+#if defined(PLATFORM_WINDOWS)
 bool NetworkManager::LogoutUser() {
     #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
         debug.logLevelMessage(LogLevel::LOG_INFO, L"Logging out current user");
@@ -341,8 +471,16 @@ bool NetworkManager::LogoutUser() {
 
     return true;
 }
+#else
+bool NetworkManager::LogoutUser() {
+    // No user can ever be authenticated on Linux in this phase.
+    SetLastError("No user currently authenticated");
+    return false;
+}
+#endif
 
 // Check if user is currently authenticated
+#if defined(PLATFORM_WINDOWS)
 bool NetworkManager::IsUserAuthenticated() const {
     ThreadLockHelper connectionLock(threadManager, LOCK_CONNECTION_STATE, 1000);
     if (!connectionLock.IsLocked()) {
@@ -353,6 +491,12 @@ bool NetworkManager::IsUserAuthenticated() const {
     return (m_connection.state == ConnectionState::AUTHENTICATED &&
         m_currentUser.userID != 0);
 }
+#else
+bool NetworkManager::IsUserAuthenticated() const {
+    return (m_connection.state == ConnectionState::AUTHENTICATED &&
+        m_currentUser.userID != 0);
+}
+#endif
 
 // Get result of last authentication attempt
 AuthResult NetworkManager::GetLastAuthResult() const {
@@ -365,6 +509,7 @@ const UserCredentials& NetworkManager::GetCurrentUser() const {
 }
 
 // Send packet with specified command and data
+#if defined(PLATFORM_WINDOWS)
 bool NetworkManager::SendPacket(NetworkCommand command, const std::vector<uint8_t>& data) {
     // Route to appropriate protocol handler
     if (m_connection.protocol == NetworkProtocol::TCP) {
@@ -374,8 +519,18 @@ bool NetworkManager::SendPacket(NetworkCommand command, const std::vector<uint8_
         return SendUDPPacket(command, data);
     }
 }
+#else
+bool NetworkManager::SendPacket(NetworkCommand command, const std::vector<uint8_t>& data) {
+    (void)command;
+    (void)data;
+    LogLinuxStubWarningOnce();
+    SetLastError("Not connected to server");
+    return false;
+}
+#endif
 
 // Send TCP packet to server
+#if defined(PLATFORM_WINDOWS)
 bool NetworkManager::SendTCPPacket(NetworkCommand command, const std::vector<uint8_t>& data) {
     #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
         debug.logDebugMessage(LogLevel::LOG_DEBUG, L"Sending TCP packet, command: 0x%X, size: %zu",
@@ -421,8 +576,18 @@ bool NetworkManager::SendTCPPacket(NetworkCommand command, const std::vector<uin
 
     return true;
 }
+#else
+bool NetworkManager::SendTCPPacket(NetworkCommand command, const std::vector<uint8_t>& data) {
+    (void)command;
+    (void)data;
+    LogLinuxStubWarningOnce();
+    SetLastError("Not connected to server");
+    return false;
+}
+#endif
 
 // Send UDP packet to server
+#if defined(PLATFORM_WINDOWS)
 bool NetworkManager::SendUDPPacket(NetworkCommand command, const std::vector<uint8_t>& data) {
     #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
         debug.logDebugMessage(LogLevel::LOG_DEBUG, L"Sending UDP packet, command: 0x%X, size: %zu",
@@ -468,8 +633,18 @@ bool NetworkManager::SendUDPPacket(NetworkCommand command, const std::vector<uin
 
     return true;
 }
+#else
+bool NetworkManager::SendUDPPacket(NetworkCommand command, const std::vector<uint8_t>& data) {
+    (void)command;
+    (void)data;
+    LogLinuxStubWarningOnce();
+    SetLastError("Not connected to server");
+    return false;
+}
+#endif
 
 // Process all available incoming packets
+#if defined(PLATFORM_WINDOWS)
 bool NetworkManager::ReceivePackets() {
     // Must be connected to receive packets
     if (!IsConnected()) {
@@ -552,8 +727,15 @@ bool NetworkManager::ReceivePackets() {
 
     return packetsProcessed;
 }
+#else
+bool NetworkManager::ReceivePackets() {
+    // No socket exists on Linux in this phase, so no packets can arrive.
+    return false;
+}
+#endif
 
 // Check if packets are waiting to be processed
+#if defined(PLATFORM_WINDOWS)
 bool NetworkManager::HasPendingPackets() const {
     ThreadLockHelper packetLock(threadManager, LOCK_PACKET_QUEUE, 1000);
     if (!packetLock.IsLocked()) {
@@ -563,8 +745,14 @@ bool NetworkManager::HasPendingPackets() const {
 
     return !m_incomingPackets.empty();
 }
+#else
+bool NetworkManager::HasPendingPackets() const {
+    return !m_incomingPackets.empty();
+}
+#endif
 
 // Get next packet from receive queue
+#if defined(PLATFORM_WINDOWS)
 NetworkPacket NetworkManager::GetNextPacket() {
     ThreadLockHelper packetLock(threadManager, LOCK_PACKET_QUEUE, 1000);
     if (!packetLock.IsLocked()) {
@@ -583,8 +771,15 @@ NetworkPacket NetworkManager::GetNextPacket() {
 
     return packet;
 }
+#else
+NetworkPacket NetworkManager::GetNextPacket() {
+    // The incoming queue is always empty on Linux in this phase.
+    return NetworkPacket();
+}
+#endif
 
 // Process received command packet
+#if defined(PLATFORM_WINDOWS)
 void NetworkManager::ProcessCommand(const NetworkPacket& packet) {
     #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
         debug.logDebugMessage(LogLevel::LOG_DEBUG, L"Processing command: 0x%X",
@@ -609,6 +804,13 @@ void NetworkManager::ProcessCommand(const NetworkPacket& packet) {
             static_cast<uint32_t>(packet.header.command));
     }
 }
+#else
+void NetworkManager::ProcessCommand(const NetworkPacket& packet) {
+    (void)packet;
+    // No packets can arrive on Linux in this phase, so there is nothing to dispatch.
+    LogLinuxStubWarningOnce();
+}
+#endif
 
 // Register handler function for specific command
 void NetworkManager::RegisterCommandHandler(NetworkCommand command,
@@ -623,6 +825,7 @@ void NetworkManager::RegisterCommandHandler(NetworkCommand command,
 }
 
 // Send keep-alive ping to server
+#if defined(PLATFORM_WINDOWS)
 void NetworkManager::SendPing() {
     #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
         debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Sending ping to server");
@@ -640,6 +843,12 @@ void NetworkManager::SendPing() {
     // Update last ping time
     m_connection.lastPingTime = currentTime;
 }
+#else
+void NetworkManager::SendPing() {
+    // No server to ping on Linux in this phase.
+    LogLinuxStubWarningOnce();
+}
+#endif
 
 // Process received pong response
 void NetworkManager::HandlePong(const NetworkPacket& packet) {
@@ -712,6 +921,7 @@ bool NetworkManager::ValidatePacket(const NetworkPacket& packet) {
 }
 
 // Start dedicated network processing thread
+#if defined(PLATFORM_WINDOWS)
 void NetworkManager::StartNetworkThread() {
     #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
         debug.logLevelMessage(LogLevel::LOG_INFO, L"Starting network thread");
@@ -737,8 +947,15 @@ void NetworkManager::StartNetworkThread() {
         debug.logLevelMessage(LogLevel::LOG_INFO, L"Network thread started successfully");
     #endif
 }
+#else
+void NetworkManager::StartNetworkThread() {
+    // No network thread on Linux in this phase: there is nothing to process.
+    LogLinuxStubWarningOnce();
+}
+#endif
 
 // Stop network thread gracefully
+#if defined(PLATFORM_WINDOWS)
 void NetworkManager::StopNetworkThread() {
     #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
         debug.logLevelMessage(LogLevel::LOG_INFO, L"Stopping network thread");
@@ -756,8 +973,14 @@ void NetworkManager::StopNetworkThread() {
         debug.logLevelMessage(LogLevel::LOG_INFO, L"Network thread stopped");
     #endif
 }
+#else
+void NetworkManager::StopNetworkThread() {
+    m_networkThreadRunning.store(false);
+}
+#endif
 
 // Main network thread processing loop
+#if defined(PLATFORM_WINDOWS)
 void NetworkManager::NetworkThreadFunction() {
     #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
         debug.logLevelMessage(LogLevel::LOG_INFO, L"Network thread function started");
@@ -809,6 +1032,11 @@ void NetworkManager::NetworkThreadFunction() {
         debug.logLevelMessage(LogLevel::LOG_INFO, L"Network thread function ended");
     #endif
 }
+#else
+void NetworkManager::NetworkThreadFunction() {
+    // No network thread is ever started on Linux in this phase.
+}
+#endif
 
 // Get current network statistics
 const NetworkStatistics& NetworkManager::GetNetworkStatistics() const {
@@ -872,6 +1100,7 @@ void NetworkManager::ClearLastError() {
 }
 
 // Initialize Windows Sockets subsystem
+#if defined(PLATFORM_WINDOWS)
 bool NetworkManager::InitializeWinsock() {
     #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
         debug.logLevelMessage(LogLevel::LOG_INFO, L"Initializing Winsock");
@@ -898,8 +1127,16 @@ bool NetworkManager::InitializeWinsock() {
 
     return true;
 }
+#else
+bool NetworkManager::InitializeWinsock() {
+    // No Winsock on Linux/Android.
+    LogLinuxStubWarningOnce();
+    return false;
+}
+#endif
 
 // Cleanup Windows Sockets
+#if defined(PLATFORM_WINDOWS)
 void NetworkManager::CleanupWinsock() {
     #if defined(_DEBUG_NETWORKMANAGER_) && defined(_DEBUG)
         debug.logLevelMessage(LogLevel::LOG_INFO, L"Cleaning up Winsock");
@@ -907,8 +1144,14 @@ void NetworkManager::CleanupWinsock() {
 
     WSACleanup();
 }
+#else
+void NetworkManager::CleanupWinsock() {
+    // No Winsock on Linux/Android: nothing to clean up.
+}
+#endif
 
 // Create socket for specified protocol
+#if defined(PLATFORM_WINDOWS)
 SOCKET NetworkManager::CreateSocket(NetworkProtocol protocol) {
     SOCKET sock;
 
@@ -934,8 +1177,16 @@ SOCKET NetworkManager::CreateSocket(NetworkProtocol protocol) {
 
     return sock;
 }
+#else
+SOCKET NetworkManager::CreateSocket(NetworkProtocol protocol) {
+    (void)protocol;
+    LogLinuxStubWarningOnce();
+    return INVALID_SOCKET;
+}
+#endif
 
 // Connect socket to server address and port
+#if defined(PLATFORM_WINDOWS)
 bool NetworkManager::ConnectSocket(SOCKET sock, const std::string& address, uint16_t port) {
     // Prepare server address structure
     sockaddr_in serverAddr;
@@ -963,6 +1214,14 @@ bool NetworkManager::ConnectSocket(SOCKET sock, const std::string& address, uint
 
     return true;
 }
+#else
+bool NetworkManager::ConnectSocket(SOCKET sock, const std::string& address, uint16_t port) {
+    (void)sock;
+    (void)address;
+    (void)port;
+    return false;
+}
+#endif
 
 // Create packet header with specified command and data size
 NetworkPacketHeader NetworkManager::CreatePacketHeader(NetworkCommand command, uint32_t dataSize) {
@@ -982,6 +1241,7 @@ NetworkPacketHeader NetworkManager::CreatePacketHeader(NetworkCommand command, u
 }
 
 // Send raw data over current connection
+#if defined(PLATFORM_WINDOWS)
 bool NetworkManager::SendRawData(const uint8_t* data, size_t size) {
     if (m_connection.socket == INVALID_SOCKET) {
         SetLastError("Invalid socket");
@@ -1008,8 +1268,16 @@ bool NetworkManager::SendRawData(const uint8_t* data, size_t size) {
 
     return true;
 }
+#else
+bool NetworkManager::SendRawData(const uint8_t* data, size_t size) {
+    (void)data;
+    (void)size;
+    return false;
+}
+#endif
 
 // Receive raw data from current connection
+#if defined(PLATFORM_WINDOWS)
 int NetworkManager::ReceiveRawData(uint8_t* buffer, size_t bufferSize) {
     if (m_connection.socket == INVALID_SOCKET) {
         return -1;
@@ -1036,6 +1304,13 @@ int NetworkManager::ReceiveRawData(uint8_t* buffer, size_t bufferSize) {
 
     return received;
 }
+#else
+int NetworkManager::ReceiveRawData(uint8_t* buffer, size_t bufferSize) {
+    (void)buffer;
+    (void)bufferSize;
+    return -1;
+}
+#endif
 
 // Handle login response from server
 void NetworkManager::HandleLoginResponse(const NetworkPacket& packet) {
@@ -1138,6 +1413,7 @@ void NetworkManager::SetLastError(const std::string& errorMessage) {
 }
 
 // Update connection state with logging
+#if defined(PLATFORM_WINDOWS)
 void NetworkManager::UpdateConnectionState(ConnectionState newState) {
     ThreadLockHelper connectionLock(threadManager, LOCK_CONNECTION_STATE, 1000);
     if (!connectionLock.IsLocked()) {
@@ -1154,6 +1430,15 @@ void NetworkManager::UpdateConnectionState(ConnectionState newState) {
         m_connection.state = newState;
     }
 }
+#else
+void NetworkManager::UpdateConnectionState(ConnectionState newState) {
+    // Linux/Android stub: no ThreadManager lock — the stub never runs a
+    // network thread and no packets arrive, so direct assignment is safe.
+    if (m_connection.state != newState) {
+        m_connection.state = newState;
+    }
+}
+#endif
 
 // Update network statistics counters
 void NetworkManager::UpdateNetworkStatistics(bool sending, size_t bytes) {

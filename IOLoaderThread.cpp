@@ -382,7 +382,7 @@ static bool LoadMusicFile(const std::wstring& assetsRelativeName)
                         ThreadLockHelper preAllocLock(threadManager, "SceneManager_PreAllocation", 2000);
                         if (preAllocLock.IsLocked())
                         {
-                            scene.ParseSceneAutoDetect(AssetsDir / L"splash-hover1.gltf");
+                            scene.ParseSceneAutoDetect((AssetsDir / L"splash-hover1.gltf").wstring());
                             if (!scene.bGltfCameraParsed) scene.AutoFrameSceneToCamera();
                         }
                     }
@@ -769,7 +769,7 @@ static bool LoadMusicFile(const std::wstring& assetsRelativeName)
                         ThreadLockHelper preAllocLock(threadManager, "SceneManager_PreAllocation", 2000);
                         if (preAllocLock.IsLocked())
                         {
-                            scene.ParseSceneAutoDetect(AssetsDir / L"level1.gltf");
+                            scene.ParseSceneAutoDetect((AssetsDir / L"level1.gltf").wstring());
                             if (!scene.bGltfCameraParsed) scene.AutoFrameSceneToCamera();
                         }
                     }

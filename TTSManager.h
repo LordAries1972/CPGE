@@ -19,16 +19,18 @@
 #include "Color.h"
 #include "Vectors.h"
 
-#pragma warning(push)
-#pragma warning(disable: 4996)                          // 'GetVersionExW': was declared deprecated
+#if defined(PLATFORM_WINDOWS)
+    #pragma warning(push)
+    #pragma warning(disable: 4996)                      // 'GetVersionExW': was declared deprecated
 
-// Include Windows Speech API headers
-#include <sapi.h>
-#include <sphelper.h>
-#include <comdef.h>
+    // Include Windows Speech API headers
+    #include <sapi.h>
+    #include <sphelper.h>
+    #include <comdef.h>
 
-// Link required SAPI libraries
-#pragma comment(lib, "sapi.lib")
+    // Link required SAPI libraries
+    #pragma comment(lib, "sapi.lib")
+#endif
 
 // Forward declarations
 class Debug;
@@ -144,15 +146,18 @@ private:
     TTSPlaybackState m_currentState;                                        // Current playback state
     TTSConfiguration m_currentConfig;                                       // Current TTS configuration
 
+#if defined(PLATFORM_WINDOWS)
     // SAPI COM interface pointers
     ComPtr<ISpVoice> m_pVoice;                                              // Main TTS voice interface
     ComPtr<ISpObjectToken> m_pVoiceToken;                                   // Voice token for current voice
     ComPtr<IEnumSpObjectTokens> m_pEnumTokens;                              // Enumerator for available voices
+#endif
 
     // Thread safety
     std::atomic<bool> m_bSpeaking;                                          // Atomic flag for speaking state
     std::atomic<bool> m_bStopRequested;                                     // Atomic flag for stop request
 
+#if defined(PLATFORM_WINDOWS)
     // Private helper methods
     bool InitializeCOM();                                                   // Initialize COM for SAPI
     bool CreateVoiceInterface();                                            // Create main voice interface
@@ -175,11 +180,17 @@ private:
     // Debug and logging helpers
     void LogTTSError(HRESULT hr, const std::wstring& operation) const;      // Log TTS-specific errors
     std::wstring HResultToString(HRESULT hr) const;                         // Convert HRESULT to readable string
+#else
+    // Linux / Android (Phase A): no SAPI. The helpers above are Windows-only;
+    // the Linux stub in TTSManager.cpp implements only the public API.
+#endif
 };
 
 // External references to maintain consistency with existing architecture
 extern Debug debug;
 extern ThreadManager threadManager;
 
-// Restore warning settings
-#pragma warning(pop)
+#if defined(PLATFORM_WINDOWS)
+    // Restore warning settings
+    #pragma warning(pop)
+#endif

@@ -3,6 +3,14 @@
 #include "Includes.h"
 #include "Lights.h"
 
+#if defined(__USE_OPENGL__) && !defined(PLATFORM_WINDOWS)
+    // GLuint/GLenum for the OpenGL-only members below: on Windows these arrive
+    // via Includes.h (GLEW), but on Linux Includes.h includes no GL headers,
+    // and this header is included by translation units that never see a
+    // renderer header — so include GLEW here.
+    #include <GL/glew.h>
+#endif
+
 #if defined(__USE_DIRECTX_11__) || defined(__USE_DIRECTX_12__)
     #include "ConstantBuffer.h"
     #include "DX11Renderer.h"

@@ -11,8 +11,10 @@
     #pragma comment(lib, "dxguid.lib")
 #endif
 
-#pragma warning(push)
-#pragma warning(disable: 4101)
+#if defined(PLATFORM_WINDOWS)
+    #pragma warning(push)
+    #pragma warning(disable: 4101)
+#endif
 
 namespace SoundSystem {
 
@@ -43,6 +45,23 @@ namespace SoundSystem {
         priBELOW_NORMAL,
         priLOWEST
     };
+
+#if defined(PLATFORM_WINDOWS)
+    // WAVEFORMATEX comes from <dsound.h> / <mmreg.h> on Windows.
+#else
+    // Portable WAVEFORMATEX (mmreg.h) - same fields and layout as the Windows
+    // struct, so the WAV parser and queue code compile unchanged on Linux /
+    // Android. WORD / DWORD come from Platform.h; no audio backend is implied.
+    struct WAVEFORMATEX {
+        WORD  wFormatTag;
+        WORD  nChannels;
+        DWORD nSamplesPerSec;
+        DWORD nAvgBytesPerSec;
+        WORD  nBlockAlign;
+        WORD  wBitsPerSample;
+        WORD  cbSize;
+    };
+#endif
 
     struct LoadedSFX {
         WAVEFORMATEX waveFormat;
@@ -213,4 +232,6 @@ namespace SoundSystem {
 
 } // namespace SoundSystem
 
-#pragma warning(pop)
+#if defined(PLATFORM_WINDOWS)
+    #pragma warning(pop)
+#endif

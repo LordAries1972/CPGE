@@ -1189,7 +1189,7 @@ void ExceptionHandler::ProcessSignalException(int signal, siginfo_t* info, void*
         signal, details.exceptionDescription, details.exceptionAddress, details.threadId);
 
     // Capture detailed stack trace
-    if (CaptureStackTrace(context, details.stackFrames,
+    if (CaptureStackTrace(context, details.stackFrames.get(),
         MAX_STACK_FRAMES, details.frameCount)) {
 
         debug.logDebugMessage(LogLevel::LOG_INFO, L"[ExceptionHandler] Stack trace (%d frames):", details.frameCount);

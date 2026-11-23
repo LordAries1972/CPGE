@@ -19,9 +19,7 @@
 
 #include <nlohmann/json.hpp>
 
-#if defined(PLATFORM_WINDOWS)
-	#include "WinSystem.h"
-#endif
+#include "WinSystem.h"  // Portable since Phase A: WinSystem.h has a Linux branch
 
 using json = nlohmann::json;
 

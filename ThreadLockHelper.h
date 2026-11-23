@@ -5,6 +5,9 @@
 #include "ThreadManager.h"
 #include "Debug.h"
 
+#include <cwchar>      // std::mbstowcs (POSIX StringToWString path)
+#include <cstdlib>     // std::size_t
+
 extern Debug debug;
 extern ThreadManager threadManager;
 
@@ -69,13 +72,26 @@ private:
     bool m_isLocked;
     bool m_silent;
 
-    // Helper method to convert std::string to std::wstring for logging
+    // Helper method to convert std::string to std::wstring for logging.
+    // Windows uses MultiByteToWideChar (UTF-8); POSIX uses mbstowcs, with a
+    // byte-wise widening fallback if the input is not valid multibyte text
+    // (log strings are ASCII in practice, so both paths are exact there).
     std::wstring StringToWString(const std::string& str) {
         if (str.empty()) return L"";
+#if defined(PLATFORM_WINDOWS)
         int size_needed = MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), NULL, 0);
         std::wstring wstr(size_needed, 0);
         MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), &wstr[0], size_needed);
         return wstr;
+#else
+        std::wstring wstr(str.size(), L'\0');
+        std::size_t converted = std::mbstowcs(wstr.data(), str.c_str(), str.size());
+        if (converted == static_cast<std::size_t>(-1))
+            wstr.assign(str.begin(), str.end());   // invalid multibyte: widen byte-wise
+        else
+            wstr.resize(converted);
+        return wstr;
+#endif
     }
 };
 
@@ -137,12 +153,25 @@ private:
     ThreadManager& m_threadManager;
     std::vector<std::string> m_acquiredLocks;
 
-    // Helper method to convert std::string to std::wstring for logging
+    // Helper method to convert std::string to std::wstring for logging.
+    // Windows uses MultiByteToWideChar (UTF-8); POSIX uses mbstowcs, with a
+    // byte-wise widening fallback if the input is not valid multibyte text
+    // (log strings are ASCII in practice, so both paths are exact there).
     std::wstring StringToWString(const std::string& str) {
         if (str.empty()) return L"";
+#if defined(PLATFORM_WINDOWS)
         int size_needed = MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), NULL, 0);
         std::wstring wstr(size_needed, 0);
         MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), &wstr[0], size_needed);
         return wstr;
+#else
+        std::wstring wstr(str.size(), L'\0');
+        std::size_t converted = std::mbstowcs(wstr.data(), str.c_str(), str.size());
+        if (converted == static_cast<std::size_t>(-1))
+            wstr.assign(str.begin(), str.end());   // invalid multibyte: widen byte-wise
+        else
+            wstr.resize(converted);
+        return wstr;
+#endif
     }
 };

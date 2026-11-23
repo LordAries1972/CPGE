@@ -1471,7 +1471,12 @@ XMLParseResult XMLParser::ParseFile(const std::string& filepath, XMLDocument& ou
 
 XMLParseResult XMLParser::ParseFile(const std::wstring& filepath, XMLDocument& outDoc)
 {
+#if defined(PLATFORM_WINDOWS)
     std::ifstream file(filepath, std::ios::binary);
+#else
+    // libstdc++ has no std::wstring fstream ctor (MSVC extension) — narrow first.
+    std::ifstream file(NarrowPathForFstream(filepath), std::ios::binary);
+#endif
     if (!file.is_open())
     {
         XMLParseResult r;
@@ -1517,7 +1522,12 @@ XMLParseResult XMLParser::ParseFileSAX(const std::string& filepath, const XMLSAX
 
 XMLParseResult XMLParser::ParseFileSAX(const std::wstring& filepath, const XMLSAXCallbacks& callbacks)
 {
+#if defined(PLATFORM_WINDOWS)
     std::ifstream file(filepath, std::ios::binary);
+#else
+    // libstdc++ has no std::wstring fstream ctor (MSVC extension) — narrow first.
+    std::ifstream file(NarrowPathForFstream(filepath), std::ios::binary);
+#endif
     if (!file.is_open())
     {
         XMLParseResult r;
@@ -2783,7 +2793,12 @@ bool XMLSerializer::WriteToFile(const XMLDocument& doc, const std::string& filep
 bool XMLSerializer::WriteToFile(const XMLDocument& doc, const std::wstring& filepath) const
 {
     std::string xml = Serialize(doc);
+#if defined(PLATFORM_WINDOWS)
     std::ofstream file(filepath, std::ios::binary);
+#else
+    // libstdc++ has no std::wstring fstream ctor (MSVC extension) — narrow first.
+    std::ofstream file(NarrowPathForFstream(filepath), std::ios::binary);
+#endif
     if (!file.is_open())
     {
         debug.logDiagLevelMessage(LogLevel::LOG_WARNING,

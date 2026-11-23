@@ -1,6 +1,9 @@
 #include "Includes.h"
 #include "Debug.h"
 #include "ConsoleWindow.h"
+#include <cstdio>      // std::fwprintf (POSIX EmitMessage path)
+#include <cstdlib>     // std::exit / EXIT_FAILURE (POSIX fatal path)
+#include <cstdarg>     // va_start / va_copy / va_end (came via windows.h on Windows)
 extern ConsoleWindow consoleWindow;
 
 // -----------------------------------------
@@ -70,7 +73,12 @@ void Debug::Insert_Into_Log_File(const std::wstring& filename, const std::wstrin
 
     std::time_t t = std::time(nullptr);
     std::tm tm;
+#if defined(PLATFORM_WINDOWS)
     localtime_s(&tm, &t);
+#else
+    // POSIX localtime_r takes its arguments in the opposite order to localtime_s.
+    localtime_r(&t, &tm);
+#endif
 
     wchar_t timeBuffer[100];
     wcsftime(timeBuffer, sizeof(timeBuffer) / sizeof(wchar_t), L"[%d-%m-%Y (AEST/AEDT) %H:%M:%S]: ", &tm);
@@ -97,6 +105,7 @@ void Debug::Insert_Into_Log_File(const std::wstring& filename, const std::wstrin
     output += lineMsg;
     output += L"\r\n";
 
+#if defined(PLATFORM_WINDOWS)
     // Convert wide → UTF-8 bytes (all log messages are ASCII, so output is 1 byte/char)
     int byteCount = WideCharToMultiByte(CP_UTF8, 0,
                                          output.c_str(), static_cast<int>(output.size()),
@@ -120,6 +129,20 @@ void Debug::Insert_Into_Log_File(const std::wstring& filename, const std::wstrin
     DWORD written = 0;
     WriteFile(hFile, narrow.c_str(), static_cast<DWORD>(narrow.size()), &written, nullptr);
     CloseHandle(hFile);
+#else
+    // POSIX: log messages are ASCII by construction, so a byte-wise narrow
+    // conversion is exact; append in one write via std::ofstream (the caller
+    // already holds the log mutex, so interleaving cannot occur).
+    std::string narrow;
+    narrow.reserve(output.size());
+    for (wchar_t wc : output)
+        narrow.push_back(static_cast<char>(wc));
+
+    std::ofstream ofs(std::string(filename.begin(), filename.end()),
+                      std::ios::out | std::ios::app | std::ios::binary);
+    if (ofs)
+        ofs.write(narrow.c_str(), static_cast<std::streamsize>(narrow.size()));
+#endif
 }
 
 
@@ -130,6 +153,7 @@ static std::wstring FormatLogMessage(const wchar_t* format, va_list args)
     if (!format)
         return std::wstring();
 
+#if defined(PLATFORM_WINDOWS)
     va_list argsCopy;
     va_copy(argsCopy, args);
     const int needed = _vscwprintf(format, argsCopy);
@@ -142,6 +166,29 @@ static std::wstring FormatLogMessage(const wchar_t* format, va_list args)
     const int written = vswprintf_s(out.data(), out.size(), format, args);
     out.resize(written > 0 ? static_cast<size_t>(written) : 0);
     return out;
+#else
+    // POSIX has no _vscwprintf and vswprintf reports truncation only as a
+    // negative return, so grow the buffer until the message fits. The loop
+    // is bounded (1 MiB cap) so a pathological format cannot loop forever.
+    std::size_t capacity = 1024;
+    for (;;)
+    {
+        std::wstring out(capacity, L'\0');
+        va_list argsCopy;
+        va_copy(argsCopy, args);
+        const int written = vswprintf(out.data(), out.size(), format, argsCopy);
+        va_end(argsCopy);
+
+        if (written >= 0 && static_cast<std::size_t>(written) < capacity)
+        {
+            out.resize(static_cast<std::size_t>(written));
+            return out;
+        }
+        if (written < 0 && capacity >= (1u << 20))
+            return std::wstring(format);    // bad format string: log it raw rather than crash
+        capacity *= 2;
+    }
+#endif
 }
 
 void Debug::logDebugMessage(LogLevel level, const wchar_t* format, ...)
@@ -250,7 +297,13 @@ void Debug::EmitMessage(LogLevel level, const std::wstring& message, bool bAllow
 
         // Always add newline for console output
         woss << taggedMessage << L"\n";
+#if defined(PLATFORM_WINDOWS)
         OutputDebugStringW(woss.str().c_str());
+#else
+        // No OutputDebugString on POSIX: mirror the tagged line to stderr so
+        // it is visible when the engine runs from a terminal.
+        std::fwprintf(stderr, L"%ls", woss.str().c_str());
+#endif
 
         // In-game console: every level in Debug builds; WARNING and above in Release builds.
 #ifndef _DEBUG
@@ -306,7 +359,17 @@ void Debug::EmitMessage(LogLevel level, const std::wstring& message, bool bAllow
             }
 #endif
             // Post quit AFTER the dialog is dismissed so the user has seen the message.
+            // Linux/Android have no Win32 message queue: TERMINATION exits immediately
+            // (as ExitProcess does on Windows), while ERROR/CRITICAL set the shared
+            // quit flag so the main loop shuts the engine down cleanly instead.
+#if defined(PLATFORM_WINDOWS)
             PostQuitMessage(EXIT_FAILURE);
+#else
+            if (level == LogLevel::LOG_TERMINATION)
+                std::exit(EXIT_FAILURE);
+            else
+                g_cpgeQuitRequested.store(true);
+#endif
         }
     }
 }
@@ -356,7 +419,11 @@ void Debug::LogFunction(const std::string& functionName, const std::string& mess
 void Debug::DebugBreak() {
     // Causes the debugger to break into the code at this point
     #ifdef _DEBUG
-        __debugbreak(); // Will break if debugging is enabled
+        #if defined(PLATFORM_WINDOWS)
+            __debugbreak(); // Will break if debugging is enabled
+        #elif defined(__GNUC__) || defined(__clang__)
+            __builtin_trap();   // POSIX equivalent: trap into the debugger / abort
+        #endif
     #endif
 }
 

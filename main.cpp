@@ -1,4 +1,4 @@
-﻿/* ------------------------------------------------------------------------------ */
+/* ------------------------------------------------------------------------------ */
 // Main.cpp, the starting code to everything.
 //
 /* ------------------------------------------------------------------------------ */
@@ -97,7 +97,7 @@
 #else
     #if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
         #if defined(__USE_VULKAN__)
-            #include "VulkanRenderer.h" // Vulkan is the primary choice for Linux
+            #include "VULKAN_Renderer.h" // Vulkan is the primary choice for Linux
         #elif defined(__USE_OPENGL__)
             #include "OpenGLRenderer.h" // OpenGL as a fallback for Linux
         #else
@@ -258,7 +258,9 @@ static const int RESIZE_DEBOUNCE_MS = 100;                              // Minim
 static const int SCENE_PHASE_RESIZE_IGNORE_MS = 15000;                  // Ignore WM_SIZE for 15s after a phase change
 
 // Fixed (non-resizable) windowed style — no WS_THICKFRAME (resize border), no WS_MAXIMIZEBOX
+#if defined(PLATFORM_WINDOWS)
 static constexpr DWORD WS_WINDOWED_FIXED = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+#endif
 
 int textScrollerEffectID = 0;
 char errorMsg[512];
@@ -271,7 +273,9 @@ std::wstring baseDir = L"";
 extern std::shared_ptr<Renderer> renderer;
 
 // Forward Declarations
+#if defined(PLATFORM_WINDOWS)
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+#endif
 void SwitchToGamePlay();
 void StartGame();
 void SwitchToGameIntro();
@@ -430,8 +434,433 @@ static void ConfigureProcessDpiAwareness()
 #endif
 
 // *----------------------------------------------------------------------------------------------
+// Platform entry-point helpers (shared by WinMain / main() / RunEngine()).
+// ----------------------------------------------------------------------------------------------
+// CloseEngineWindow() undoes the window creation done by the entry point:
+//   Windows: unregister the window class (exactly the old UnregisterClass call)
+//   Linux:   destroy the X11 window and close the display connection
+// PumpPlatformMessages() dispatches ONE pending OS message (or X11 event) and
+// returns true when it handled one, false when the queue was empty.
+// RunEngine()'s main loop calls it once per iteration, mirroring the old
+// PeekMessage/else cadence, so a frame still runs only when no message was pending.
+// ----------------------------------------------------------------------------------------------
+static void CloseEngineWindow(HINSTANCE hInstance);
+static bool PumpPlatformMessages();
+static int RunEngine(HINSTANCE hInstance);  // defined below main()
+
+#if defined(PLATFORM_WINDOWS)
+
+static void CloseEngineWindow(HINSTANCE hInstance)
+{
+    UnregisterClass(lpDEFAULT_NAME, hInstance);
+}
+
+static bool PumpPlatformMessages()
+{
+    MSG msg{};
+    if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
+    {
+        if (msg.message == WM_QUIT)
+            g_cpgeQuitRequested.store(true);
+        else
+        {
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        }
+        return true;
+    }
+    return false;
+}
+
+#elif defined(PLATFORM_LINUX)
+
+// X11 typedefs KeyCode (unsigned char), which collides with the engine's
+// enum class KeyCode (KeyboardHandler.h). Rename the X11 typedef at include
+// time so the two can coexist in one translation unit.
+#define KeyCode X11KeyCode
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
+#include <X11/Xatom.h>
+#include <GL/glx.h>   // inside the dance: Mesa's glx.h includes <X11/Xlib.h>
+#undef KeyCode
+
+#if defined(__USE_VULKAN__)
+    // XGetXCBConnection(): shares this thread's Xlib display connection with
+    // the Vulkan renderer, which needs an xcb_connection_t* for
+    // vkCreateXcbSurfaceKHR (see the Linux main() below).
+    #include <X11/Xlib-xcb.h>
+#endif
+
+// The X11 display connection owned by the main thread. The renderer's GLX
+// context opens a second, independent connection in OpenGLRenderer, so this
+// one is used only by the window/event code here. (KeyboardHandler has its
+// own connection too, in its input thread.)
+static Display* g_linuxDisplay = nullptr;
+static Atom     g_wmDeleteWindow = None;
+
+// HandleLinuxMouseWheel() — the X11 mirror of WindowProc's WM_MOUSEWHEEL case:
+// route the wheel through the GUI first, then zoom the camera (gameplay, and
+// the game-title scene in _DEBUG builds) when no GUI window holds focus.
+static void HandleLinuxMouseWheel(int delta)
+{
+    if (bResizeInProgress.load() || bFullScreenTransition.load())
+        return;
+
+    guiManager.HandleMouseWheel(delta);
+    if (guiManager.GetFocusedWindow())
+        return;
+
+    switch (scene.stSceneType)
+    {
+        #if defined(_DEBUG)
+        case SceneType::SCENE_GAMETITLE:
+        #endif
+        case SceneType::SCENE_GAMEPLAY:
+        {
+            if (renderer && renderer->bIsInitialized.load() &&
+                !threadManager.threadVars.bIsResizing.load())
+            {
+                const float zoomStep = 1.0f;
+                if (delta > 0)
+                    renderer->myCamera.MoveIn(zoomStep);
+                else if (delta < 0)
+                    renderer->myCamera.MoveOut(zoomStep);
+            }
+            break;
+        }
+        default:
+            break;
+    }
+}
+
+// HandleLinuxEvent() — the X11 mirror of WindowProc, mapping each X11 event
+// onto the same globals and engine calls the Windows messages used, so the
+// GUI, camera and scene code below cannot tell which platform delivered the
+// input. (KeyPress/KeyRelease are NOT handled here: KeyboardHandler owns the
+// keyboard on its own X11 connection/thread. Char input to the GUI console
+// is therefore a known Phase A gap — see the Phase A report.)
+static void HandleLinuxEvent(const XEvent& ev)
+{
+    switch (ev.type)
+    {
+        case MotionNotify:
+        {
+            // Mirror WM_MOUSEMOVE.
+            if (threadManager.threadVars.bSettingFullScreen.load() ||
+                bResizeInProgress.load() || !isSystemInitialized ||
+                bFullScreenTransition.load())
+                return;
+
+            cursorPos.x = ev.xmotion.x;
+            cursorPos.y = ev.xmotion.y;
+            myMouseCoords.x = static_cast<float>(cursorPos.x);
+            myMouseCoords.y = static_cast<float>(cursorPos.y);
+
+            if (cursorPos.x >= winMetrics.width)
+                myMouseCoords.x = static_cast<float>(winMetrics.width - 1);
+            if (cursorPos.y >= winMetrics.height)
+                myMouseCoords.y = static_cast<float>(winMetrics.height - 1);
+
+            guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
+
+            if (scene.stSceneType == SceneType::SCENE_GAMEPLAY)
+            {
+                // Right-mouse camera drag, as in WM_MOUSEMOVE.
+                if (isRightClicked && renderer && renderer->bIsInitialized.load())
+                {
+                    if (lastMousePos.x == 0 && lastMousePos.y == 0)
+                    {
+                        lastMousePos = cursorPos;
+                        return;
+                    }
+                    int deltaX = cursorPos.x - lastMousePos.x;
+                    int deltaY = cursorPos.y - lastMousePos.y;
+                    lastMousePos = cursorPos;
+                    renderer->myCamera.UpdateCameraFromMouseMovement(
+                        static_cast<float>(deltaX),
+                        static_cast<float>(deltaY),
+                        config.myConfig.moveSensitivity);
+                }
+            }
+            break;
+        }
+
+        case ButtonPress:
+        {
+            if (bResizeInProgress.load() || bFullScreenTransition.load())
+                return;
+            switch (ev.xbutton.button)
+            {
+                case Button1: // Mirror WM_LBUTTONDOWN
+                    isLeftClicked = true;
+                    guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
+                    break;
+                case Button3: // Mirror WM_RBUTTONDOWN
+                    isRightClicked = true;
+                    lastMousePos = cursorPos;
+                    break;
+                case Button2: // Middle button (no Windows equivalent in WindowProc)
+                    isMiddleClicked = true;
+                    break;
+                case Button4: // Wheel up — X11 has no WM_MOUSEWHEEL, it is a button
+                    HandleLinuxMouseWheel(120);
+                    break;
+                case Button5: // Wheel down
+                    HandleLinuxMouseWheel(-120);
+                    break;
+                default:
+                    break;
+            }
+            break;
+        }
+
+        case ButtonRelease:
+        {
+            if (bResizeInProgress.load() || bFullScreenTransition.load())
+                return;
+            switch (ev.xbutton.button)
+            {
+                case Button1: // Mirror WM_LBUTTONUP
+                    isLeftClicked = false;
+                    guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
+                    break;
+                case Button3: // Mirror WM_RBUTTONUP
+                    isRightClicked = false;
+                    guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
+                    break;
+                case Button2:
+                    isMiddleClicked = false;
+                    break;
+                default:
+                    break;
+            }
+            break;
+        }
+
+        case ConfigureNotify:
+        {
+            // Mirror WM_SIZE: user resizing is NOT supported (the window is
+            // created at the configured size and the renderer owns geometry),
+            // but minimise/restore and renderer-driven transitions still need
+            // the same bookkeeping. X11 has no minimise event on the window
+            // itself; a ConfigureNotify with zero size is the closest
+            // equivalent, and any other ConfigureNotify is a restore/sync.
+            if (bResizeInProgress.load())
+                return;
+            if (threadManager.threadVars.bSettingFullScreen.load())
+                return;
+            bResizeInProgress.store(true);
+
+            if (ev.xconfigure.width == 0 || ev.xconfigure.height == 0)
+            {
+                if (renderer && renderer->bIsInitialized.load())
+                    renderer->bIsMinimized.store(true);
+                bResizeInProgress.store(false);
+                return;
+            }
+            if (renderer && renderer->bIsInitialized.load())
+                renderer->bIsMinimized.store(false);
+
+            // Sync winMetrics from the renderer's confirmed back-buffer
+            // dimensions, exactly as WM_SIZE does.
+            if (isSystemInitialized && renderer && renderer->bIsInitialized.load() &&
+                !threadManager.threadVars.bIsShuttingDown.load())
+            {
+                int w = renderer->iOrigWidth;
+                int h = renderer->iOrigHeight;
+                if (w > 0 && h > 0)
+                {
+                    winMetrics.width        = w;
+                    winMetrics.height       = h;
+                    winMetrics.clientWidth  = w;
+                    winMetrics.clientHeight = h;
+                    if (winMetrics.isFullScreen)
+                    {
+                        winMetrics.monitorFullArea = { 0, 0, w, h };
+                        winMetrics.monitorWorkArea = { 0, 0, w, h };
+                    }
+                }
+            }
+            bResizeInProgress.store(false);
+            break;
+        }
+
+        case ClientMessage:
+        {
+            // Mirror WM_CLOSE: the window manager's close button (the
+            // WM_DELETE_WINDOW protocol) signals all threads to stop before
+            // the window is destroyed, exactly as WM_CLOSE did.
+            if (static_cast<Atom>(ev.xclient.data.l[0]) == g_wmDeleteWindow)
+            {
+                StopMusicPlayback();
+                threadManager.threadVars.bIsShuttingDown.store(true);
+                g_cpgeQuitRequested.store(true);
+            }
+            break;
+        }
+
+        case FocusIn:
+        {
+            // Mirror WM_ACTIVATE (activation): mark the system initialised on
+            // first activation. MP3 resume is skipped here — the Linux audio
+            // backend is a Phase B stub and has nothing to resume.
+            if (!isSystemInitialized)
+                isSystemInitialized = true;
+            break;
+        }
+
+        case FocusOut:
+        {
+            // Mirror WM_ACTIVATE (WA_INACTIVE): MP3 pause is skipped for the
+            // same reason as the FocusIn resume above.
+            break;
+        }
+
+        default:
+            break;
+    }
+}
+
+static void CloseEngineWindow(HINSTANCE /*hInstance*/)
+{
+    if (g_linuxDisplay)
+    {
+        if (hwnd)
+            XDestroyWindow(g_linuxDisplay,
+                static_cast< ::Window>(reinterpret_cast<std::uintptr_t>(hwnd)));
+        XCloseDisplay(g_linuxDisplay);
+        g_linuxDisplay = nullptr;
+    }
+    hwnd = nullptr;
+}
+
+static bool PumpPlatformMessages()
+{
+    if (!g_linuxDisplay)
+        return false;
+    if (!XPending(g_linuxDisplay))
+        return false;
+    XEvent ev{};
+    XNextEvent(g_linuxDisplay, &ev);
+    HandleLinuxEvent(ev);
+    return true;
+}
+
+// CreateLinuxWindow() — create the X11 window for the Linux entry point.
+// The framebuffer config is chosen first (same attribs as
+// OpenGLRenderer::CreateOpenGLContext) so the window visual matches the GLX
+// context visual; the window is centred on the primary display and mapped
+// immediately. The Window is stored in the global hwnd (as a void* via
+// uintptr_t) so the renderer and WinSystem code can use it unchanged.
+static bool CreateLinuxWindow()
+{
+    g_linuxDisplay = XOpenDisplay(nullptr);
+    if (!g_linuxDisplay)
+    {
+        debug.logLevelMessage(LogLevel::LOG_CRITICAL,
+            L"[SYSTEM]: Failed to open X11 display (is X running?).\n");
+        return false;
+    }
+
+    const int screen = DefaultScreen(g_linuxDisplay);
+    const int width  = config.myConfig.resolutionWidth;
+    const int height = config.myConfig.resolutionHeight;
+    const bool wantMSAA = config.myConfig.antiAliasingEnabled && config.myConfig.msaaEnabled;
+
+    int fbAttribs[] =
+    {
+        GLX_X_RENDERABLE, True,
+        GLX_DRAWABLE_TYPE, GLX_WINDOW_BIT,
+        GLX_RENDER_TYPE, GLX_RGBA_BIT,
+        GLX_X_VISUAL_TYPE, GLX_TRUE_COLOR,
+        GLX_RED_SIZE, 8,
+        GLX_GREEN_SIZE, 8,
+        GLX_BLUE_SIZE, 8,
+        GLX_ALPHA_SIZE, 8,
+        GLX_DEPTH_SIZE, 24,
+        GLX_STENCIL_SIZE, 8,
+        GLX_DOUBLEBUFFER, True,
+        GLX_SAMPLE_BUFFERS, wantMSAA ? 1 : 0,
+        GLX_SAMPLES, wantMSAA ? 4 : 0,
+        None
+    };
+    int fbCount = 0;
+    GLXFBConfig* fbConfigs = glXChooseFBConfig(g_linuxDisplay, screen, fbAttribs, &fbCount);
+    XVisualInfo* visual = nullptr;
+    if (fbConfigs && fbCount > 0)
+        visual = glXGetVisualFromFBConfig(g_linuxDisplay, fbConfigs[0]);
+
+    ::Window window = 0;
+    if (visual)
+    {
+        XSetWindowAttributes attrs{};
+        attrs.colormap = XCreateColormap(g_linuxDisplay, RootWindow(g_linuxDisplay, screen),
+                                         visual->visual, AllocNone);
+        attrs.event_mask = ExposureMask | KeyPressMask | KeyReleaseMask |
+                           ButtonPressMask | ButtonReleaseMask | PointerMotionMask |
+                           StructureNotifyMask | FocusChangeMask;
+        attrs.background_pixel = BlackPixel(g_linuxDisplay, screen);
+        attrs.border_pixel = 0;
+        const int x = (DisplayWidth(g_linuxDisplay, screen) - width) / 2;
+        const int y = (DisplayHeight(g_linuxDisplay, screen) - height) / 2;
+        window = XCreateWindow(g_linuxDisplay, RootWindow(g_linuxDisplay, screen),
+                               x, y, static_cast<unsigned int>(width),
+                               static_cast<unsigned int>(height), 0, visual->depth,
+                               InputOutput, visual->visual,
+                               CWColormap | CWEventMask | CWBackPixel | CWBorderPixel, &attrs);
+        XFree(fbConfigs);
+        XFree(visual);
+    }
+    else
+    {
+        // No GLX framebuffer config (no GLX on this X server): fall back to a
+        // plain window with the default visual so the engine can still start
+        // and report the problem through the normal log path.
+        debug.logLevelMessage(LogLevel::LOG_WARNING,
+            L"[SYSTEM]: No GLX framebuffer config — creating a plain X11 window.\n");
+        window = XCreateSimpleWindow(g_linuxDisplay, RootWindow(g_linuxDisplay, screen),
+                                     0, 0, static_cast<unsigned int>(width),
+                                     static_cast<unsigned int>(height), 0,
+                                     BlackPixel(g_linuxDisplay, screen),
+                                     BlackPixel(g_linuxDisplay, screen));
+        XSelectInput(g_linuxDisplay, window,
+                     ExposureMask | KeyPressMask | KeyReleaseMask |
+                     ButtonPressMask | ButtonReleaseMask | PointerMotionMask |
+                     StructureNotifyMask | FocusChangeMask);
+    }
+
+    if (!window)
+    {
+        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[SYSTEM]: Failed to create X11 window.\n");
+        XCloseDisplay(g_linuxDisplay);
+        g_linuxDisplay = nullptr;
+        return false;
+    }
+
+    // Window title (narrow form of MY_WINDOW_TITLE) and the close protocol.
+    XStoreName(g_linuxDisplay, window, "CPGE by Daniel J. Hobson of Australia 2023-2026");
+    g_wmDeleteWindow = XInternAtom(g_linuxDisplay, "WM_DELETE_WINDOW", False);
+    XSetWMProtocols(g_linuxDisplay, window, &g_wmDeleteWindow, 1);
+    XMapWindow(g_linuxDisplay, window);
+    XFlush(g_linuxDisplay);
+
+    hwnd = reinterpret_cast<HWND>(static_cast<std::uintptr_t>(window));
+    return true;
+}
+
+#else // neither PLATFORM_WINDOWS nor PLATFORM_LINUX (Android has no desktop
+      // entry point in this phase)
+
+static void CloseEngineWindow(HINSTANCE /*hInstance*/) {}
+static bool PumpPlatformMessages() { return false; }
+
+#endif // PLATFORM_WINDOWS / PLATFORM_LINUX
+
+
+// *----------------------------------------------------------------------------------------------
 // Program Start!
 // *----------------------------------------------------------------------------------------------
+#if defined(PLATFORM_WINDOWS)
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
     // Initialize local Buffers.
@@ -521,32 +950,104 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[SYSTEM]: Failed to create window.\n");
         return EXIT_FAILURE;
     }
+    return RunEngine(hInstance);
+}
 
-    // Initialize the exception handler for comprehensive error tracking
-    if (!exceptionHandler.Initialize()) {
-        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Failed to initialize exception handler - Aborting!");
-        UnregisterClass(lpDEFAULT_NAME, hInstance);
+#elif defined(PLATFORM_LINUX)
+// ----------------------------------------------------------------------------------------------
+// Linux entry point: the same preamble as WinMain (base directory, config,
+// renderer instance, window creation) and then the shared RunEngine() body.
+// The X11 window is created by CreateLinuxWindow() above; the GLX context is
+// created by OpenGLRenderer::CreateOpenGLContext() inside RunEngine().
+// ----------------------------------------------------------------------------------------------
+int main(int argc, char* argv[])
+{
+    (void)argc;
+    (void)argv;
+
+    // Initialize local Buffers.
+    SecureZeroMemory(&winMetrics, sizeof(WindowMetrics));
+    SecureZeroMemory(&errorMsg, sizeof(errorMsg));
+
+    baseDir = sysUtils.Get_Current_Directory();
+
+    // Load in our Configuration file.
+    config.loadConfig();
+
+    // Create appropriate Renderer Interface
+    if (CreateRendererInstance() != EXIT_SUCCESS)
+    {
+        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[SYSTEM]: Failed to Renderer Instance.\n");
         return EXIT_FAILURE;
     }
 
-    exceptionHandler.RecordFunctionCall("WinMain");
+    // Create the X11 window (with a GLX-compatible visual) for the renderer.
+    if (!CreateLinuxWindow())
+    {
+        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[SYSTEM]: Failed to create window.\n");
+        return EXIT_FAILURE;
+    }
 
+    #if defined(__USE_VULKAN__)
+        // VulkanRenderer::Initialize expects hInstance to carry the
+        // xcb_connection_t* (hwnd already carries the xcb_window_t — the
+        // same XID as the X11 Window created above). Share this thread's
+        // Xlib display connection via XGetXCBConnection so Xlib and Vulkan
+        // use one connection to the server; passing nullptr here would make
+        // vkCreateXcbSurfaceKHR fail at runtime.
+        HINSTANCE xcbConnection = reinterpret_cast<HINSTANCE>(XGetXCBConnection(g_linuxDisplay));
+        return RunEngine(xcbConnection);
+    #else
+        return RunEngine(nullptr);
+    #endif
+}
+#endif // PLATFORM_WINDOWS / PLATFORM_LINUX
+
+// ----------------------------------------------------------------------------------------------
+// RunEngine() — the shared engine body used by every platform entry point.
+// WinMain (Windows) and main() (Linux) both do the same preamble first
+// (base directory, config load, renderer instance, window creation) and
+// then call this: exception-handler setup, subsystem init, renderer init,
+// the main loop, and shutdown/cleanup. Platform-only calls inside are
+// guarded with PLATFORM_WINDOWS / PLATFORM_LINUX so the Windows path is
+// byte-for-byte the old WinMain body.
+// ----------------------------------------------------------------------------------------------
+static int RunEngine(HINSTANCE hInstance)
+{
+    // Initialize the exception handler for comprehensive error tracking
+    if (!exceptionHandler.Initialize()) {
+        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Failed to initialize exception handler - Aborting!");
+        CloseEngineWindow(hInstance);
+        return EXIT_FAILURE;
+    }
+
+    exceptionHandler.RecordFunctionCall("RunEngine");
+
+    // On Windows the window is centred and shown here; on Linux the X11
+    // window is already mapped by CreateLinuxWindow() (and
+    // CenterSystemWindow is a no-op there).
+#if defined(PLATFORM_WINDOWS)
     sysUtils.CenterSystemWindow(hwnd);
     ShowWindow(hwnd, nCmdShow);
+#endif
 
     try
     {
+    #if defined(PLATFORM_WINDOWS)
         if (FAILED(CoInitializeEx(nullptr, COINIT_MULTITHREADED))) {
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[SYSTEM]: Failed to initialize COM.");
-            UnregisterClass(lpDEFAULT_NAME, hInstance);
+            CloseEngineWindow(hInstance);
             return EXIT_FAILURE;
         }
 
+    #endif // PLATFORM_WINDOWS
+    #if defined(PLATFORM_WINDOWS)
         if (FAILED(MFStartup(MF_VERSION))) {
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[SYSTEM]: Media Foundation startup failed - screen recording unavailable.");
-            UnregisterClass(lpDEFAULT_NAME, hInstance);
+            CloseEngineWindow(hInstance);
             return EXIT_FAILURE;
         }
+    #endif // PLATFORM_WINDOWS
 
         // Detect and log every active audio endpoint so it is immediately clear which
         // physical device (headphones, speakers, headset mic, built-in mic, etc.) each
@@ -568,14 +1069,14 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         // Initialise our Randomizer system.
         if (!myRandomizer.Initialize()) {
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Randomizer initialization has failed - Aborting!");
-            UnregisterClass(lpDEFAULT_NAME, hInstance);
+            CloseEngineWindow(hInstance);
             return EXIT_FAILURE;
         }
 
         // Initialise our Randomizer system.
         if (!fileIO.Initialize()) {
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"FileIO initialization has failed - Aborting!");
-            UnregisterClass(lpDEFAULT_NAME, hInstance);
+            CloseEngineWindow(hInstance);
             return EXIT_FAILURE;
         }
 
@@ -583,7 +1084,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         if (!fileIO.StartFileIOThread()) {
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Failed to start the FileIO thread");
 
-            UnregisterClass(lpDEFAULT_NAME, hInstance);
+            CloseEngineWindow(hInstance);
             return false;
         }
 
@@ -591,7 +1092,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         if (!soundManager.Initialize(hwnd)) {
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Sound system initialization or loading failed.");
 
-            UnregisterClass(lpDEFAULT_NAME, hInstance);
+            CloseEngineWindow(hInstance);
             return EXIT_FAILURE;
         }
         soundManager.LoadAllSFX();
@@ -606,7 +1107,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         if (!FAST_MATH.Initialize())
         {
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize MATHPrecalc!");
-            UnregisterClass(lpDEFAULT_NAME, hInstance);
+            CloseEngineWindow(hInstance);
             return EXIT_FAILURE;
         }
 
@@ -614,7 +1115,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         if (!punPack.Initialize())
         {
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize PUNPack!");
-            UnregisterClass(lpDEFAULT_NAME, hInstance);
+            CloseEngineWindow(hInstance);
             return EXIT_FAILURE;
         }
 
@@ -623,7 +1124,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             if (!gamingAI.Initialize())
             {
                 debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize GamingAI Management System!");
-                UnregisterClass(lpDEFAULT_NAME, hInstance);
+                CloseEngineWindow(hInstance);
                 return EXIT_FAILURE;
             }
         #endif
@@ -666,7 +1167,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         // Initialize the keyboard handler with the gaming configuration
         if (!keyboard.Initialize(gamingConfig)) {
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize Keyboard Management System!");
-            UnregisterClass(lpDEFAULT_NAME, hInstance);
+            CloseEngineWindow(hInstance);
             return EXIT_FAILURE;
         }
 
@@ -678,7 +1179,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         {
             // Handle enable failure
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Failed to enable the Keyboard System!");
-            UnregisterClass(lpDEFAULT_NAME, hInstance);
+            CloseEngineWindow(hInstance);
             return EXIT_FAILURE;
         }
 
@@ -689,7 +1190,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         if (!shaderManager.Initialize(renderer))
         {
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to initialize Shader Management System!");
-            UnregisterClass(lpDEFAULT_NAME, hInstance);
+            CloseEngineWindow(hInstance);
             return EXIT_FAILURE;
         }
 
@@ -719,7 +1220,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         // Load all required shaders using the ShaderManager system
         if (!LoadAllShaders()) {
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[Initialization] Failed to load required shaders!");
-            UnregisterClass(lpDEFAULT_NAME, hInstance);
+            CloseEngineWindow(hInstance);
             return EXIT_FAILURE;
         }
 
@@ -798,11 +1299,19 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         // the loader already active.
         if (!renderer->StartRendererThreads())
         {
+        #if defined(PLATFORM_WINDOWS)
             MessageBox(nullptr, L"Problem Starting Renderer Threads!!!", L"Error", MB_OK | MB_ICONERROR);
             PostQuitMessage(0);
+        #else
+            debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"Problem Starting Renderer Threads!!!");
+        #endif
             return EXIT_FAILURE;
         }
 
+        // Apply window geometry now that threads are running (Windows only:
+        // on Linux the X11 window is created at the configured size by
+        // CreateLinuxWindow() and the renderer owns its own geometry).
+    #if defined(PLATFORM_WINDOWS)
         // Apply window geometry now that threads are running.
         if (winMetrics.isBorderless)
         {
@@ -818,6 +1327,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                          SWP_NOMOVE | SWP_NOZORDER | SWP_FRAMECHANGED);
             sysUtils.CenterSystemWindow(hwnd);
         }
+    #endif
 
 //        std::wstring alert = L"This is an alert status message.\n\n"
 //        L"Congratulations if you're seeing this window!\n"
@@ -890,7 +1400,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
             #endif
         });
 
-        // Add TTS announcement for Startup Splash Screen
+        // Add TTS announcement for Startup Splash Screen (Windows only:
+        // ttsManager exists only on Windows; on Linux the stub has no voice).
+    #if defined(_WIN64) || defined(_WIN32)
         if (config.myConfig.UseTTS)
         {
             if (ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR) {
@@ -899,19 +1411,23 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                 ttsManager.PlayAsync(L"This system uses the Cross Platform Gaming Engine by Daniel J. Hobson of Australia 2023 to 2026.");
             }
         }
+    #endif // _WIN64 || _WIN32
 
         //  --------------------------------------------------------------------------
         //  --- Main Loop ---
         //  --------------------------------------------------------------------------
-        MSG msg = {};
-		sysUtils.StartTimer();                                  // Start the system timer
+        sysUtils.StartTimer();                                  // Start the system timer
         OpenStartMovieAndPlay();                                // Start the opening movie
-        while (msg.message != WM_QUIT)
+        while (!g_cpgeQuitRequested.load())
         {
-            if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
+            // PumpPlatformMessages() dispatches ONE pending OS message (or X11
+            // event) and returns true when it handled one, false when the
+            // queue was empty — exactly the old PeekMessage/else cadence, so
+            // a frame still runs only when no message was pending.
+            if (PumpPlatformMessages())
             {
-                TranslateMessage(&msg);
-                DispatchMessage(&msg);
+                if (g_cpgeQuitRequested.load())
+                    break;
             }
             else
             //  --------------------------------------------------------------------------
@@ -1172,20 +1688,40 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                                 if (recWidth == 0 || recHeight == 0)
                             #endif
                             {
+                            #if defined(PLATFORM_WINDOWS)
                                 RECT clientRect = {};
                                 GetClientRect(hwnd, &clientRect);
                                 recWidth  = static_cast<UINT>(clientRect.right  - clientRect.left);
                                 recHeight = static_cast<UINT>(clientRect.bottom - clientRect.top);
+                            #else
+                                // Linux: no GetClientRect — use the renderer's
+                                // back-buffer size (winMetrics is synced from
+                                // it on every resize).
+                                recWidth  = static_cast<UINT>(winMetrics.clientWidth);
+                                recHeight = static_cast<UINT>(winMetrics.clientHeight);
+                            #endif
                             }
                         }
 
                         // Generate a unique timestamped filename so successive recordings
                         // never collide with an existing file held open by another process.
+                    #if defined(PLATFORM_WINDOWS)
                         SYSTEMTIME st = {};
                         GetLocalTime(&st);
                         wchar_t recFile[64] = {};
                         swprintf_s(recFile, L"Assets\\recording_%04u%02u%02u_%02u%02u%02u.mp4",
                                    st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+                    #else
+                        // POSIX local time (localtime_r); forward slashes: the
+                        // Windows backslash path is not a valid Linux filename.
+                        std::time_t recNow = std::time(nullptr);
+                        std::tm recTm{};
+                        localtime_r(&recNow, &recTm);
+                        wchar_t recFile[64] = {};
+                        swprintf(recFile, ARRAYSIZE(recFile), L"Assets/recording_%04d%02d%02d_%02d%02d%02d.mp4",
+                                 recTm.tm_year + 1900, recTm.tm_mon + 1, recTm.tm_mday,
+                                 recTm.tm_hour, recTm.tm_min, recTm.tm_sec);
+                    #endif
                         std::wstring outPath = recFile;
                         if (screenRecorder.StartRecording(recWidth, recHeight, RecordFPS::FPS_60, outPath, MicMode::Mixed))
                         {
@@ -1602,12 +2138,12 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
                     renderer->RenderFrame();
                 #endif
             }
-        } // End of while (msg.message != WM_QUIT)
+        } // End of main loop (exits when g_cpgeQuitRequested is set)
     }
     catch (const std::exception& e)
     {
         // Log the exception with context
-        exceptionHandler.LogException(e, "WinMain");
+        exceptionHandler.LogException(e, "RunEngine");
     }
 
 	// Save our Configuration file, Do this here, in-case cleanup fails
@@ -1759,11 +2295,17 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	// Finally now remove the Exception Handler.
 	exceptionHandler.Cleanup();
 
+#if defined(PLATFORM_WINDOWS)
     MFShutdown();
     CoUninitialize();
+#endif
+#if defined(PLATFORM_LINUX)
+    CloseEngineWindow(nullptr);
+#endif
     return EXIT_SUCCESS;
 }
 
+#if defined(PLATFORM_WINDOWS)
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     switch (uMsg)
@@ -2117,6 +2659,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
     } // End of switch (uMsg)
 }
+#endif // PLATFORM_WINDOWS
 
 void SwitchToGamePlay()
 {
@@ -2124,6 +2667,8 @@ void SwitchToGamePlay()
     fxManager.StopStarfield();
     fxManager.StopTextScroller(textScrollerEffectID);
     StopMusicPlayback();
+    // TTS announcement (Windows only: ttsManager exists only on Windows)
+#if defined(_WIN64) || defined(_WIN32)
     if (config.myConfig.UseTTS)
     {
         if (ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR) {
@@ -2132,6 +2677,7 @@ void SwitchToGamePlay()
             ttsManager.PlayAsync(L"Now loading the Scene into Memory,   Please Stand by!");
         }
     }
+#endif
 
     #ifdef __USE_SCRIPT_MANAGER__
         scriptManager.StopExecution();
@@ -2187,7 +2733,8 @@ void OpenStartMovieAndPlay()
 void SwitchToMovieIntro()
 {
     threadManager.PauseThread(THREAD_RENDERER); // Pause the Renderer Thread
-    // Add TTS announcement for movie intro
+    // Add TTS announcement for movie intro (Windows only)
+#if defined(_WIN64) || defined(_WIN32)
     if (config.myConfig.UseTTS)
     {
         if (ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR) {
@@ -2196,6 +2743,7 @@ void SwitchToMovieIntro()
             ttsManager.PlayAsync(L"Attempting to Play Game Introduction Movie");
         }
     }
+#endif
 
     #ifdef __USE_SCRIPT_MANAGER__
         scriptManager.StopExecution();
@@ -2225,7 +2773,8 @@ void SwitchToGameIntro()
     threadManager.threadVars.bHasReset.store(true);
     // Stop Music Playback!
     StopMusicPlayback();
-    // Add TTS announcement for movie intro
+    // Add TTS announcement for movie intro (Windows only)
+#if defined(_WIN64) || defined(_WIN32)
     if (config.myConfig.UseTTS)
     {
         if (ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR) {
@@ -2234,6 +2783,7 @@ void SwitchToGameIntro()
             ttsManager.PlayAsync(L"Loading Game Assets into Memory!");
         }
     }
+#endif
 
     #ifdef __USE_SCRIPT_MANAGER__
         scriptManager.StopExecution();

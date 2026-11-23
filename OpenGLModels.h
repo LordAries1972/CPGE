@@ -15,6 +15,14 @@
 #endif
 
 #include "Includes.h"   // Provides GL/glew.h or GL/gl.h, Vector2/3/4, etc.
+
+#if defined(__USE_OPENGL__) && !defined(PLATFORM_WINDOWS)
+    // GLuint/GLenum for the OpenGL-only members below: on Windows these
+    // arrive via Includes.h (GLEW), but on Linux Includes.h includes no GL
+    // headers, and this header is included by translation units that never
+    // see a renderer header — so include GLEW here (first, as required).
+    #include <GL/glew.h>
+#endif
 #include "Vectors.h"
 #include "Color.h"
 #include "Debug.h"

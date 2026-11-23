@@ -19,6 +19,14 @@ enum class LightType {
     SPOT
 };
 
+#ifdef None
+#pragma push_macro("None")
+#undef None
+#define CPGE_NONE_SUSPENDED
+#endif
+// NOTE: X11 defines None as a macro (0L); it is suspended above while
+// this enum is declared, then restored below so X11 code (e.g.
+// glXMakeCurrent(..., None, ...)) keeps working.
 enum class LightAnimMode : int
 {
     None = 0,
@@ -110,6 +118,14 @@ constexpr int MAX_POINT_SHADOWS        = 4;
 constexpr int MAX_LOCAL_SHADOW_SLICES  = MAX_SPOT_SHADOWS + MAX_POINT_SHADOWS * 6;   // 32
 constexpr int SHADOW_TARGET_DIRECTIONAL = -1;                                         // ShadowView::target for the dir map
 
+#ifdef None
+#pragma push_macro("None")
+#undef None
+#define CPGE_NONE_SUSPENDED
+#endif
+// NOTE: X11 defines None as a macro (0L); it is suspended above while
+// this enum is declared, then restored below so X11 code (e.g.
+// glXMakeCurrent(..., None, ...)) keeps working.
 enum class ShadowKind : int
 {
     None        = 0,
@@ -592,3 +608,15 @@ private:
     bool     vecFlat = false;
     std::vector<VectorLight> vecLights;
 };
+
+// X11's None macro was suspended above (before the enum declarations
+// that use None as an enumerator). Restore it here, at the end of this
+// header, so X11 code after the includes (e.g. glXMakeCurrent(...,
+// None, ...)) keeps working. The restore must be at end-of-header,
+// not right after each enum: enumerator uses later in this header
+// (default member initialisers such as TunnelSpinCycle::None) are
+// parsed while the macro is suspended.
+#ifdef CPGE_NONE_SUSPENDED
+#pragma pop_macro("None")
+#undef CPGE_NONE_SUSPENDED
+#endif

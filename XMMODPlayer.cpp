@@ -106,7 +106,12 @@ float XMMODPlayer::VibratoTable(uint8_t pos) {
 bool XMMODPlayer::LoadXMFile(const std::wstring& filename) {
     debug.logLevelMessage(LogLevel::LOG_INFO, L"Loading XM file: " + std::wstring(filename.begin(), filename.end()));
 
+#if defined(PLATFORM_WINDOWS)
     std::ifstream file(filename, std::ios::binary);
+#else
+    // libstdc++ has no std::wstring fstream ctor (MSVC extension) — narrow first.
+    std::ifstream file(NarrowPathForFstream(filename), std::ios::binary);
+#endif
     if (!file.is_open()) {
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to open XM file.");
         return false;
@@ -1674,7 +1679,10 @@ void XMMODPlayer::PlaybackLoop() {
         debug.logLevelMessage(LogLevel::LOG_INFO, L"XM PlaybackLoop: Thread started");
     #endif
 
-    lastTickTime = high_resolution_clock::now();
+    // steady_clock, not high_resolution_clock: on libstdc++ the latter is
+    // system_clock, while lastTickTime is a steady_clock::time_point
+    // (as at the other three sites in this file).
+    lastTickTime = std::chrono::steady_clock::now();
 
     auto tickStart = high_resolution_clock::now();
     while (isPlaying && !isTerminating) {

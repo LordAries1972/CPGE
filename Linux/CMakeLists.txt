@@ -10,11 +10,12 @@ set(GAME_NAME "CPGE" CACHE STRING "Base game name used in the output executable"
 set(RENDERER "OpenGL" CACHE STRING "Active renderer (OpenGL, Vulkan)")
 
 # ── Platform detection ────────────────────────────────────────────────────────
+# NOTE: PLATFORM_WINDOWS / PLATFORM_LINUX / PLATFORM_ANDROID are self-defined by
+# Platform.h from the compiler macros (_WIN32 / __ANDROID__ / __linux__), so no
+# -D platform define is passed here (the old PLATFORM_DEFINE was unused).
 if(ANDROID)
-    set(PLATFORM_DEFINE "PLATFORM_ANDROID")
     set(PLATFORM_LABEL "Android")
 else()
-    set(PLATFORM_DEFINE "PLATFORM_LINUX")
     set(PLATFORM_LABEL "Linux")
 endif()
 
@@ -47,12 +48,15 @@ message(STATUS "Output     : ${EXE_OUTPUT_NAME}")
 #   WinMediaPlayer, WinSystem
 # CrossPlatformGameEngine.rc (Windows resource file) is also excluded.
 # MySteam is excluded (deferred to release).
+# Renderer-specific sources are added per RENDERER below so the OpenGL build
+# never compiles the Vulkan backend (and vice versa).
 set(SOURCES
     ${SRC_DIR}/BlenderImports.cpp
     ${SRC_DIR}/Configuration.cpp
     ${SRC_DIR}/ConsoleWindow.cpp
     ${SRC_DIR}/Debug.cpp
     ${SRC_DIR}/ExceptionHandler.cpp
+    ${SRC_DIR}/FBXImport.cpp
     ${SRC_DIR}/FileIO.cpp
     ${SRC_DIR}/GamePlayer.cpp
     ${SRC_DIR}/GamingAI.cpp
@@ -74,11 +78,7 @@ set(SOURCES
     ${SRC_DIR}/MoviePlayer.cpp
     ${SRC_DIR}/MyRandomizer.cpp
     ${SRC_DIR}/NetworkManager.cpp
-    ${SRC_DIR}/OpenGLCamera.cpp
     ${SRC_DIR}/FXManager.cpp
-    ${SRC_DIR}/OpenGLModels.cpp
-    ${SRC_DIR}/OpenGLRenderFrame.cpp
-    ${SRC_DIR}/OpenGLRenderer.cpp
     ${SRC_DIR}/IOLoaderThread.cpp
     ${SRC_DIR}/Physics.cpp
     ${SRC_DIR}/PUNPack.cpp
@@ -91,13 +91,44 @@ set(SOURCES
     ${SRC_DIR}/SoundManager.cpp
     ${SRC_DIR}/ThreadManager.cpp
     ${SRC_DIR}/TTSManager.cpp
-    ${SRC_DIR}/VulkanCamera.cpp
-    ${SRC_DIR}/VulkanModels.cpp
-    # IOLoaderThread.cpp already listed above — covers both OpenGL and Vulkan paths
-    ${SRC_DIR}/VULKAN_RenderFrame.cpp
-    ${SRC_DIR}/VULKAN_Renderer.cpp
     ${SRC_DIR}/XMMODPlayer.cpp
+    # Tracker players (MODPlayer is instantiated by main.cpp / IOLoaderThread.cpp;
+    # the others are unreferenced under the current __USE_MODPLAYER__ config but
+    # are part of the engine and must stay linkable if the config changes).
+    ${SRC_DIR}/MODPlayer.cpp
+    ${SRC_DIR}/ITPlayer.cpp
+    ${SRC_DIR}/MPTMPlayer.cpp
+    ${SRC_DIR}/S3MPlayer.cpp
+    # Vector system (Phase2 headline feature; Vectors.cpp holds the non-inline
+    # MyVector/MyQuaternion methods, the rest have no callers yet but are engine code).
+    ${SRC_DIR}/Vectors.cpp
+    ${SRC_DIR}/VectorShapes.cpp
+    ${SRC_DIR}/VectorRadar.cpp
+    ${SRC_DIR}/VectorRender.cpp
+    ${SRC_DIR}/XMLParser.cpp
 )
+
+if(RENDERER STREQUAL "OpenGL")
+    list(APPEND SOURCES
+        ${SRC_DIR}/OpenGLCamera.cpp
+        ${SRC_DIR}/OpenGLModels.cpp
+        ${SRC_DIR}/OpenGLRenderFrame.cpp
+        ${SRC_DIR}/OpenGLRenderer.cpp
+    )
+elseif(RENDERER STREQUAL "Vulkan")
+    list(APPEND SOURCES
+        ${SRC_DIR}/VulkanCamera.cpp
+        ${SRC_DIR}/VulkanModels.cpp
+        ${SRC_DIR}/VULKAN_RenderFrame.cpp
+        ${SRC_DIR}/VULKAN_Renderer.cpp
+    )
+endif()
+
+# Linux-only window-system implementation (SystemUtils for X11; WinSystem.cpp
+# is Windows-only and stays out of this build).
+if(NOT ANDROID)
+    list(APPEND SOURCES ${SRC_DIR}/WinSystemLinux.cpp)
+endif()
 
 # ── Target ────────────────────────────────────────────────────────────────────
 # Android produces a shared library loaded by NativeActivity / GameActivity.
@@ -124,6 +155,7 @@ target_compile_definitions(CrossPlatformGameEngine PRIVATE
 # ── GCC / Clang compile options ───────────────────────────────────────────────
 target_compile_options(CrossPlatformGameEngine PRIVATE
     -Wall
+    -Wno-unknown-pragmas  # 52 files carry MSVC #pragma warning / comment(lib, ...) — noise, not errors
     -Wno-narrowing
     -Wno-unused-variable
     -Wno-unused-function
@@ -158,32 +190,30 @@ if(NOT ANDROID)
     find_package(OpenGL REQUIRED)
     target_include_directories(CrossPlatformGameEngine PRIVATE ${OPENGL_INCLUDE_DIR})
     target_link_libraries(CrossPlatformGameEngine PRIVATE ${OPENGL_LIBRARIES})
+    # GLX (used directly by OpenGLRenderer / OpenGLRenderFrame for context
+    # creation and buffer swaps). Modern CMake provides OpenGL::GLX.
+    if(TARGET OpenGL::GLX)
+        target_link_libraries(CrossPlatformGameEngine PRIVATE OpenGL::GLX)
+    endif()
+
+    # X11 (window creation in main.cpp, input in KeyboardHandler, metrics in
+    # WinSystemLinux.cpp). Required on Linux desktop — no X11, no window.
+    find_package(X11 REQUIRED)
+    target_include_directories(CrossPlatformGameEngine PRIVATE ${X11_INCLUDE_DIR})
+    target_link_libraries(CrossPlatformGameEngine PRIVATE ${X11_LIBRARIES})
 
     # GLEW — prefer find_package; fall back to manual link if not in CMake registry
-    find_package(GLEW QUIET)
-    if(GLEW_FOUND)
-        target_compile_definitions(CrossPlatformGameEngine PRIVATE GLEW_STATIC)
-        target_include_directories(CrossPlatformGameEngine PRIVATE ${GLEW_INCLUDE_DIRS})
-        target_link_libraries(CrossPlatformGameEngine PRIVATE GLEW::GLEW)
-        message(STATUS "GLEW      : ${GLEW_LIBRARIES}")
-    else()
-        message(STATUS "GLEW      : find_package failed — linking -lGLEW directly")
-        target_link_libraries(CrossPlatformGameEngine PRIVATE GLEW)
-    endif()
+    find_package(GLEW REQUIRED)
+    target_compile_definitions(CrossPlatformGameEngine PRIVATE GLEW_STATIC)
+    target_include_directories(CrossPlatformGameEngine PRIVATE ${GLEW_INCLUDE_DIRS})
+    target_link_libraries(CrossPlatformGameEngine PRIVATE GLEW::GLEW)
+    message(STATUS "GLEW      : ${GLEW_LIBRARIES}")
 
-    # GLM (header-only math; installed via package manager or bundled in include/)
-    find_package(glm QUIET)
-    if(glm_FOUND)
-        target_link_libraries(CrossPlatformGameEngine PRIVATE glm::glm)
-    else()
-        find_path(GLM_INCLUDE_DIR glm/glm.hpp
-            HINTS ${SRC_DIR}/include /usr/include /usr/local/include)
-        if(GLM_INCLUDE_DIR)
-            target_include_directories(CrossPlatformGameEngine PRIVATE ${GLM_INCLUDE_DIR})
-        else()
-            message(WARNING "GLM not found — install libglm-dev or add glm/ to ${SRC_DIR}/include/")
-        endif()
-    endif()
+    # GLM (header-only math; required — VULKAN_Renderer.h, FXManager.h and the
+    # cameras include <glm/glm.hpp> unconditionally, so a missing glm is a
+    # hard compile error, not a warning).
+    find_package(glm REQUIRED)
+    target_link_libraries(CrossPlatformGameEngine PRIVATE glm::glm)
 endif()
 
 # ── OpenGL ES / EGL (Android) ─────────────────────────────────────────────────
@@ -223,9 +253,15 @@ if(RENDERER STREQUAL "Vulkan")
     target_link_libraries(CrossPlatformGameEngine PRIVATE ${Vulkan_LIBRARIES})
     message(STATUS "Vulkan SDK : ${Vulkan_INCLUDE_DIRS}")
 
-    # shaderc — runtime GLSL → SPIR-V compilation
+    # shaderc — runtime GLSL → SPIR-V compilation.
+    # Prefer the shared library: libshaderc_combined.a is a static archive
+    # whose glslang / SPIRV-Tools symbols are NOT self-contained, so linking
+    # it needs those libraries added separately (76 undefined references on
+    # Ubuntu's libshaderc-dev). The shared lib (shaderc_shared in the LunarG
+    # SDK, plain shaderc on Ubuntu) carries its dependencies inside, so it
+    # links on its own. The combined archive stays as a last resort.
     find_library(SHADERC_LIB
-        NAMES shaderc_shared shaderc_combined shaderc
+        NAMES shaderc_shared shaderc shaderc_combined
         HINTS
             "$ENV{VULKAN_SDK}/lib"
             "$ENV{VULKAN_SDK}/Lib"
@@ -239,20 +275,24 @@ if(RENDERER STREQUAL "Vulkan")
     endif()
 endif()
 
-# GLM for Vulkan camera (VulkanCamera.cpp uses glm::*)
-if(RENDERER STREQUAL "Vulkan" AND NOT glm_FOUND)
-    find_package(glm QUIET)
-    if(glm_FOUND)
-        target_link_libraries(CrossPlatformGameEngine PRIVATE glm::glm)
-    else()
-        find_path(GLM_INCLUDE_DIR glm/glm.hpp
-            HINTS ${SRC_DIR}/include /usr/include /usr/local/include)
-        if(GLM_INCLUDE_DIR)
-            target_include_directories(CrossPlatformGameEngine PRIVATE ${GLM_INCLUDE_DIR})
-        else()
-            message(WARNING "GLM not found — VulkanCamera.cpp requires glm/glm.hpp")
-        endif()
-    endif()
+# GLM is already required above for every Linux build (the cameras and
+# FXManager.h include <glm/glm.hpp>); nothing more to do per-renderer here.
+
+# ── XCB (Vulkan Linux surface only) ───────────────────────────────────────────
+# VULKAN_Renderer.cpp creates its surface with vkCreateXcbSurfaceKHR, so the
+# Vulkan build needs libxcb. The OpenGL build does not use xcb.
+if(NOT ANDROID AND RENDERER STREQUAL "Vulkan")
+    find_package(X11 REQUIRED)  # already required above; keeps xcb lookup ordered
+    find_library(XCB_LIB xcb REQUIRED)
+    target_link_libraries(CrossPlatformGameEngine PRIVATE ${XCB_LIB})
+    message(STATUS "xcb        : ${XCB_LIB}")
+
+    # X11-xcb (XGetXCBConnection): main.cpp shares the Xlib display connection
+    # with the Vulkan renderer so vkCreateXcbSurfaceKHR gets a live
+    # xcb_connection_t* (see main.cpp, Linux main()).
+    find_library(X11_XCB_LIB X11-xcb REQUIRED)
+    target_link_libraries(CrossPlatformGameEngine PRIVATE ${X11_XCB_LIB})
+    message(STATUS "X11-xcb    : ${X11_XCB_LIB}")
 endif()
 
 # ── System libraries ──────────────────────────────────────────────────────────

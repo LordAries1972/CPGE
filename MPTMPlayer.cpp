@@ -348,7 +348,12 @@ bool MPTMPlayer::LoadMPTMFile(const std::wstring& filename) {
 
     modulePath = filename;
 
+#if defined(PLATFORM_WINDOWS)
     std::ifstream file(filename, std::ios::binary);
+#else
+    // libstdc++ has no std::wstring fstream ctor (MSVC extension) — narrow first.
+    std::ifstream file(NarrowPathForFstream(filename), std::ios::binary);
+#endif
     if (!file.is_open()) {
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"MPTMPlayer: Failed to open MPTM file.");
         return false;
@@ -735,8 +740,12 @@ bool MPTMPlayer::LoadSamples(std::ifstream& file, const std::vector<uint32_t>& s
                     continue;
                 }
                 // Read up to 2× uncompressed size + block headers as a safe upper bound.
+                // Cast to uint64_t first: on LP64 the ULL arithmetic above is
+                // unsigned long long while fileSize64 is unsigned long, and
+                // std::min needs both arguments to be the same type (on MSVC
+                // uint64_t IS unsigned long long, so it compiled there).
                 const uint64_t maxRead = std::min(
-                    static_cast<uint64_t>(sample.length) * (is16Bit ? 4ULL : 2ULL) + 4096ULL,
+                    static_cast<uint64_t>(static_cast<uint64_t>(sample.length) * (is16Bit ? 4ULL : 2ULL) + 4096ULL),
                     fileSize64 - sampleOffset);
                 std::vector<uint8_t> compData(static_cast<size_t>(maxRead));
                 file.seekg(static_cast<std::streamoff>(sampleOffset), std::ios::beg);

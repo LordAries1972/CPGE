@@ -32,6 +32,7 @@ Dependencies: Includes.h, Renderer.h, DX11Renderer.h, DX12Renderer.h, VulkanRend
 #include "SoundManager.h"
 #include "FXManager.h"
 #include "Debug.h"
+#include "ThreadManager.h"  // extern ThreadManager threadManager (came transitively on Windows)
 
 extern FXManager fxManager;
 extern SoundManager soundManager;
@@ -882,13 +883,19 @@ void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick
                 dragStartMousePosition = mousePosition;
                 dragStartPosition = position;
                 control.isPressed = true;
+            #if defined(PLATFORM_WINDOWS)
                 SetCapture(hwnd); // capture the mouse
+            #endif
+                // Linux: no SetCapture — the drag still works while the pointer
+                // stays over the window; a real XGrabPointer is Phase B polish.
             }
             else if (!isLeftClick && isDragging) {
                 // Stop dragging
                 isDragging = false;
                 control.isPressed = false;
+            #if defined(PLATFORM_WINDOWS)
                 ReleaseCapture(); // release mouse capture
+            #endif
             }
             break;
         }
@@ -934,7 +941,9 @@ void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick
                     control.isPressed = true;
                     clickConsumed = true;
                     // No click cooldown: press-edge capture already stops cross-window bleed.
+                #if defined(PLATFORM_WINDOWS)
                     SetCapture(hwnd);
+                #endif
                     if (control.onMouseBtnDown) control.onMouseBtnDown();
                     if (bWindowDestroy) return;
                 }
@@ -943,7 +952,9 @@ void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick
             } else {
                 if (control.isPressed) {
                     control.isPressed = false;
+                #if defined(PLATFORM_WINDOWS)
                     ReleaseCapture();
+                #endif
                     if (control.onMouseBtnUp) control.onMouseBtnUp();
                 }
             }
@@ -1051,7 +1062,9 @@ void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick
                             // Start scrollbar thumb drag
                             control.isActive    = true;
                             control.sliderValue = mousePosition.y;  // drag anchor Y
+                        #if defined(PLATFORM_WINDOWS)
                             SetCapture(hwnd);
+                        #endif
                         } else {
                             // Item selection
                             control.isActive = false;
@@ -1084,7 +1097,9 @@ void GUIWindow::HandleMouseClick(const Vector2& mousePosition, bool& isLeftClick
                     control.isPressed = false;
                     if (control.isActive) {
                         control.isActive = false;
+                    #if defined(PLATFORM_WINDOWS)
                         ReleaseCapture();
+                    #endif
                     }
                 }
             }
@@ -1741,7 +1756,13 @@ void GUIWindow::Render() {
                 }
 
                 // Knob colour — gold when active (dragging), blue-hue otherwise
-                bool flashOn = (GetTickCount64() / 500) % 2 == 0;
+                bool flashOn = (
+                #if defined(PLATFORM_WINDOWS)
+                    GetTickCount64()
+                #else
+                    static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count())
+                #endif
+                / 500) % 2 == 0;
                 MyColor knobTop, knobBot;
                 if (control.isActive) {
                     knobTop = flashOn ? MyColor(255, 218, 82, 255) : MyColor(195, 162, 38, 255);
@@ -1949,7 +1970,13 @@ void GUIWindow::Render() {
 
                 // Blinking cursor bar (fires at ~1 Hz)
                 if (control.isFocused) {
-                    bool showCursor = (GetTickCount64() / 530) % 2 == 0;
+                    bool showCursor = (
+                    #if defined(PLATFORM_WINDOWS)
+                        GetTickCount64()
+                    #else
+                        static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count())
+                    #endif
+                    / 530) % 2 == 0;
                     if (showCursor) {
                         // Sum character widths up to cursorPos for precise placement
                         float cursorOffX = 0.0f;

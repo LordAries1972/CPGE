@@ -39,6 +39,31 @@ const float JOYSTICK_MAX_VALUE = 65535.0f;
 const float JOYSTICK_CENTER = 32767.5f;
 const float JOYSTICK_DEADZONE = 4000.0f;                                            // About 6% deadzone
 
+#if !defined(PLATFORM_WINDOWS)
+// Portable winmm stand-ins (Linux/Android only; Windows uses mmsystem.h
+// via Includes.h).  Platform.h provides the generic Win32 aliases
+// (DWORD, UINT, ...); the winmm-specific types below live here because no
+// other header provides them on Linux/Android.  Minimal layout only: the
+// Linux stub never reads a real pad, it only needs the types to exist so
+// the public API (JoystickState, ReadPadButtons, ReadRawPad) keeps its
+// signatures on every platform.  Platform.h must not define JOYINFOEX or
+// MMRESULT as well — these are the single definitions.
+using MMRESULT = std::uint32_t;
+struct JOYINFOEX
+{
+    DWORD dwSize;
+    DWORD dwFlags;
+    DWORD dwXpos;
+    DWORD dwYpos;
+    DWORD dwZpos;
+    DWORD dwRpos;
+    DWORD dwUpos;
+    DWORD dwVpos;
+    DWORD dwButtons;
+    DWORD dwButtonNumber;
+    DWORD dwPOV;
+};
+#endif
 struct JoystickState 
 {
     int joystickID;
@@ -90,6 +115,8 @@ struct JoystickAxes {
     float rz;                                                                       // Rotation Z-axis (if available)
 };
 
+// Linux/Android (Phase A): stub backend — no evdev input yet; methods
+// return safe defaults (no controllers, zeroed axes, no key events).
 class Joystick {
 public:
     // Shared menu navigation: a held east button never skips pages, and a
@@ -165,7 +192,11 @@ private:
     // Last joystick fault, kept for the status snapshot.  Updated only by the
     // warning helpers below, under m_joyMutex.  A hard point result is never
     // cleared by a later success, so the snapshot still shows what went wrong.
+#if defined(PLATFORM_WINDOWS)
     MMRESULT m_lastWinMmResult = JOYERR_NOERROR;
+#else
+    MMRESULT m_lastWinMmResult = 0;
+#endif
     std::wstring m_lastWarning;
 
     // Central warning path.  Every joystick failure in this file goes through
@@ -176,6 +207,11 @@ private:
     // result and, for a hard point result, dumps a status snapshot.
     void LogJoystickWarning(const std::wstring& message);
     void LogJoystickWarningWithResult(const std::wstring& what, MMRESULT result);
+#if !defined(PLATFORM_WINDOWS)
+    // Linux/Android stub (Phase A): logs the one-time "joystick input is
+    // unavailable on Linux" warning (see Joystick.cpp).  No evdev backend.
+    void LogLinuxStubWarningOnce();
+#endif
     static std::wstring DescribeWinMmResult(MMRESULT result);
     static bool IsHardPointResult(MMRESULT result);
     std::wstring BuildStatusText(const std::wstring& reason) const;

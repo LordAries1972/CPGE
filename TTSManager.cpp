@@ -12,8 +12,12 @@
 extern Debug debug;
 extern ThreadManager threadManager;
 
-#pragma warning(push)
-#pragma warning(disable: 4101)
+#if defined(PLATFORM_WINDOWS)
+    #pragma warning(push)
+    #pragma warning(disable: 4101)
+#endif
+
+#if defined(PLATFORM_WINDOWS)
 
 // Constructor - Initialize member variables to safe defaults
 TTSManager::TTSManager() :
@@ -1257,3 +1261,174 @@ void TTSManager::UpdatePlaybackState() {
 }
 
 #pragma warning(pop)
+
+#else
+// ============================================================================
+// Linux / Android stub (Phase A)
+// No Windows SAPI backend yet, so speech is a safe no-op: action methods log
+// one warning the first time the subsystem is used and return false;
+// GetPlaybackState() returns STATE_ERROR (the value main.cpp already treats
+// as "TTS unavailable"), the getters return the stored configuration defaults
+// and the voice list is empty. Nothing here throws or quits.
+// ============================================================================
+namespace {
+    // One warning per process, however often the stub is used.
+    void LogTTSUnavailableOnce()
+    {
+        static std::atomic<bool> warned{ false };
+        if (!warned.exchange(true))
+        {
+            Debug::logDiagLevelMessage(LogLevel::LOG_WARNING,
+                L"TTSManager is unavailable on Linux in this phase (Windows SAPI is Windows-only); text-to-speech is disabled.");
+        }
+    }
+}
+
+TTSManager::TTSManager() :
+    m_bIsInitialized(false),
+    m_bHasCleanedUp(false),
+    m_currentState(TTSPlaybackState::STATE_STOPPED),
+    m_bSpeaking(false),
+    m_bStopRequested(false)
+{
+    m_currentConfig = TTSConfiguration();
+}
+
+TTSManager::~TTSManager() {
+    if (!m_bHasCleanedUp) {
+        CleanUp();
+    }
+}
+
+bool TTSManager::Initialize() {
+    LogTTSUnavailableOnce();
+    return false;
+}
+
+void TTSManager::CleanUp() {
+    LogTTSUnavailableOnce();
+    m_bIsInitialized = false;
+    m_bHasCleanedUp = true;
+    m_currentState = TTSPlaybackState::STATE_STOPPED;
+    m_bSpeaking.store(false);
+    m_bStopRequested.store(false);
+}
+
+bool TTSManager::SetVoiceVolume(float volume) {
+    (void)volume;
+    LogTTSUnavailableOnce();
+    return false;
+}
+
+bool TTSManager::SetVoicePitch(float pitch) {
+    (void)pitch;
+    LogTTSUnavailableOnce();
+    return false;
+}
+
+bool TTSManager::SetVoiceRate(float rate) {
+    (void)rate;
+    LogTTSUnavailableOnce();
+    return false;
+}
+
+bool TTSManager::SetSpeakerChannel(TTSSpeakerChannel channel) {
+    (void)channel;
+    LogTTSUnavailableOnce();
+    return false;
+}
+
+bool TTSManager::SetVoiceQuality(TTSVoiceQuality quality) {
+    (void)quality;
+    LogTTSUnavailableOnce();
+    return false;
+}
+
+bool TTSManager::SetVoiceByName(const std::wstring& voiceName) {
+    (void)voiceName;
+    LogTTSUnavailableOnce();
+    return false;
+}
+
+bool TTSManager::Play(const std::wstring& text) {
+    (void)text;
+    LogTTSUnavailableOnce();
+    return false;
+}
+
+bool TTSManager::PlayAsync(const std::wstring& text) {
+    (void)text;
+    LogTTSUnavailableOnce();
+    return false;
+}
+
+bool TTSManager::Pause() {
+    LogTTSUnavailableOnce();
+    return false;
+}
+
+bool TTSManager::Resume() {
+    LogTTSUnavailableOnce();
+    return false;
+}
+
+bool TTSManager::Stop() {
+    LogTTSUnavailableOnce();
+    return false;
+}
+
+TTSPlaybackState TTSManager::GetPlaybackState() const {
+    return TTSPlaybackState::STATE_ERROR;
+}
+
+bool TTSManager::IsPlaying() const {
+    return false;
+}
+
+bool TTSManager::IsPaused() const {
+    return false;
+}
+
+float TTSManager::GetCurrentVolume() const {
+    return m_currentConfig.volume;
+}
+
+float TTSManager::GetCurrentPitch() const {
+    return m_currentConfig.pitch;
+}
+
+float TTSManager::GetCurrentRate() const {
+    return m_currentConfig.rate;
+}
+
+TTSSpeakerChannel TTSManager::GetCurrentChannel() const {
+    return m_currentConfig.channel;
+}
+
+std::vector<std::wstring> TTSManager::GetAvailableVoices() {
+    return std::vector<std::wstring>();
+}
+
+std::wstring TTSManager::GetCurrentVoiceName() const {
+    return m_currentConfig.voiceName;
+}
+
+bool TTSManager::IsVoiceAvailable(const std::wstring& voiceName) {
+    (void)voiceName;
+    return false;
+}
+
+void TTSManager::SaveConfiguration(const TTSConfiguration& config) {
+    m_currentConfig = config;
+}
+
+TTSConfiguration TTSManager::LoadConfiguration() {
+    return m_currentConfig;
+}
+
+void TTSManager::ResetToDefaults() {
+    m_currentConfig = TTSConfiguration();
+    m_currentState = TTSPlaybackState::STATE_STOPPED;
+}
+
+#endif // !PLATFORM_WINDOWS

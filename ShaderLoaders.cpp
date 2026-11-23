@@ -86,7 +86,7 @@ private:
         // Create appropriate profile
         ShaderProfile profile = CreateProfileForShader(shaderName);
 
-        if (!shaderManager.LoadShader(shaderName, path, type, profile)) {
+        if (!shaderManager.LoadShader(shaderName, path.wstring(), type, profile)) {
             debug.logDiagMessage(LogLevel::LOG_ERROR, L"Failed to load scene shader: %hs", shaderName.c_str());
         }
         else {
@@ -177,7 +177,7 @@ bool LoadAllShaders()
                 debug.logDebugMessage(LogLevel::LOG_DEBUG, L"[LoadAllShaders] Attempting to load shader: %hs from path: %ls", shaderName.c_str(), path.c_str());
             #endif
 
-            if (!shaderManager.LoadShader(shaderName, path, type))
+            if (!shaderManager.LoadShader(shaderName, path.wstring(), type))
             {
                 debug.logDiagMessage(LogLevel::LOG_ERROR, L"Shader: %hs has failed to load from path: %ls!", shaderName.c_str(), path.c_str());
                 return false;

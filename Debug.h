@@ -13,7 +13,16 @@
 // ----------------------------------------------------------------------------------------------
 #pragma once
 
-#include <windows.h>
+#include "Platform.h"
+
+// Windows-only: the Win32 API (windows.h) is the source of HRESULT, LPCWSTR,
+// OutputDebugString and the fatal-UI calls. On Linux/Android the portable
+// stand-ins in Platform.h provide those names instead (HRESULT = int32_t,
+// LPCWSTR = const wchar_t*, FAILED/SUCCEEDED macros), and Debug.cpp uses
+// fprintf(stderr) / __builtin_trap / localtime_r in their place.
+#if defined(PLATFORM_WINDOWS)
+    #include <windows.h>
+#endif
 #include <string>
 
 #define _DEBUG_EXCEPTIONHANDLER_                                        // Define this line, to show all debug output for the ExceptionHandler class.

@@ -12,21 +12,27 @@
 #include "MathPrecalculation.h"
 #include "MoviePlayer.h"
 
-#if defined(__USE_DIRECTX_11__)
-    #include "DX11Renderer.h"
-#elif defined(__USE_DIRECTX_12__)
-    #include "DX12Renderer.h"
-#endif
+#if defined(PLATFORM_WINDOWS)
+    #if defined(__USE_DIRECTX_11__)
+        #include "DX11Renderer.h"
+    #elif defined(__USE_DIRECTX_12__)
+        #include "DX12Renderer.h"
+    #endif
 
-#include <mfapi.h>
-#include <mfidl.h>
-#include <mfreadwrite.h>
-#include <WinSystem.h>
+    #include <mfapi.h>
+    #include <mfidl.h>
+    #include <mfreadwrite.h>
+    #include <WinSystem.h>
+#endif
 #include "ThreadManager.h"
 
 // Initialize external global instances
 extern Debug debug;
-extern SystemUtils sysUtils;
+#if defined(PLATFORM_WINDOWS)
+    extern SystemUtils sysUtils;
+#endif
+
+#if defined(PLATFORM_WINDOWS)
 
 // Constructor changes - remove thread-related fields
 MoviePlayer::MoviePlayer() :
@@ -3045,3 +3051,193 @@ const uint8_t* MoviePlayer::GetCurrentFrameRGBA(uint32_t& outWidth, uint32_t& ou
     outHeight = m_cpuFrameHeight;
     return m_cpuFrameBuffer.data();
 }
+
+#else
+// ============================================================================
+// Linux / Android stub (Phase A)
+// No Media Foundation / DirectShow / XAudio2 backend yet, so every playback
+// operation is a safe no-op: action methods log one warning the first time the
+// subsystem is used and return safe defaults (false / 0.0 / nullptr); the
+// polling getters stay silent and return the same safe defaults. Nothing here
+// throws or quits, so the renderers can keep polling IsPlaying() every frame.
+// ============================================================================
+namespace {
+    // One warning per process, however often the stub is used (UpdateFrame()
+    // and ProcessMovieRequest() are called every frame by the renderers).
+    void LogMoviePlayerUnavailableOnce()
+    {
+        static std::atomic<bool> warned{ false };
+        if (!warned.exchange(true))
+        {
+            Debug::logDiagLevelMessage(LogLevel::LOG_WARNING,
+                L"MoviePlayer is unavailable on Linux in this phase (Media Foundation / DirectShow are Windows-only); movie playback is disabled.");
+        }
+    }
+}
+
+// Owned by the rendering thread; suppresses live game overlays.
+bool gameplayPlaybackActive = false;
+
+MoviePlayer::MoviePlayer() :
+    m_threadManager(nullptr),
+    m_videoTextureIndex(-1),
+    m_videoWidth(0),
+    m_videoHeight(0),
+    m_videoDuration(0),
+    m_isInitialized(false),
+    m_isPlaying(false),
+    m_isPaused(false),
+    m_hasVideo(false),
+    m_hasAudio(false),
+    m_llCurrentPosition(0),
+    m_playStartMediaTime(-1),
+    m_hasNewFrame(false),
+    m_enableAudio(false),
+    m_targetFPS(30.0f),
+    m_audioReadPosition(0),
+    m_audioStartSamples(0),
+    m_samplesPlayedOffset(0),
+    m_firstAudioSamplePTS(-1),
+    m_cpuFrameWidth(0),
+    m_cpuFrameHeight(0)
+{
+    m_playStartWallTime = std::chrono::steady_clock::now();
+    m_lastFrameTime = std::chrono::steady_clock::now();
+}
+
+MoviePlayer::~MoviePlayer()
+{
+    Cleanup();
+}
+
+bool MoviePlayer::IsPlaying() const
+{
+    return m_isPlaying.load();
+}
+
+bool MoviePlayer::IsPaused() const
+{
+    return m_isPaused.load();
+}
+
+bool MoviePlayer::Initialize(std::shared_ptr<Renderer> rendererPtr, ThreadManager* threadManager, float fps, bool enableAudio)
+{
+    LogMoviePlayerUnavailableOnce();
+    m_targetFPS = (fps > 0.0f) ? fps : 30.0f;
+    m_enableAudio = enableAudio;
+    m_renderer = rendererPtr;
+    m_threadManager = threadManager;
+    return false;
+}
+
+void MoviePlayer::RequestMovie(const std::wstring& path, bool holdOpeningFrame)
+{
+    LogMoviePlayerUnavailableOnce();
+    std::lock_guard<std::mutex> lock(m_requestMutex);
+    m_requestedMovie = path; m_holdOpeningFrame.store(holdOpeningFrame);
+    m_resumeRequested.store(false); m_movieRequested.store(true);
+}
+
+void MoviePlayer::ProcessMovieRequest()
+{
+    LogMoviePlayerUnavailableOnce();
+    if (m_resumeRequested.exchange(false)) { SeekTo(0.0); Play(); }
+    if (!m_movieRequested.load()) {
+        if (m_holdOpeningFrame.load() && IsPlaying() && GetCurrentPosition() >= 0.05) {
+            UpdateFrame(); Pause(); m_holdOpeningFrame.store(false);
+        }
+        return;
+    }
+    std::wstring path;
+    { std::lock_guard<std::mutex> lock(m_requestMutex);
+      path.swap(m_requestedMovie); m_movieRequested.store(false); }
+    if (path.empty()) Stop();
+    else if (OpenMovie(path)) Play();
+}
+
+bool MoviePlayer::OpenMovie(const std::wstring& filePath)
+{
+    (void)filePath;
+    LogMoviePlayerUnavailableOnce();
+    return false;
+}
+
+bool MoviePlayer::Play()
+{
+    LogMoviePlayerUnavailableOnce();
+    return false;
+}
+
+bool MoviePlayer::Pause()
+{
+    LogMoviePlayerUnavailableOnce();
+    return false;
+}
+
+bool MoviePlayer::Stop()
+{
+    LogMoviePlayerUnavailableOnce();
+    return false;
+}
+
+bool MoviePlayer::Reset()
+{
+    LogMoviePlayerUnavailableOnce();
+    return false;
+}
+
+bool MoviePlayer::SeekTo(double timeInSeconds)
+{
+    (void)timeInSeconds;
+    LogMoviePlayerUnavailableOnce();
+    return false;
+}
+
+double MoviePlayer::GetDuration()
+{
+    return 0.0;
+}
+
+double MoviePlayer::GetCurrentPosition()
+{
+    return 0.0;
+}
+
+Vector2 MoviePlayer::GetVideoDimensions()
+{
+    return Vector2(static_cast<float>(m_videoWidth), static_cast<float>(m_videoHeight));
+}
+
+bool MoviePlayer::UpdateFrame()
+{
+    LogMoviePlayerUnavailableOnce();
+    return false;
+}
+
+const uint8_t* MoviePlayer::GetCurrentFrameRGBA(uint32_t& outWidth, uint32_t& outHeight)
+{
+    outWidth = 0; outHeight = 0;
+    return nullptr;
+}
+
+void MoviePlayer::Render(const Vector2& position, const Vector2& size)
+{
+    (void)position; (void)size;
+    LogMoviePlayerUnavailableOnce();
+}
+
+void MoviePlayer::Cleanup()
+{
+    LogMoviePlayerUnavailableOnce();
+    m_isInitialized.store(false);
+    m_isPlaying.store(false);
+    m_isPaused.store(false);
+    m_hasVideo.store(false);
+    m_hasAudio.store(false);
+    m_hasNewFrame.store(false);
+    m_cpuFrameBuffer.clear();
+    m_cpuFrameWidth = 0;
+    m_cpuFrameHeight = 0;
+}
+
+#endif // !PLATFORM_WINDOWS

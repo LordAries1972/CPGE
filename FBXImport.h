@@ -39,7 +39,7 @@ static constexpr int64_t FBX_TIME_UNIT = 46186158000LL;
 enum class FBXPropertyType : uint8_t
 {
     Short       = 'Y',
-    Bool        = 'C',
+    Boolean     = 'C',   // (named Boolean, not Bool: Xlib.h #defines Bool to int)
     Int         = 'I',
     Float       = 'F',
     Double      = 'D',

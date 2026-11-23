@@ -1025,16 +1025,38 @@ void OpenGLRenderer::RenderFrame()
 {
     moviePlayer.ProcessMovieRequest();
     // ---- Safety guards ----
+    // The "context exists" check is per-platform: Windows keeps the HGLRC in
+    // renderingContext, Linux in glxContext, Android in eglContext.
+#if defined(_WIN32) || defined(_WIN64)
     if (bHasCleanedUp || m_glContext.renderingContext == nullptr)
         return;
+#elif defined(PLATFORM_LINUX)
+    if (bHasCleanedUp || m_glContext.glxContext == nullptr)
+        return;
+#elif defined(PLATFORM_ANDROID)
+    if (bHasCleanedUp || m_glContext.eglContext == EGL_NO_CONTEXT)
+        return;
+#endif
 
-#if defined(RENDERER_IS_THREAD) && (defined(_WIN32) || defined(_WIN64))
+#if defined(RENDERER_IS_THREAD)
     // Make the OpenGL context current in THIS render thread.
     // Initialize() released it from the main thread so we own it here.
+    #if defined(_WIN32) || defined(_WIN64)
     if (!wglMakeCurrent(m_glContext.deviceContext, m_glContext.renderingContext)) {
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] wglMakeCurrent failed — render thread cannot acquire GL context");
         return;
     }
+    #elif defined(PLATFORM_LINUX)
+    if (!glXMakeCurrent(m_glContext.display, m_glContext.window, m_glContext.glxContext)) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] glXMakeCurrent failed — render thread cannot acquire GL context");
+        return;
+    }
+    #elif defined(PLATFORM_ANDROID)
+    if (eglMakeCurrent(m_glContext.eglDisplay, m_glContext.eglSurface, m_glContext.eglSurface, m_glContext.eglContext) == EGL_FALSE) {
+        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] eglMakeCurrent failed — render thread cannot acquire GL context");
+        return;
+    }
+    #endif
 #endif
 
     if (threadManager.threadVars.bIsShuttingDown.load() ||
@@ -1122,7 +1144,7 @@ void OpenGLRenderer::RenderFrame()
 
             myCamera.UpdateJumpAnimation();
 
-            // ---- WGL context rebind after window resize / mode change ----
+            // ---- WGL/GLX context rebind after window resize / mode change ----
             // SetFullExclusive / SetWindowedScreen set m_pendingContextRebind to signal that
             // the window surface dimensions changed.  WGL requires the context to be unbound
             // and rebound on the render thread for the drawable size to update on some drivers.
@@ -1131,6 +1153,11 @@ void OpenGLRenderer::RenderFrame()
             if (m_pendingContextRebind.exchange(false)) {
                 wglMakeCurrent(nullptr, nullptr);
                 wglMakeCurrent(m_glContext.deviceContext, m_glContext.renderingContext);
+            }
+            #elif defined(RENDERER_IS_THREAD) && defined(PLATFORM_LINUX)
+            if (m_pendingContextRebind.exchange(false)) {
+                glXMakeCurrent(m_glContext.display, None, nullptr);
+                glXMakeCurrent(m_glContext.display, m_glContext.window, m_glContext.glxContext);
             }
             #endif
 

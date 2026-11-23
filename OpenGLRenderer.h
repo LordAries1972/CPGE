@@ -38,18 +38,30 @@
 #include <GL/glew.h>
 #include <GL/wglew.h>
 #pragma warning(pop)
-#elif defined(__linux__)
-#include <GL/gl.h>
-#include <GL/glu.h>
-#include <GL/glx.h>
-#include <GL/glew.h>
-#include <X11/Xlib.h>
-#include <X11/Xutil.h>
-#elif defined(__ANDROID__)
+// NOTE: test PLATFORM_ANDROID before PLATFORM_LINUX — Android also defines
+// __linux__, so the Linux branch would otherwise swallow the Android one.
+#elif defined(PLATFORM_ANDROID)
 #include <GLES3/gl3.h>
 #include <GLES3/gl3ext.h>
 #include <EGL/egl.h>
 #include <android/native_window.h>
+#elif defined(PLATFORM_LINUX)
+// GLEW must be included BEFORE gl.h/glu.h/glx.h: the vendored glew.h
+// #errors if gl.h came first, and Mesa's gl.h pulls in glext.h whose
+// PFN typedefs then conflict with this older vendored glew.h. glew.h
+// defines __glext_h_ itself, so including it first keeps glext.h out.
+#include <GL/glew.h>
+#include <GL/gl.h>
+#include <GL/glu.h>
+// X11 typedefs KeyCode (unsigned char), which collides with the engine's
+// enum class KeyCode (KeyboardHandler.h). Rename the X11 typedef at include
+// time so the two can coexist in one translation unit. The rename must come
+// BEFORE glx.h: Mesa's glx.h includes <X11/Xlib.h> itself.
+#define KeyCode X11KeyCode
+#include <GL/glx.h>
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
+#undef KeyCode
 #elif defined(__APPLE__)
 #include <TargetConditionals.h>
 #if TARGET_OS_IPHONE || TARGET_IPHONE_SIMULATOR
@@ -169,19 +181,19 @@ struct OpenGLContext {
     HWND windowHandle;                                                      // Window Handle
     PIXELFORMATDESCRIPTOR pixelFormatDescriptor;                            // Pixel Format Descriptor
 };
-#elif defined(__linux__)
-struct OpenGLContext {
-    Display* display;                                                       // X11 Display
-    Window window;                                                          // X11 Window
-    GLXContext glxContext;                                                  // GLX Context
-    XVisualInfo* visualInfo;                                                // Visual Information
-};
-#elif defined(__ANDROID__)
+#elif defined(PLATFORM_ANDROID)
 struct OpenGLContext {
     EGLDisplay eglDisplay;                                                  // EGL Display
     EGLContext eglContext;                                                  // EGL Context
     EGLSurface eglSurface;                                                  // EGL Surface
     ANativeWindow* nativeWindow;                                            // Android Native Window
+};
+#elif defined(PLATFORM_LINUX)
+struct OpenGLContext {
+    Display* display;                                                       // X11 Display
+    Window window;                                                          // X11 Window
+    GLXContext glxContext;                                                  // GLX Context
+    XVisualInfo* visualInfo;                                                // Visual Information
 };
 #elif defined(__APPLE__)
 #if TARGET_OS_IPHONE || TARGET_IPHONE_SIMULATOR
@@ -281,7 +293,7 @@ public:
 #endif
 
     // Override all pure virtual functions from the base class Renderer
-    void Initialize(HWND hwnd, HINSTANCE hInstance) override;                   // Initialize OpenGL renderer with platform window
+    void Initialize(NativeWindowHandle hwnd, NativeInstanceHandle hInstance) override;   // Initialize OpenGL renderer with platform window
     bool StartRendererThreads();                                               // Start rendering and loader threads
     void RenderFrame() override;                                                // Main rendering loop function
     void LoaderTaskThread() override;                                           // Asset loading thread function
@@ -491,7 +503,7 @@ private:
     std::string GLLockName = "opengl_render_lock";                              // OpenGL operation synchronization lock name
 
     // Our private function and procedure definitions for this class.
-    bool CreateOpenGLContext(HWND hwnd);                                        // Create platform-specific OpenGL context
+    bool CreateOpenGLContext(NativeWindowHandle hwnd);                           // Create platform-specific OpenGL context
 #if defined(_WIN32) || defined(_WIN64)
     int  FindMultisamplePixelFormat(HDC realDC, const PIXELFORMATDESCRIPTOR& basePfd); // WGL: multisampled pixel format for the Video MSAA settings (0 = none)
 #endif

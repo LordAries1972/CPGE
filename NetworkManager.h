@@ -108,9 +108,19 @@ struct NetworkPacket {
     NetworkPacket() : sendTime(std::chrono::steady_clock::now()), retryCount(0) {}
 };
 
+#if !defined(PLATFORM_WINDOWS)
+// Portable Winsock stand-ins (Linux/Android only; Windows uses winsock2.h
+// via Includes.h).  POSIX sockets are ints and -1 is the invalid value.
+// Defined here because Platform.h does not provide SOCKET/INVALID_SOCKET.
+// Platform.h must not define SOCKET or INVALID_SOCKET as well — these are
+// the single definitions.
+using SOCKET = int;
+constexpr SOCKET INVALID_SOCKET = -1;
+#endif
+
 // Network connection information
 struct NetworkConnection {
-    SOCKET socket;                                                      // Winsock socket handle
+    SOCKET socket;                                                      // Socket handle (Winsock on Windows; portable alias defined above for Linux/Android)
     NetworkProtocol protocol;                                           // Connection protocol type (TCP/UDP)
     std::string serverAddress;                                          // Server IP address or hostname
     uint16_t serverPort;                                                // Server port number
@@ -144,6 +154,8 @@ struct NetworkStatistics {
 };
 
 // Main NetworkManager class for all network operations
+// Linux/Android (Phase A): stub backend — Initialize() succeeds so the
+// engine can start, but connections and packets are unavailable.
 class NetworkManager {
 public:
     // Constructor and destructor
@@ -265,6 +277,11 @@ private:
     // Debug and logging helpers
     void LogNetworkActivity(const std::string& activity);               // Log network activity for debugging
     void LogPacketInfo(const NetworkPacket& packet, bool sending);      // Log detailed packet information
+#if !defined(PLATFORM_WINDOWS)
+    // Linux/Android stub (Phase A): logs the one-time "networking is
+    // unavailable on Linux" warning (see NetworkManager.cpp).
+    void LogLinuxStubWarningOnce();
+#endif
 };
 
 // Global NetworkManager instance declaration

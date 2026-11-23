@@ -8,24 +8,26 @@
 #include "ThreadManager.h"
 #include "ThreadLockHelper.h"  // Added the ThreadLockHelper include
 
-// Windows & DirectShow related includes
-#include <dshow.h>
-#include <evr.h>
-#include <mfapi.h>
-#include <mfidl.h>
-#include <mfreadwrite.h>
-#include <d3d11.h>
-#include <xaudio2.h>
+#if defined(PLATFORM_WINDOWS)
+    // Windows & DirectShow related includes
+    #include <dshow.h>
+    #include <evr.h>
+    #include <mfapi.h>
+    #include <mfidl.h>
+    #include <mfreadwrite.h>
+    #include <d3d11.h>
+    #include <xaudio2.h>
 
-// Link required libraries
-#pragma comment(lib, "strmiids.lib")
-#pragma comment(lib, "mf.lib")
-#pragma comment(lib, "mfplat.lib")
-#pragma comment(lib, "mfreadwrite.lib")
-#pragma comment(lib, "mfuuid.lib")
-#pragma comment(lib, "dxva2.lib")
-#pragma comment(lib, "evr.lib")
-#pragma comment(lib, "xaudio2.lib")
+    // Link required libraries
+    #pragma comment(lib, "strmiids.lib")
+    #pragma comment(lib, "mf.lib")
+    #pragma comment(lib, "mfplat.lib")
+    #pragma comment(lib, "mfreadwrite.lib")
+    #pragma comment(lib, "mfuuid.lib")
+    #pragma comment(lib, "dxva2.lib")
+    #pragma comment(lib, "evr.lib")
+    #pragma comment(lib, "xaudio2.lib")
+#endif
 
 // Forward declarations
 class Renderer;
@@ -93,6 +95,7 @@ private:
     std::mutex m_requestMutex;
     std::wstring m_requestedMovie;
     std::atomic<bool> m_holdOpeningFrame { false }, m_resumeRequested { false };
+#if defined(PLATFORM_WINDOWS)
     // XAudio2 voice callback — frees the per-buffer BYTE* copy on completion
     struct AudioVoiceCallback : public IXAudio2VoiceCallback {
         void STDMETHODCALLTYPE OnBufferEnd(void* pContext) override { delete[] static_cast<BYTE*>(pContext); }
@@ -142,8 +145,14 @@ private:
     void ConfigureAudioStream();
     bool ReadAudioSample();
     void CleanupAudio();
+#else
+    // Linux / Android (Phase A): no Media Foundation / DirectShow / XAudio2.
+    // The helpers above are Windows-only; the Linux stub in MoviePlayer.cpp
+    // implements only the public API.
+#endif
 
 private:
+#if defined(PLATFORM_WINDOWS)
     // Media Foundation objects
     IMFSourceReader* m_pSourceReader;
     IMFSample* m_pCurrentSample;
@@ -219,4 +228,39 @@ private:
     static constexpr const char* MOVIE_CONTROL_LOCK = "movie_control_lock";
     static constexpr const char* RENDERER_FRAME_LOCK = "renderer_frame_lock";
     static constexpr const char* D2D_DRAW_LOCK = "d2d_draw_lock";
+#else
+    // Linux / Android stub state (Phase A): no Media Foundation, DirectShow,
+    // Direct3D 11 or XAudio2. Only the state the public stub API needs is kept.
+    std::shared_ptr<Renderer> m_renderer;
+    ThreadManager* m_threadManager;
+    int m_videoTextureIndex;
+    UINT m_videoWidth;
+    UINT m_videoHeight;
+    LONGLONG m_videoDuration;
+    std::atomic<bool> m_isInitialized;
+    std::atomic<bool> m_isPlaying;
+    std::atomic<bool> m_isPaused;
+    std::atomic<bool> m_hasVideo;
+    std::atomic<bool> m_hasAudio;
+    std::atomic<LONGLONG> m_llCurrentPosition;
+    std::recursive_mutex m_mutex;
+    std::chrono::steady_clock::time_point m_playStartWallTime;
+    LONGLONG m_playStartMediaTime;
+    std::chrono::steady_clock::time_point m_lastFrameTime;
+    std::atomic<bool> m_hasNewFrame;
+    bool m_enableAudio;
+    float m_targetFPS;
+    LONGLONG m_audioReadPosition;
+    std::uint64_t m_audioStartSamples;
+    std::uint64_t m_samplesPlayedOffset;
+    LONGLONG m_firstAudioSamplePTS;
+    std::vector<uint8_t> m_cpuFrameBuffer;
+    uint32_t             m_cpuFrameWidth  = 0;
+    uint32_t             m_cpuFrameHeight = 0;
+    static constexpr const char* MOVIE_MUTEX_LOCK = "movie_mutex";
+    static constexpr const char* MOVIE_UPDATE_LOCK = "movie_update_lock";
+    static constexpr const char* MOVIE_CONTROL_LOCK = "movie_control_lock";
+    static constexpr const char* RENDERER_FRAME_LOCK = "renderer_frame_lock";
+    static constexpr const char* D2D_DRAW_LOCK = "d2d_draw_lock";
+#endif
 };

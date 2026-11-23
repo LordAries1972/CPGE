@@ -325,6 +325,14 @@ struct AIModelConfiguration {
 // CPGE-AI-LISTENER uses typed routes, never executable addresses or arbitrary code.
 // Snapshots and replies are value types so game threads never own worker data.
 enum class AIGameEnd : uint8_t { Reset, GameOver, Complete, Quit, Abort, SceneChange };
+#ifdef None
+#pragma push_macro("None")
+#undef None
+#define CPGE_NONE_SUSPENDED
+#endif
+// NOTE: X11 defines None as a macro (0L); it is suspended above while
+// this enum is declared, then restored below so X11 code (e.g.
+// glXMakeCurrent(..., None, ...)) keeps working.
 enum class AIGameCommand : uint8_t { None, Pause, Resume, Restart, Aggression };
 struct AIGameStrategy {
     float aggression = 0.5f, predictionSeconds = 0.0f, preferredRange = 14.0f;
@@ -355,6 +363,14 @@ struct AIDemoWatchdog {
     uint32_t strikes = 0;
     bool anchored = false;
 };
+#ifdef None
+#pragma push_macro("None")
+#undef None
+#define CPGE_NONE_SUSPENDED
+#endif
+// NOTE: X11 defines None as a macro (0L); it is suspended above while
+// this enum is declared, then restored below so X11 code (e.g.
+// glXMakeCurrent(..., None, ...)) keeps working.
 enum class AIDemoUnstick : uint8_t { None, Refresh, Probe };
 struct AIGameFrame {
     int scene = -1, player = 1, score = 0, lives = 0, wave = 1, mode = 0, floor = -1, area = -1;
@@ -412,6 +428,14 @@ struct AINavigationMemory {
     int count = 0, next = 0, failures = 0;
     float lastX = 0, lastY = 0, stalled = 0, sampleTime = 0;
 };
+#ifdef None
+#pragma push_macro("None")
+#undef None
+#define CPGE_NONE_SUSPENDED
+#endif
+// NOTE: X11 defines None as a macro (0L); it is suspended above while
+// this enum is declared, then restored below so X11 code (e.g.
+// glXMakeCurrent(..., None, ...)) keeps working.
 enum class AIInventoryOperation : uint8_t { None, Open, Use, Equip, Drop, Close };
 enum class AIInventoryKind : uint8_t { Equipment, Recovery, Resource, Weapon, Ammo, Key };
 struct AIInventoryItem {
@@ -974,3 +998,15 @@ private:
     struct timespec m_performanceTimer;                                // POSIX high-resolution timer  
 #endif
 };
+
+// X11's None macro was suspended above (before the enum declarations
+// that use None as an enumerator). Restore it here, at the end of this
+// header, so X11 code after the includes (e.g. glXMakeCurrent(...,
+// None, ...)) keeps working. The restore must be at end-of-header,
+// not right after each enum: enumerator uses later in this header
+// (default member initialisers such as TunnelSpinCycle::None) are
+// parsed while the macro is suspended.
+#ifdef CPGE_NONE_SUSPENDED
+#pragma pop_macro("None")
+#undef CPGE_NONE_SUSPENDED
+#endif

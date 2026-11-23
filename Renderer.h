@@ -532,7 +532,20 @@ public:
 	// Our Camera object for 3D rendering
     Camera myCamera;
 
-    // Destructor
+    // Platform window/instance handles for Renderer::Initialize().
+// Windows passes the real HWND/HINSTANCE; on Linux/Android the handle is an
+// opaque void* (Linux: the X11 Window cast through uintptr_t; Android: the
+// ANativeWindow*). Derived renderers keep the same signature on every
+// platform by using these aliases, so the override still matches exactly.
+#if defined(PLATFORM_WINDOWS)
+    using NativeWindowHandle = HWND;
+    using NativeInstanceHandle = HINSTANCE;
+#else
+    using NativeWindowHandle = void*;
+    using NativeInstanceHandle = void*;
+#endif
+
+// Destructor
     virtual ~Renderer() = default;
 
     // Required Variables
@@ -540,7 +553,7 @@ public:
     
     // Initialization and Cleanup
     virtual void RendererName(std::string sThisName) = 0;
-    virtual void Initialize(HWND hwnd, HINSTANCE hInstance) = 0;
+    virtual void Initialize(NativeWindowHandle hwnd, NativeInstanceHandle hInstance) = 0;
     virtual void Cleanup() = 0;
 
 	// System Testing Functions
@@ -645,8 +658,12 @@ public:
     virtual float CalculateTextWidth(const std::wstring& text, float FontSize, float containerWidth) = 0;
     virtual float CalculateTextHeight(const std::wstring& text, float FontSize, float containerHeight) = 0;
 
-    #if defined(_WIN64) || defined(_WIN32)
-        // Blitting Functions
+    // Blitting Functions — every backend implements them (DX11/DX12/OpenGL/
+    // Vulkan). The Vulkan bodies are Direct2D on Windows and no-ops on
+    // Linux/Android until the native Vulkan 2D blits land (Phase C); the base
+    // still declares them pure virtual for every renderer so shared callers
+    // (FXManager) compile unchanged on all platforms.
+    #if defined(_WIN64) || defined(_WIN32) || defined(__USE_OPENGL__) || defined(__USE_VULKAN__)
         virtual void Blit2DWrappedObjectAtOffset(BlitObj2DIndexType iIndex, int iBlitX, int iBlitY, int iXOffset, int iYOffset, int iTileSizeX, int iTileSizeY) = 0;
         // Blit a 2D image with a centered zoom crop: crops (zoomFactor*100)% in from each edge and scales the result to fill destW x destH.
         // zoomFactor 0.0 = full image; 0.75 = maximum zoom (centre 25% of image area stretched to full dest size).

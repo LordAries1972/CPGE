@@ -1,6 +1,9 @@
 // SceneManager.cpp (continued)
 #include "Includes.h"
 #include "SceneManager.h"
+#if !defined(PLATFORM_WINDOWS)
+    #include <cwchar>   // swprintf on Linux
+#endif
 #include "BlenderImports.h"
 #include "FBXImport.h"
 #include "ThreadLockHelper.h"
@@ -34,6 +37,12 @@
 #endif
 
 using json = nlohmann::json;
+
+// X11 defines None as a macro (0L); this TU uses the LightAnimMode::None
+// enumerator and never uses X11's None value, so drop the macro here.
+#ifdef None
+#undef None
+#endif
 
 extern Model models[MAX_MODELS];                                                    // Global Base Model Pool
 extern Debug debug;
@@ -282,7 +291,11 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
 
             if (std::filesystem::exists(glbFile))
             {
+#if defined(PLATFORM_WINDOWS)
                 std::ifstream miniF(glbFile, std::ios::binary);
+#else
+                std::ifstream miniF(NarrowPathForFstream(glbFile), std::ios::binary);
+#endif
                 if (miniF.is_open())
                 {
                     struct { uint32_t magic, version, length; } hdr{};
@@ -674,7 +687,11 @@ bool SceneManager::ParseGLBScene(const std::wstring& glbFile, bool bCacheOnly)
     showStage(L"Reading GLB file...");
 
     // Open the GLB file in binary mode for reading
+#if defined(PLATFORM_WINDOWS)
     std::ifstream file(glbFile, std::ios::binary);
+#else
+    std::ifstream file(NarrowPathForFstream(glbFile), std::ios::binary);
+#endif
     if (!file.is_open()) {
         debug.logDiagMessage(LogLevel::LOG_ERROR, L"[SceneManager] Failed to open GLB file: %ls", glbFile.c_str());
         return false;
@@ -1485,7 +1502,11 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
 
             if (std::filesystem::exists(gltfFile))
             {
+#if defined(PLATFORM_WINDOWS)
                 std::ifstream miniF(gltfFile);
+#else
+                std::ifstream miniF(NarrowPathForFstream(gltfFile));
+#endif
                 if (miniF.is_open())
                 {
                     try { miniDoc = json::parse(miniF); miniParseOK = true; }
@@ -1860,7 +1881,11 @@ bool SceneManager::ParseGLTFScene(const std::wstring& gltfFile, bool bCacheOnly)
     showStage(L"Reading GLTF file...");
 
     // Open the GLTF file for reading
+#if defined(PLATFORM_WINDOWS)
     std::ifstream file(gltfFile);
+#else
+    std::ifstream file(NarrowPathForFstream(gltfFile));
+#endif
     if (!file.is_open()) {
         debug.logDiagMessage(LogLevel::LOG_ERROR, L"[SceneManager] Failed to open GLTF: %ls", gltfFile.c_str());
         return false;
@@ -3429,7 +3454,7 @@ std::shared_ptr<Texture> SceneManager::LoadGLTFImage(const json& imageEntry, con
         #endif
 
         auto tex = std::make_shared<Texture>();
-        if (tex->LoadFromFile(fullTexPath))
+        if (tex->LoadFromFile(fullTexPath.wstring()))
             return tex;
 
         // Log with a clear failure reason so we know whether the path was wrong or the
@@ -4250,10 +4275,19 @@ void SceneManager::ParseFBXCameras(const FBXScene& fbx)
 
         {
             wchar_t buf[768];
+#if defined(PLATFORM_WINDOWS)
             swprintf_s(buf, L"[SceneManager] FBX Camera '%.128ls' applied: pos=(%.1f,%.1f,%.1f) target=(%.1f,%.1f,%.1f)",
                 first.name.c_str(),
                 first.position.x, first.position.y, first.position.z,
                 first.target.x,   first.target.y,   first.target.z);
+#else
+            // POSIX swprintf has no array-size-deduced overload, so the buffer
+            // size (768) is passed explicitly; the argument order is the same.
+            swprintf(buf, 768, L"[SceneManager] FBX Camera '%.128ls' applied: pos=(%.1f,%.1f,%.1f) target=(%.1f,%.1f,%.1f)",
+                first.name.c_str(),
+                first.position.x, first.position.y, first.position.z,
+                first.target.x,   first.target.y,   first.target.z);
+#endif
             debug.logLevelMessage(LogLevel::LOG_INFO, buf);
         }
     }
@@ -4748,7 +4782,11 @@ bool SceneManager::ParseSceneAutoDetect(const std::wstring& sceneFile, bool bCac
     // Check binary magic when extension alone is ambiguous
     auto readMagic = [&](size_t n, std::vector<uint8_t>& out) -> bool
     {
+#if defined(PLATFORM_WINDOWS)
         std::ifstream f(sceneFile, std::ios::binary);
+#else
+        std::ifstream f(NarrowPathForFstream(sceneFile), std::ios::binary);
+#endif
         if (!f.is_open()) return false;
         out.resize(n);
         f.read(reinterpret_cast<char*>(out.data()), n);
@@ -6125,7 +6163,11 @@ void SceneManager::DetectGLTFExporter(const nlohmann::json& doc)
 // --------------------------------------------------------------------------------------------------
 bool SceneManager::SaveSceneState(const std::wstring& path)
 {
+#if defined(PLATFORM_WINDOWS)
     std::ofstream outFile(path, std::ios::binary);
+#else
+    std::ofstream outFile(NarrowPathForFstream(path), std::ios::binary);
+#endif
     if (!outFile.is_open())
     {
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] Failed to open file for saving: " + path);
@@ -6149,7 +6191,13 @@ bool SceneManager::SaveSceneState(const std::wstring& path)
     outFile.write(reinterpret_cast<const char*>(&count), sizeof(uint32_t));
 
     wchar_t exporterName[64] = {};
+#if defined(PLATFORM_WINDOWS)
     wcsncpy_s(exporterName, m_lastDetectedExporter.c_str(), 63);
+#else
+    // wcsncpy_s is MSVC-only; the buffer is zero-initialised and 63 < 64,
+    // so the final element stays NUL even if the name is truncated.
+    wcsncpy(exporterName, m_lastDetectedExporter.c_str(), 63);
+#endif
     outFile.write(reinterpret_cast<const char*>(exporterName), sizeof(exporterName));
 
     // === Write Camera Position and Target ===
@@ -6174,7 +6222,13 @@ bool SceneManager::SaveSceneState(const std::wstring& path)
         const ModelInfo& info = scene_models[i].m_modelInfo;
         SceneModelStateBinary entry = {};
         entry.ID = info.ID;
+#if defined(PLATFORM_WINDOWS)
         wcsncpy_s(entry.name, info.name.c_str(), 63);
+#else
+        // wcsncpy_s is MSVC-only; entry is zero-initialised and 63 < 64,
+        // so the final element stays NUL even if the name is truncated.
+        wcsncpy(entry.name, info.name.c_str(), 63);
+#endif
         entry.position[0] = info.position.x;
         entry.position[1] = info.position.y;
         entry.position[2] = info.position.z;
@@ -6198,7 +6252,11 @@ bool SceneManager::SaveSceneState(const std::wstring& path)
 
 bool SceneManager::LoadSceneState(const std::wstring& path)
 {
+#if defined(PLATFORM_WINDOWS)
     std::ifstream inFile(path, std::ios::binary);
+#else
+    std::ifstream inFile(NarrowPathForFstream(path), std::ios::binary);
+#endif
     if (!inFile.is_open())
     {
         debug.logLevelMessage(LogLevel::LOG_ERROR, L"[SceneManager] Failed to open file for loading: " + path);

@@ -1054,7 +1054,11 @@ void Model::ApplyDefaultLightingFromManager(LightsManager& myLightsManager)
 bool Model::LoadMTL(const std::wstring& mtlPath)
 {
     std::wstring fileName = sysUtils.StripQuotes(mtlPath);
+#if defined(PLATFORM_WINDOWS)
     std::ifstream file(fileName);
+#else
+    std::ifstream file(NarrowPathForFstream(fileName));
+#endif
     if (!file.is_open())
     {
         debug.logDiagLevelMessage(LogLevel::LOG_ERROR, L"Model: Failed to open MTL file \"" + fileName + L"\"");
@@ -1095,7 +1099,7 @@ bool Model::LoadMTL(const std::wstring& mtlPath)
             auto tex = std::make_shared<Texture>();
             std::wstring txPath = sysUtils.ToWString(texPath);
             std::wstring texPathStr = sysUtils.StripQuotes(txPath);
-            std::wstring myFilename = AssetsDir / texPathStr;
+            std::wstring myFilename = (AssetsDir / texPathStr).wstring();
 
 #if defined(_DEBUG_MODEL_) || defined(_DEBUG_SCENEMANAGER_)
             debug.logLevelMessage(LogLevel::LOG_INFO, L"LoadMTL(): Model: Attempting to Load texture from " + myFilename);
@@ -1129,7 +1133,7 @@ bool Model::LoadMTL(const std::wstring& mtlPath)
             debug.logDebugMessage(LogLevel::LOG_INFO, L"LoadMTL(): -> Attempting to load Material image URI: %hs", fileName.c_str());
             debug.logDebugMessage(LogLevel::LOG_INFO, L"LoadMTL(): -> Resolved full Material path: %ls", fullPath.c_str());
 #endif
-            if (bumpTex->LoadFromFile(fullPath))
+            if (bumpTex->LoadFromFile(fullPath.wstring()))
                 currentMat.normalMap = bumpTex;
             else
                 currentMat.normalMap = nullptr;
@@ -1142,7 +1146,7 @@ bool Model::LoadMTL(const std::wstring& mtlPath)
             std::filesystem::path fullPath = AssetsDir / fileName;
 
             auto tex = std::make_shared<Texture>();
-            if (tex->LoadFromFile(fullPath)) {
+            if (tex->LoadFromFile(fullPath.wstring())) {
                 currentMat.ambientTexture = tex;
             }
             else {
@@ -1155,10 +1159,10 @@ bool Model::LoadMTL(const std::wstring& mtlPath)
             std::wstring newMtlFile = sysUtils.ToWString(texPath);
             std::wstring fileName = sysUtils.StripQuotes(newMtlFile);
             std::filesystem::path fullPath = AssetsDir / fileName;
-            currentMat.specularMapPath = fullPath;
+            currentMat.specularMapPath = fullPath.wstring();
 
             auto tex = std::make_shared<Texture>();
-            if (tex->LoadFromFile(fullPath)) {
+            if (tex->LoadFromFile(fullPath.wstring())) {
                 currentMat.specularTexture = tex;
             }
             else {
@@ -1220,7 +1224,7 @@ void Model::LoadFallbackTexture()
 
         fallback = std::make_shared<Texture>();
 
-        if (!fallback->LoadFromFile(fileName))
+        if (!fallback->LoadFromFile(fileName.wstring()))
         {
             debug.logLevelMessage(LogLevel::LOG_ERROR, L"Failed to load fallback texture: " + fileName.wstring());
             fallback.reset();

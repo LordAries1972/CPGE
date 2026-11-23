@@ -31,7 +31,16 @@
 
 #if defined(__USE_VULKAN__)
     #include <vulkan/vulkan.h>                                                      // Vulkan API headers
-    #include <shaderc/shaderc.hpp>                                                  // SPIR-V compiler
+    // shaderc is optional (CMake only warns when it is missing): include it
+    // only when the headers are present, like FXManager.cpp and
+    // VULKAN_Renderer.cpp already do — otherwise CompileSPIRV() below
+    // reports the missing compiler instead of failing the build.
+    #if __has_include(<shaderc/shaderc.hpp>)
+        #include <shaderc/shaderc.hpp>                                              // SPIR-V compiler
+        #define HAS_SHADERC 1
+    #else
+        #define HAS_SHADERC 0
+    #endif
 #endif
 
 // Warning Suppression for unused parameters
@@ -1651,6 +1660,7 @@ bool ShaderManager::CompileSPIRV(ShaderResource& shader) {
     #endif
 
 #if defined(__USE_VULKAN__)
+#if defined(HAS_SHADERC) && HAS_SHADERC
     // Read shader source code from file
     std::string shaderCode;
     if (!ReadShaderFile(shader.filePath, shaderCode)) {
@@ -1749,6 +1759,15 @@ bool ShaderManager::CompileSPIRV(ShaderResource& shader) {
     #endif
 
     return true;
+
+#else
+    // shaderc headers were not available at build time — runtime GLSL → SPIR-V
+    // compilation is disabled (CMake treats shaderc as optional); pre-compiled
+    // .spv files are required instead.
+    shader.compilationErrors = "shaderc not available: runtime GLSL to SPIR-V compilation is disabled (install libshaderc-dev / the Vulkan SDK, or provide pre-compiled .spv files)";
+    HandleCompilationError(shader, shader.compilationErrors);
+    return false;
+#endif
 
 #else
     // Vulkan not available
@@ -2300,7 +2319,12 @@ bool ShaderManager::ReadShaderFile(const std::wstring& filePath, std::string& ou
     }
 
     // Open file for reading
+#if defined(PLATFORM_WINDOWS)
     std::ifstream file(filePath, std::ios::in | std::ios::binary);
+#else
+    // libstdc++ has no std::wstring fstream ctor (MSVC extension) — narrow first.
+    std::ifstream file(NarrowPathForFstream(filePath), std::ios::in | std::ios::binary);
+#endif
     if (!file.is_open()) {
         debug.logDiagMessage(LogLevel::LOG_ERROR, L"[ShaderManager] ReadShaderFile() failed - could not open file: %ls", filePath.c_str());
         return false;

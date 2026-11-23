@@ -218,7 +218,12 @@ bool FBXImporter::LoadFile(const std::wstring& filepath)
     m_scene  = FBXScene{};
 
     // Read entire file into memory
+#if defined(PLATFORM_WINDOWS)
     std::ifstream f(filepath, std::ios::binary | std::ios::ate);
+#else
+    // libstdc++ has no std::wstring fstream ctor (MSVC extension) — narrow first.
+    std::ifstream f(NarrowPathForFstream(filepath), std::ios::binary | std::ios::ate);
+#endif
     if (!f.is_open())
     {
         debug.logLevelMessage(LogLevel::LOG_ERROR,

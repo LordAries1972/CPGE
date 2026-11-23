@@ -35,6 +35,16 @@ extern Debug debug;
 
 #include <fstream>
 
+// shaderc — optional runtime GLSL → SPIR-V (see CompileGLSLToSPIRV below).
+// File scope only: the header has extern "C" at top level and cannot be
+// included inside a function body (same rule as stb_image above).
+#if __has_include(<shaderc/shaderc.hpp>)
+    #include <shaderc/shaderc.hpp>
+    #define HAS_SHADERC 1
+#else
+    #define HAS_SHADERC 0
+#endif
+
 // ============================================================================
 // VulkanModelUtils implementation
 // ============================================================================
@@ -217,7 +227,7 @@ namespace VulkanModelUtils
     std::vector<uint32_t> CompileGLSLToSPIRV(const std::wstring& glslFilePath,
                                                VkShaderStageFlagBits stage)
     {
-#if __has_include(<shaderc/shaderc.hpp>)
+#if HAS_SHADERC
         std::string narrow(glslFilePath.begin(), glslFilePath.end());
         std::ifstream file(narrow);
         if (!file.is_open())
