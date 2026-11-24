@@ -1,0 +1,410 @@
+[
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\BlenderImports.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\BlenderImports.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\BlenderImports.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\BlenderImports.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\FBXImport.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\FBXImport.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\FBXImport.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\FBXImport.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\Configuration.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\Configuration.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\Configuration.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\Configuration.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\ConsoleWindow.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\ConsoleWindow.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\ConsoleWindow.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\ConsoleWindow.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\Debug.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\Debug.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\Debug.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\Debug.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\DX11Renderer.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\DX11Renderer.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\DX11Renderer.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\DX11Renderer.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\DX12Renderer.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\DX12Renderer.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\DX12Renderer.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\DX12Renderer.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\DX12RenderFrame.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\DX12RenderFrame.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\DX12RenderFrame.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\DX12RenderFrame.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\DX12TitlePipeline.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\DX12TitlePipeline.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\DX12TitlePipeline.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\DX12TitlePipeline.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\DXCamera.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\DXCamera.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\DXCamera.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\DXCamera.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\DXRenderFrame.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\DXRenderFrame.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\DXRenderFrame.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\DXRenderFrame.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\FXManager.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\FXManager.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\FXManager.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\FXManager.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\DX12Models.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\DX12Models.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\DX12Models.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\DX12Models.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\ExceptionHandler.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\ExceptionHandler.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\ExceptionHandler.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\ExceptionHandler.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\FileIO.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\FileIO.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\FileIO.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\FileIO.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\GamePlayer.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\GamePlayer.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\GamePlayer.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\GamePlayer.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\GamingAI.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\GamingAI.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\GamingAI.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\GamingAI.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\FBXAnimator.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\FBXAnimator.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\FBXAnimator.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\FBXAnimator.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\GLTFAnimator.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\GLTFAnimator.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\GLTFAnimator.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\GLTFAnimator.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\ModelAnimator.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\ModelAnimator.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\ModelAnimator.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\ModelAnimator.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\GUIConfigWindow.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\GUIConfigWindow.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\GUIConfigWindow.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\GUIConfigWindow.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\GUIFileDialog.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\GUIFileDialog.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\GUIFileDialog.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\GUIFileDialog.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\GUIManager.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\GUIManager.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\GUIManager.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\GUIManager.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\GUITemplates.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\GUITemplates.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\GUITemplates.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\GUITemplates.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\GUIWindows.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\GUIWindows.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\GUIWindows.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\GUIWindows.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\IOLoaderThread.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\IOLoaderThread.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\IOLoaderThread.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\IOLoaderThread.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\Joystick.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\Joystick.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\Joystick.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\Joystick.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\KBHandlersCode.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\KBHandlersCode.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\KBHandlersCode.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\KBHandlersCode.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\KeyboardHandler.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\KeyboardHandler.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\KeyboardHandler.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\KeyboardHandler.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\Lights.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\Lights.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\Lights.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\Lights.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\main.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\main.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\main.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\main.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\MathPrecalculation.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\MathPrecalculation.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\MathPrecalculation.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\MathPrecalculation.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\Models.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\Models.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\Models.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\Models.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\MoviePlayer.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\MoviePlayer.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\MoviePlayer.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\MoviePlayer.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\MyRandomizer.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\MyRandomizer.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\MyRandomizer.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\MyRandomizer.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\NetworkManager.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\NetworkManager.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\NetworkManager.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\NetworkManager.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\OpenGLCamera.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\OpenGLCamera.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\OpenGLCamera.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\OpenGLCamera.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\OpenGLModels.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\OpenGLModels.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\OpenGLModels.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\OpenGLModels.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\OpenGLRenderer.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\OpenGLRenderer.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\OpenGLRenderer.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\OpenGLRenderer.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\OpenGLRenderFrame.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\OpenGLRenderFrame.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\OpenGLRenderFrame.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\OpenGLRenderFrame.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\VulkanCamera.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\VulkanCamera.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\VulkanCamera.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\VulkanCamera.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\VulkanModels.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\VulkanModels.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\VulkanModels.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\VulkanModels.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\VULKAN_Renderer.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\VULKAN_Renderer.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\VULKAN_Renderer.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\VULKAN_Renderer.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\VULKAN_RenderFrame.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\VULKAN_RenderFrame.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\VULKAN_RenderFrame.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\VULKAN_RenderFrame.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\Physics.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\Physics.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\Physics.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\Physics.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\ITPlayer.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\ITPlayer.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\ITPlayer.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\ITPlayer.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\MODPlayer.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\MODPlayer.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\MODPlayer.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\MODPlayer.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\MPTMPlayer.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\MPTMPlayer.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\MPTMPlayer.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\MPTMPlayer.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\PUNPack.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\PUNPack.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\PUNPack.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\PUNPack.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\RendererFactory.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\RendererFactory.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\RendererFactory.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\RendererFactory.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\S3MPlayer.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\S3MPlayer.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\S3MPlayer.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\S3MPlayer.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\SceneManager.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\SceneManager.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\SceneManager.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\SceneManager.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\ScriptManager.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\ScriptManager.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\ScriptManager.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\ScriptManager.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\ScreenRecorder.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\ScreenRecorder.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\ScreenRecorder.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\ScreenRecorder.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\ShaderLoaders.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\ShaderLoaders.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\ShaderLoaders.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\ShaderLoaders.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\ShaderManager.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\ShaderManager.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\ShaderManager.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\ShaderManager.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\SoundManager.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\SoundManager.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\SoundManager.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\SoundManager.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\ThreadManager.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\ThreadManager.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\ThreadManager.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\ThreadManager.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\TTSManager.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\TTSManager.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\TTSManager.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\TTSManager.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\Vectors.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\Vectors.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\Vectors.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\Vectors.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\VectorShapes.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\VectorShapes.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\VectorShapes.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\VectorShapes.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\VectorRadar.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\VectorRadar.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\VectorRadar.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\VectorRadar.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\VectorRender.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\VectorRender.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\VectorRender.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\VectorRender.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\WinMediaPlayer.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\WinMediaPlayer.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\WinMediaPlayer.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\WinMediaPlayer.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\WinSystem.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\WinSystem.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\WinSystem.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\WinSystem.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\XMLParser.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\XMLParser.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\XMLParser.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\XMLParser.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\Llvm\\x64\\bin\\clang.exe\" -IF:/Projects/C++/CPGE2026 -IF:/Projects/C++/CPGE2026/include -ID:/VulkanSDK/1.4.363.0/Include -O0 -g -Xclang -gcodeview -std=gnu++17 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -o CMakeFiles\\CrossPlatformGameEngine.dir\\XMMODPlayer.cpp.obj -c F:\\Projects\\C++\\CPGE2026\\XMMODPlayer.cpp",
+  "file": "F:\\Projects\\C++\\CPGE2026\\XMMODPlayer.cpp",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\XMMODPlayer.cpp.obj"
+},
+{
+  "directory": "F:/Projects/C++/CPGE2026/build",
+  "command": "\"D:\\Windows Kits\\10\\bin\\10.0.26100.0\\x64\\rc.exe\" -I F:/Projects/C++/CPGE2026 -I F:/Projects/C++/CPGE2026/include -I D:/VulkanSDK/1.4.363.0/Include /fo CMakeFiles\\CrossPlatformGameEngine.dir\\CrossPlatformGameEngine.rc.res F:\\Projects\\C++\\CPGE2026\\CrossPlatformGameEngine.rc",
+  "file": "F:\\Projects\\C++\\CPGE2026\\CrossPlatformGameEngine.rc",
+  "output": "CMakeFiles\\CrossPlatformGameEngine.dir\\CrossPlatformGameEngine.rc.res"
+}
+]
