@@ -10,7 +10,7 @@ The idea of this is to give the developer a great starting frame-work to use wit
 
 ## Phase 2 Vector Gaming Release
 
-The upcoming CPGE Phase 2 release brings the new vector gaming system and **27 playable game demonstrations** into one Windows build. The games demonstrate the engine in action through playable examples.
+The upcoming CPGE Phase 2 release brings the new vector gaming system and **36 playable game demonstrations** into one Windows build. The games demonstrate the engine in action through playable examples.
 
 The vector release is pending merge into [CPGE Phase 2 on GitHub](https://github.com/LordAries1972/CPGE/tree/Phase2).
 
@@ -22,17 +22,18 @@ The vector release is pending merge into [CPGE Phase 2 on GitHub](https://github
 
 ### Vector system and game catalogue
 
-The vector gaming system is designed to work across CPGE’s supported Windows rendering backends. The 27 playable games showcase how the vector system can be used in a working game engine.
+The vector gaming system is designed to work across CPGE’s supported Windows rendering back-ends. The 36 different playable games which all showcase 
+how the vector system can be used in a working game engine.
 
-The detailed vector module and API inventory, the 27 game titles, and game-specific credits will be added after review of the pre-merge source.
+The detailed vector module and API inventory, the 36 game titles, and game-specific credits will be added after review of the per-merge source.
 
 ### Demo use and credits
 
-**The 27 games are non-commercial demonstrations only. Do not sell them, list them for sale, or include them in a paid product, marketplace listing, or bundle.**
+**The 36 games are strictly non-commercial demonstrations only. Do not sell them, list them for sale, or include them in a paid product, marketplace listing, or bundle.**
 
 Some demonstrations are inspired by existing games. Credit belongs to the original creators, developers, publishers, and other applicable rights holders. Third-party game names, artwork, audio, trademarks, and other materials remain the property of their respective owners. Attribution does not grant permission to use or redistribute third-party material.
 
-> I built these demos to show CPGE's vector system running in playable games. Any third-party material is included solely for these demonstrations. I respect the original creators' ownership, and any future use would require separate permission from the relevant rights holders.
+> I built these demos to show CPGE's vector system running in playable game scenarios. Any third-party material is included solely for these demonstrations. I respect the original creators' ownership, and any future use would require separate permission from the relevant rights holders.
 >
 > Judge the demos by what they show about the engine in play. Rendering benchmarks and comparisons are outside their scope. Graphics modellers and game teams are responsible for creating their assets, shaping the visual style, and polishing the final presentation for their own projects.
 
@@ -50,7 +51,7 @@ CPGE was originally co-founded and designed by Daniel J. Hobson of Ultimanium De
 
 ## History Related Links
 
-We keep approxiametely about one months of code changes in the 'History' folder so users can see exactly what code changes have been made directly, but we 
+We keep approximately about one months of code changes in the 'History' folder so users can see exactly what code changes have been made directly, but we 
 record a build history file as well and can be found here below:-
 
 👉 [Release History](ReleaseInfo.md)
@@ -87,14 +88,14 @@ With our First Release, you can now create a full working 2D/3D game using the 2
 - Model Lighting and Emissions are fully working, including shadowing!
 - Script Manager allow users to program the system via scripting,
 - Screen and Audio Recording (dumps to recording.mp4)
-- Scene Management & cacheing,
+- Scene Management & caching,
 - Full Working Vectoring system and supports 3D as well as 2D,
 - Randomizer (RNG System) & 
 - Custom Windows and Controls. 
 
 Basically everything you need to create a standard 2D & 3D Based Looking Gaming system on the Windows 10 SP1 / 11 64bit Operating Systems.  Please note that Win32 is not supported (Well not by me anyways)!
 
-- We are now using scenes which consist of all models (including textures, bumps etc), Camera and lighting within a 3D Project.  For you to use this successfully, consider using a 3D Modeller package that can export GLTF 2.0 or FBX 7+ formats (Legacy Direct.x exports/importing will too come regardless of obseltion, but primarily for DX11 users).  
+- We are now using scenes which consist of all models (including textures, bumps etc), Camera and lighting within a 3D Project.  For you to use this successfully, consider using a 3D Modeller package that can export GLTF 2.0 or FBX 7+ formats (Legacy Direct.x exports/importing will too come regardless of redundancy, but primarily for DX11 users).  
 
 I, myself, uses Blender v4.3 and above which is also free to use.  You can find it under the 'Important Links' section above.  I will add other supportive formats later when the overall system is functioning as it should.
 
@@ -107,7 +108,7 @@ Recorded demos will be available again once the website returns.
 ## Known Issues 25th June, 2026:
 These are the following known issues and will be resolved as humanly possible.
 
-1) Window Resizing (On Windows, now forbidden - What Resolution set in config.cfg is go!).  To change this, you must go to the SCENE_GAMETITLE and visit the configuration system.  AT ALL COST! DO NOT Alter the GameConfig.cfg file manually as its checksum protected!  ANTI-CHEAT Protection! - PUNPACK will be enforced on this file as well very soon so its fully encyrpted!
+1) Window Resizing (On Windows, now forbidden - What Resolution set in config.cfg is go!).  To change this, you must go to the SCENE_GAMETITLE and visit the configuration system.  AT ALL COST! DO NOT Alter the GameConfig.cfg file manually as its checksum protected!  ANTI-CHEAT Protection! - PUNPACK will be enforced on this file as well very soon so its fully encrypted!
 
 2) Full Screen Exclusive modes causing all sorts of mayhem at the moment, from readings and analysis, this is due to the push of win messages and causing things to be out of sync, resulting crashing problems - I am currently investigating this issue!
 
@@ -211,10 +212,10 @@ DirectX 12 is one of the most powerful — and most complex — graphics APIs av
 - Implementing and validating **root signatures and PSO (Pipeline State Object)** management
 - GPU memory management: upload heaps, default heaps, and resource barriers
 - Multi-threaded command list recording to take full advantage of DX12's parallelism
-- Synchronisation primitives: fences, GPU/CPU synchronisation patterns
+- Synchronization primitives: fences, GPU/CPU synchronization patterns
 - Shader compilation pipeline: DXIL, shader reflection, and runtime shader permutations
 - Eventually: DXR (DirectX Raytracing) integration for advanced lighting/reflection systems
-- Profiling and performance optimisation using tools such as PIX, RenderDoc, and NVIDIA Nsight
+- Profiling and performance optimization using tools such as PIX, RenderDoc, and NVIDIA Nsight
 
 **What we need from you:**
 
