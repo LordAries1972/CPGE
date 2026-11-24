@@ -614,8 +614,10 @@ private:
     // GDI+ token (Windows text / image loading)
     ULONG_PTR m_gdiplusToken = 0;                                               // GDI+ initialisation token
 
-#if defined(_WIN32) || defined(_WIN64)
+#if defined(PLATFORM_WINDOWS)
     HGLRC m_loaderGLContext = nullptr;                                          // Shared WGL context for loader-thread texture uploads
+#elif defined(PLATFORM_LINUX)
+    GLXContext m_loaderGLContext = nullptr;                                     // Shared GLX context for loader-thread texture uploads (Linux mirror of the WGL loader context; Android has no loader context until Phase D wires EGL)
 #endif
 
     // Mutexes for thread safety

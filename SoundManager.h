@@ -91,6 +91,9 @@ namespace SoundSystem {
         LPDIRECTSOUNDBUFFER buffer = nullptr;
 #else
         void* buffer = nullptr;
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+        void* audioBuffer = nullptr;    // ma_audio_buffer* (Linux/Android miniaudio path; wraps audioData)
+#endif
 #endif
     };
 
@@ -165,6 +168,11 @@ namespace SoundSystem {
         // ASync Thread Management
         void StartPlaybackThread();
         void StopPlaybackThread();
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+        // Diagnostics (also used by the headless sound test): true while any
+        // one-shot, queued or bank sound is currently playing through miniaudio.
+        bool IsAnySoundPlaying();
+#endif
 
         // Public access to preloaded sounds
         std::unordered_map<SFX_ID, LoadedSFX> fileList;
@@ -178,6 +186,16 @@ namespace SoundSystem {
         void* m_directSound   = nullptr;
         void* m_primaryBuffer = nullptr;
 #endif
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+        void* m_miniaudioEngine = nullptr;      // MiniaudioEngine* (Linux/Android only; owned by SoundManager.cpp)
+        // In-flight PlayImmediateSFX one-shots (Linux/Android miniaudio path): a one-shot
+        // plays asynchronously, so its ma_sound + ma_audio_buffer must outlive the call
+        // that started it; PlayQueueList reaps the finished ones (see ReapOneShots).
+        struct OneShot { void* sound = nullptr; void* buffer = nullptr; };
+        std::vector<OneShot> m_oneShots;
+        std::mutex m_oneShotMutex;
+        void ReapOneShots();                    // playback thread: free finished one-shots
+#endif
 
         std::mutex m_queueMutex;
         std::vector<SoundQueueItem> m_soundQueue;
@@ -190,7 +208,10 @@ namespace SoundSystem {
 #if defined(PLATFORM_WINDOWS)
             LPDIRECTSOUNDBUFFER buf = nullptr;
 #else
-            void* buf = nullptr;
+            void* buf = nullptr;            // ma_sound* (Linux/Android miniaudio path)
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+            void* audioBuffer = nullptr;    // ma_audio_buffer* (one per voice; wraps the BankSound's shared PCM)
+#endif
 #endif
             unsigned long long started = 0;                     // GetTickCount64() when it began; 0 = idle
             float level = 0.0f;
@@ -203,6 +224,9 @@ namespace SoundSystem {
             unsigned minGapMs = 0, maxPlayMs = 0;
             float gain = 1.0f;
             bool ok = false;
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+            LoadedSFX pcm;   // the slot's PCM; every voice's ma_audio_buffer references it (no copy per voice)
+#endif
         };
         std::vector<BankSound> m_bank;
         std::thread m_bankLoader;                               // RegisterBankSoundsAsync's worker

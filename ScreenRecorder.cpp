@@ -1726,26 +1726,190 @@ void ScreenRecorder::CleanupMic()
 
 #else
 // ============================================================================
-// Linux / Android stub (Phase A)
-// No Media Foundation / WASAPI backend yet, so recording is a safe no-op:
-// StartRecording logs one warning the first time the subsystem is used and
-// returns false; IsRecording() stays false so every call site (main loop,
-// renderers, key handlers) simply skips capture. Nothing here throws or quits.
-// No CaptureFrame overload is defined here: none is declared on Linux (every
-// overload in ScreenRecorder.h is renderer- and Windows-guarded).
+// Linux / Android FFmpeg backend (Phase B)
+//
+// Replaces Media Foundation / WASAPI with libavformat / libavcodec /
+// libswscale / libswresample: H.264 video (libx264, falling back to the
+// native mpeg4 encoder) and AAC audio muxed into an MP4 file.
+//
+// Video: CaptureFrame reads the back-buffer (glReadPixels on OpenGL, a
+// staging-buffer copy on Vulkan -- the same readback code as the Windows
+// path, which is platform-independent) and WriteVideoFrameFFmpeg scales
+// BGRA to YUV420P and encodes it. Video timestamps use the frame index
+// in the stream time base (1/fps), so they are evenly spaced and
+// monotonic regardless of wall-clock jitter.
+//
+// Audio: game music is captured from the tracker players through the
+// shared Miniaudio::Stream tap (SetTapOnAllStreams -- it installs the tap
+// on streams that already exist as well as ones created later). The tap
+// runs on the audio thread and appends mixed 44100 Hz stereo s16 PCM to
+// a lock-protected queue; the render thread drains the queue, resamples
+// to 48 kHz float planar and encodes AAC, timestamp-locked to the video
+// clock (audio is never encoded ahead of the current video frame).
+// SoundManager one-shots (SFX) go through ma_engine, which has no output
+// tap, so SFX are NOT in the recording -- only tracker music is.
+//
+// Mic: not available on Linux yet (no WASAPI / PulseAudio capture wired
+// in). A non-Off MicMode logs one warning and records without a mic.
+//
+// FFmpeg is optional: when the headers are absent (__has_include fails)
+// HAS_FFMPEG is 0 and StartRecording keeps the old stub behaviour -- one
+// "FFmpeg not available" warning, false, no throw, no quit -- so the code
+// still compiles on a machine without FFmpeg dev files. CMake links the
+// FFmpeg libraries only when both the headers and the libraries are
+// found (see Linux/CMakeLists.txt).
 // ============================================================================
+
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    #if __has_include(<libavformat/avformat.h>) && __has_include(<libavcodec/avcodec.h>) && \
+        __has_include(<libswscale/swscale.h>) && __has_include(<libswresample/swresample.h>)
+        #define HAS_FFMPEG 1
+        extern "C" {
+        #include <libavformat/avformat.h>
+        #include <libavcodec/avcodec.h>
+        #include <libswscale/swscale.h>
+        #include <libswresample/swresample.h>
+        #include <libavutil/avutil.h>
+        #include <libavutil/imgutils.h>
+        #include <libavutil/opt.h>
+        #include <libavutil/channel_layout.h>
+        }
+        #include "MiniaudioStream.h"
+    #else
+        #define HAS_FFMPEG 0
+    #endif
+#else
+    #define HAS_FFMPEG 0
+#endif
+
+// GL headers for the OpenGL CaptureFrame (glReadPixels). The Windows GL
+// headers arrive via Includes.h; on Linux they do not, and
+// ScreenRecorder.cpp does not include OpenGLRenderer.h (which is where
+// they live). Desktop GL on Linux, GLES3 on Android.
+#if defined(PLATFORM_LINUX) && defined(__USE_OPENGL__)
+    #include <GL/glew.h>
+    #include <GL/gl.h>
+#elif defined(PLATFORM_ANDROID) && defined(__USE_OPENGL__)
+    #include <GLES3/gl3.h>
+#endif
+
 namespace {
-    // One warning per process, however often the stub is used.
+    // One warning per process, however often the stub path is used.
     void LogScreenRecorderUnavailableOnce()
     {
         static std::atomic<bool> warned{ false };
         if (!warned.exchange(true))
         {
             Debug::logDiagLevelMessage(LogLevel::LOG_WARNING,
-                L"ScreenRecorder is unavailable on Linux in this phase (Media Foundation / WASAPI are Windows-only); screen recording is disabled.");
+                L"ScreenRecorder is unavailable on this build (FFmpeg headers not found: libavformat / libavcodec / libswscale / libswresample); screen recording is disabled.");
+        }
+    }
+    // One warning per process for the missing microphone backend.
+    void LogRecorderMicUnavailableOnce()
+    {
+        static std::atomic<bool> warned{ false };
+        if (!warned.exchange(true))
+        {
+            Debug::logDiagLevelMessage(LogLevel::LOG_WARNING,
+                L"ScreenRecorder: Microphone capture is not available on Linux yet; recording without a microphone.");
         }
     }
 }
+
+// H.264 output bitrate, matching the Windows MF path.
+static constexpr int kRecorderVideoBitrate = 10'000'000;
+// AAC output sample rate (the native AAC encoder's preferred rate).
+static constexpr int kRecorderAudioRate = 48000;
+
+#if HAS_FFMPEG
+
+namespace
+{
+
+// All FFmpeg state for one recording. Owned through the opaque void*
+// ScreenRecorder::m_ffmpeg so the FFmpeg types never leak into the header.
+struct RecorderFFmpeg
+{
+    AVFormatContext* outFmt = nullptr;
+    AVStream* vstream = nullptr;
+    AVStream* astream = nullptr;
+    AVCodecContext* venc = nullptr;
+    AVCodecContext* aenc = nullptr;
+    SwsContext* sws = nullptr;
+    SwrContext* swr = nullptr;
+    AVFrame* vframe = nullptr;          // YUV420P, m_width x m_height
+    AVFrame* aframe = nullptr;          // FLTP, 48000 Hz stereo, aenc->frame_size samples
+    AVPacket* pkt = nullptr;
+    int swsInW = 0;                     // input size the sws was created for
+    int swsInH = 0;
+    int64_t audioPts = 0;               // audio samples encoded (48 kHz clock)
+    std::string outPath;
+    bool hasAudio = false;
+    // Resampled audio staging (planar float, 48 kHz). Filled by the
+    // resampler, drained in whole AAC frames by WriteAudioFramesFFmpeg.
+    std::vector<float> audioStageL;
+    std::vector<float> audioStageR;
+};
+
+void FreeRecorderFFmpeg(RecorderFFmpeg* r)
+{
+    if (!r)
+        return;
+    if (r->vframe)
+        av_frame_free(&r->vframe);
+    if (r->aframe)
+        av_frame_free(&r->aframe);
+    if (r->pkt)
+        av_packet_free(&r->pkt);
+    if (r->sws)
+    {
+        sws_freeContext(r->sws);
+        r->sws = nullptr;
+    }
+    if (r->swr)
+        swr_free(&r->swr);
+    if (r->venc)
+        avcodec_free_context(&r->venc);
+    if (r->aenc)
+        avcodec_free_context(&r->aenc);
+    if (r->outFmt)
+    {
+        // The file was already closed (avio_closep) by StopRecording's
+        // trailer path; if we get here early, close it now.
+        if (r->outFmt->pb)
+            avio_closep(&r->outFmt->pb);
+        avformat_free_context(r->outFmt);
+    }
+    delete r;
+}
+
+// Encode one frame (or flush when frame == nullptr) and write every
+// packet the encoder produces. Returns false on an encode/write error.
+bool EncodeAndWrite(RecorderFFmpeg* r, AVCodecContext* enc, AVStream* stream, AVFrame* frame)
+{
+    if (avcodec_send_frame(enc, frame) < 0)
+        return false;
+    while (true)
+    {
+        const int rc = avcodec_receive_packet(enc, r->pkt);
+        if (rc == AVERROR(EAGAIN) || rc == AVERROR_EOF)
+            return true;
+        if (rc < 0)
+            return false;
+        av_packet_rescale_ts(r->pkt, enc->time_base, stream->time_base);
+        r->pkt->stream_index = stream->index;
+        if (av_interleaved_write_frame(r->outFmt, r->pkt) < 0)
+        {
+            av_packet_unref(r->pkt);
+            return false;
+        }
+        av_packet_unref(r->pkt);
+    }
+}
+
+} // namespace
+
+#endif // HAS_FFMPEG
 
 ScreenRecorder::ScreenRecorder()
     : m_width(0), m_height(0)
@@ -1761,6 +1925,8 @@ ScreenRecorder::ScreenRecorder()
     , m_micMonitorGain(2.5f), m_micRecordGain(2.5f)
     , m_isRecording(false)
 {
+    m_recordingStart = std::chrono::steady_clock::now();
+    m_lastVideoTime = m_recordingStart;
 }
 
 ScreenRecorder::~ScreenRecorder()
@@ -1774,22 +1940,745 @@ bool ScreenRecorder::StartRecording(UINT width, UINT height,
                                     MicMode micMode,
                                     AudioBitrate audioBitrate, bool captureAudio)
 {
-    (void)width; (void)height; (void)fps; (void)outputPath;
-    (void)micMode; (void)audioBitrate; (void)captureAudio;
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_isRecording.load()) return false;
+
+    UINT32 fpsVal = static_cast<UINT32>(fps);
+    if (fpsVal != 15 && fpsVal != 30 && fpsVal != 60 && fpsVal != 90 && fpsVal != 120)
+    {
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
+            L"ScreenRecorder: Unsupported fps " + std::to_wstring(fpsVal) + L" - defaulting to 60fps");
+        fpsVal = 60; fps = RecordFPS::FPS_60;
+    }
+
+    m_width               = width  & ~1u;   // H.264 requires even dimensions
+    m_height              = height & ~1u;
+    m_targetFPS           = fps;
+    m_framePeriod         = 10'000'000LL / static_cast<LONGLONG>(fpsVal);
+    m_framePeriodSnapshot = m_framePeriod;
+    m_videoFrameIndex.store(0);
+    m_captureEnabled.store(true); m_pauseStart = m_pausedTicks = 0;
+    m_audioTimestamp      = 0;
+    m_micMode             = micMode;
+    m_audioBitrate        = audioBitrate;
+    m_micAccum.clear();
+    m_micAccumRead        = 0;
+    m_micDataLogged       = false;
+    m_micDiagPeak         = 0.0f;
+    m_micDiagFrames       = 0;
+    m_micAudioTimestamp   = 0;
+
+    if (micMode != MicMode::Off)
+        LogRecorderMicUnavailableOnce();
+
+#if !HAS_FFMPEG
     LogScreenRecorderUnavailableOnce();
     return false;
+#else
+    RecorderFFmpeg* r = new RecorderFFmpeg();
+    r->outPath = NarrowPathForFstream(outputPath);
+    r->hasAudio = captureAudio;
+
+    // ---- Output container (MP4, guessed from the extension) ----
+    if (avformat_alloc_output_context2(&r->outFmt, nullptr, nullptr, r->outPath.c_str()) < 0 ||
+        r->outFmt == nullptr)
+    {
+        delete r;
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"ScreenRecorder: Could not create MP4 output context.");
+        return false;
+    }
+
+    // ---- Video stream: H.264 (libx264, else the native mpeg4 encoder) ----
+    const AVCodec* vcodec = avcodec_find_encoder_by_name("libx264");
+    if (!vcodec)
+        vcodec = avcodec_find_encoder(AV_CODEC_ID_MPEG4);
+    if (!vcodec)
+    {
+        FreeRecorderFFmpeg(r);
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"ScreenRecorder: No H.264 / MPEG-4 encoder available.");
+        return false;
+    }
+    r->venc = avcodec_alloc_context3(vcodec);
+    if (!r->venc)
+    {
+        FreeRecorderFFmpeg(r);
+        return false;
+    }
+    r->venc->width = static_cast<int>(m_width);
+    r->venc->height = static_cast<int>(m_height);
+    r->venc->time_base = AVRational{ 1, static_cast<int>(fpsVal) };
+    r->venc->framerate = AVRational{ static_cast<int>(fpsVal), 1 };
+    r->venc->pix_fmt = AV_PIX_FMT_YUV420P;
+    r->venc->bit_rate = kRecorderVideoBitrate;
+    r->venc->gop_size = static_cast<int>(fpsVal);   // one keyframe per second
+    r->venc->max_b_frames = 2;
+    if (r->outFmt->oformat->flags & AVFMT_GLOBALHEADER)
+        r->venc->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+    AVDictionary* vopts = nullptr;
+    if (vcodec->id == AV_CODEC_ID_H264)
+        av_dict_set(&vopts, "preset", "veryfast", 0);
+    if (avcodec_open2(r->venc, vcodec, &vopts) < 0)
+    {
+        av_dict_free(&vopts);
+        FreeRecorderFFmpeg(r);
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"ScreenRecorder: Could not open the video encoder.");
+        return false;
+    }
+    av_dict_free(&vopts);
+    r->vstream = avformat_new_stream(r->outFmt, nullptr);
+    if (!r->vstream || avcodec_parameters_from_context(r->vstream->codecpar, r->venc) < 0)
+    {
+        FreeRecorderFFmpeg(r);
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"ScreenRecorder: Could not add the video stream.");
+        return false;
+    }
+    r->vstream->time_base = r->venc->time_base;
+
+    // ---- Audio stream: AAC (native encoder), 48 kHz stereo FLTP ----
+    if (r->hasAudio)
+    {
+        const AVCodec* acodec = avcodec_find_encoder(AV_CODEC_ID_AAC);
+        if (acodec)
+        {
+            r->aenc = avcodec_alloc_context3(acodec);
+            if (r->aenc)
+            {
+                r->aenc->sample_rate = kRecorderAudioRate;
+                r->aenc->ch_layout = AV_CHANNEL_LAYOUT_STEREO;
+                r->aenc->sample_fmt = AV_SAMPLE_FMT_FLTP;
+                r->aenc->bit_rate = static_cast<int>(audioBitrate);
+                r->aenc->time_base = AVRational{ 1, kRecorderAudioRate };
+                if (r->outFmt->oformat->flags & AVFMT_GLOBALHEADER)
+                    r->aenc->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+                if (avcodec_open2(r->aenc, acodec, nullptr) < 0)
+                {
+                    avcodec_free_context(&r->aenc);
+                    r->aenc = nullptr;
+                }
+                else
+                {
+                    r->astream = avformat_new_stream(r->outFmt, nullptr);
+                    if (!r->astream ||
+                        avcodec_parameters_from_context(r->astream->codecpar, r->aenc) < 0)
+                    {
+                        avcodec_free_context(&r->aenc);
+                        r->aenc = nullptr;
+                        r->astream = nullptr;
+                    }
+                    else
+                    {
+                        r->astream->time_base = r->aenc->time_base;
+                    }
+                }
+            }
+        }
+        if (!r->aenc)
+        {
+            r->hasAudio = false;
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
+                L"ScreenRecorder: AAC encoder unavailable; recording without game audio.");
+        }
+    }
+
+    // ---- Resampler (game audio: 44100 Hz stereo s16 -> 48 kHz stereo FLTP) ----
+    if (r->hasAudio)
+    {
+        const AVChannelLayout outLayout = AV_CHANNEL_LAYOUT_STEREO;
+        const AVChannelLayout inLayout = AV_CHANNEL_LAYOUT_STEREO;
+        swr_alloc_set_opts2(&r->swr,
+            &outLayout, AV_SAMPLE_FMT_FLTP, kRecorderAudioRate,
+            &inLayout, AV_SAMPLE_FMT_S16, Miniaudio::kSampleRate,
+            0, nullptr);
+        if (!r->swr || swr_init(r->swr) < 0)
+        {
+            if (r->swr)
+                swr_free(&r->swr);
+            r->hasAudio = false;
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING,
+                L"ScreenRecorder: Could not create the audio resampler; recording without game audio.");
+        }
+    }
+    r->vframe = av_frame_alloc();
+    r->aframe = av_frame_alloc();
+    r->pkt = av_packet_alloc();
+    if (!r->vframe || !r->aframe || !r->pkt)
+    {
+        FreeRecorderFFmpeg(r);
+        return false;
+    }
+    r->vframe->format = AV_PIX_FMT_YUV420P;
+    r->vframe->width = static_cast<int>(m_width);
+    r->vframe->height = static_cast<int>(m_height);
+    if (av_frame_get_buffer(r->vframe, 32) < 0)
+    {
+        FreeRecorderFFmpeg(r);
+        return false;
+    }
+    if (r->hasAudio && r->aenc)
+    {
+        r->aframe->format = AV_SAMPLE_FMT_FLTP;
+        r->aframe->ch_layout = AV_CHANNEL_LAYOUT_STEREO;
+        r->aframe->sample_rate = kRecorderAudioRate;
+        r->aframe->nb_samples = r->aenc->frame_size;
+        if (av_frame_get_buffer(r->aframe, 0) < 0)
+        {
+            FreeRecorderFFmpeg(r);
+            return false;
+        }
+    }
+
+    // ---- Open the file and write the header ----
+    if (avio_open(&r->outFmt->pb, r->outPath.c_str(), AVIO_FLAG_WRITE) < 0)
+    {
+        FreeRecorderFFmpeg(r);
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"ScreenRecorder: Could not open output file for writing.");
+        return false;
+    }
+    if (avformat_write_header(r->outFmt, nullptr) < 0)
+    {
+        FreeRecorderFFmpeg(r);
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"ScreenRecorder: Could not write the MP4 header.");
+        return false;
+    }
+
+    m_ffmpeg = r;
+
+    // ---- Game audio tap (tracker music only; SFX have no output tap) ----
+    if (r->hasAudio)
+    {
+        m_audioTapQueue = std::make_shared<AudioTapQueue>();
+        std::shared_ptr<AudioTapQueue> queue = m_audioTapQueue;
+        Miniaudio::SetTapOnAllStreams(
+            [queue](const int16_t* frames, size_t frameCount)
+            {
+                // Audio thread: append mixed PCM to the queue. Short lock,
+                // no allocation in the common case (the vector grows once).
+                std::lock_guard<std::mutex> qlock(queue->mutex);
+                queue->pcm.insert(queue->pcm.end(), frames, frames + frameCount * 2);
+            });
+    }
+
+    m_recordingStart = std::chrono::steady_clock::now();
+    m_lastVideoTime = m_recordingStart;
+    m_isRecording.store(true);
+    debug.logLevelMessage(LogLevel::LOG_INFO,
+        L"ScreenRecorder: Started " + std::to_wstring(fpsVal) + L"fps [" +
+        std::wstring(r->hasAudio ? L"game audio" : L"no audio") + L"] -> " + outputPath);
+    return true;
+#endif
 }
 
 void ScreenRecorder::SetCaptureEnabled(bool enabled)
 {
-    LogScreenRecorderUnavailableOnce();
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_captureEnabled.load() == enabled) return;
+    // Pause accounting in MF 100-ns units (matching m_framePeriod), from
+    // the steady clock instead of the Windows QPC members.
+    const auto now = std::chrono::steady_clock::now();
+    const LONGLONG now100ns = static_cast<LONGLONG>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            now.time_since_epoch()).count() / 100);
+    if (!enabled) m_pauseStart = now100ns;
+    else if (m_pauseStart) {
+        m_pausedTicks += now100ns - m_pauseStart;
+        m_pauseStart = 0; m_lastVideoTime = now;
+    }
     m_captureEnabled.store(enabled);
 }
 
 void ScreenRecorder::StopRecording()
 {
+    if (!m_isRecording.exchange(false)) return;
+    std::lock_guard<std::mutex> lock(m_mutex);
+#if !HAS_FFMPEG
     LogScreenRecorderUnavailableOnce();
     m_isRecording.store(false);
+    return;
+#else
+    // Remove the audio tap first so no new audio arrives while flushing.
+    Miniaudio::SetTapOnAllStreams(nullptr);
+
+    RecorderFFmpeg* r = static_cast<RecorderFFmpeg*>(m_ffmpeg);
+    if (r)
+    {
+        // Drain any audio still queued, then flush the resampler and the
+        // encoders so the tail of the recording is written.
+        WriteAudioFramesFFmpeg();
+        if (r->swr && r->hasAudio)
+        {
+            // Flush the resampler's internal buffer.
+            const int outFrames = static_cast<int>(av_rescale_rnd(
+                swr_get_delay(r->swr, Miniaudio::kSampleRate), kRecorderAudioRate,
+                Miniaudio::kSampleRate, AV_ROUND_UP));
+            if (outFrames > 0)
+            {
+                const size_t baseL = r->audioStageL.size();
+                const size_t baseR = r->audioStageR.size();
+                r->audioStageL.resize(baseL + static_cast<size_t>(outFrames));
+                r->audioStageR.resize(baseR + static_cast<size_t>(outFrames));
+                uint8_t* out[2] = {
+                    reinterpret_cast<uint8_t*>(r->audioStageL.data() + baseL),
+                    reinterpret_cast<uint8_t*>(r->audioStageR.data() + baseR) };
+                const int converted = swr_convert(r->swr, out, outFrames, nullptr, 0);
+                r->audioStageL.resize(baseL + (converted > 0 ? static_cast<size_t>(converted) : 0));
+                r->audioStageR.resize(baseR + (converted > 0 ? static_cast<size_t>(converted) : 0));
+            }
+            // Encode everything left, padding the last partial frame.
+            WriteAudioFramesFFmpeg(true);
+        }
+        if (r->venc)
+            EncodeAndWrite(r, r->venc, r->vstream, nullptr);
+        if (r->aenc && r->hasAudio)
+            EncodeAndWrite(r, r->aenc, r->astream, nullptr);
+        av_write_trailer(r->outFmt);
+        const LONGLONG frames = m_videoFrameIndex.load();
+        if (r->outFmt->pb)
+            avio_closep(&r->outFmt->pb);
+        // FreeRecorderFFmpeg also closes pb if still open; clear it here
+        // so it does not double-close.
+        r->outFmt->pb = nullptr;
+        FreeRecorderFFmpeg(r);
+        m_ffmpeg = nullptr;
+        debug.logLevelMessage(LogLevel::LOG_INFO,
+            L"ScreenRecorder: Stopped (" + std::to_wstring(frames) + L" video frames).");
+    }
+#if defined(__USE_VULKAN__)
+    CleanupVulkanCapture();
+#endif
+    m_audioTapQueue.reset();
+#endif
 }
+
+#if HAS_FFMPEG
+
+// Free the FFmpeg encoder state. Caller must hold m_mutex. (Also called
+// from StopRecording; the file is already closed there.)
+void ScreenRecorder::CleanupFFmpegLocked()
+{
+    RecorderFFmpeg* r = static_cast<RecorderFFmpeg*>(m_ffmpeg);
+    if (r)
+    {
+        FreeRecorderFFmpeg(r);
+        m_ffmpeg = nullptr;
+    }
+}
+
+// Encode every complete AAC frame available in the staging buffers, but
+// never ahead of the current video time (audioTime < videoTime), so the
+// audio stays timestamp-locked to the video clock. When flush is true
+// (StopRecording) the video-time bound is ignored and the final partial
+// frame is padded with silence and encoded, so the tail of the audio is
+// not dropped.
+// Caller must hold m_mutex.
+void ScreenRecorder::WriteAudioFramesFFmpeg(bool flush)
+{
+    RecorderFFmpeg* r = static_cast<RecorderFFmpeg*>(m_ffmpeg);
+    if (!r || !r->hasAudio || !r->aenc || !r->swr || !r->aframe)
+        return;
+
+    // 1) Drain the tap queue into the resampler.
+    std::vector<int16_t> queued;
+    if (m_audioTapQueue)
+    {
+        std::lock_guard<std::mutex> qlock(m_audioTapQueue->mutex);
+        queued.swap(m_audioTapQueue->pcm);
+    }
+    if (!queued.empty())
+    {
+        const int inFrames = static_cast<int>(queued.size() / 2);
+        const int outFrames = static_cast<int>(av_rescale_rnd(
+            swr_get_delay(r->swr, Miniaudio::kSampleRate) + inFrames,
+            kRecorderAudioRate, Miniaudio::kSampleRate, AV_ROUND_UP));
+        if (outFrames > 0)
+        {
+            const size_t baseL = r->audioStageL.size();
+            const size_t baseR = r->audioStageR.size();
+            r->audioStageL.resize(baseL + static_cast<size_t>(outFrames));
+            r->audioStageR.resize(baseR + static_cast<size_t>(outFrames));
+            uint8_t* out[2] = {
+                reinterpret_cast<uint8_t*>(r->audioStageL.data() + baseL),
+                reinterpret_cast<uint8_t*>(r->audioStageR.data() + baseR) };
+            const uint8_t* in[1] = { reinterpret_cast<const uint8_t*>(queued.data()) };
+            const int converted = swr_convert(r->swr, out, outFrames, in, inFrames);
+            r->audioStageL.resize(baseL + (converted > 0 ? static_cast<size_t>(converted) : 0));
+            r->audioStageR.resize(baseR + (converted > 0 ? static_cast<size_t>(converted) : 0));
+        }
+    }
+
+    // 2) Emit whole AAC frames, locked to the video clock.
+    const int frameSize = r->aenc->frame_size > 0 ? r->aenc->frame_size : 1024;
+    const double videoTimeSecs = static_cast<double>(m_videoFrameIndex.load()) /
+        static_cast<double>(static_cast<uint32_t>(m_targetFPS));
+    while (static_cast<int>(r->audioStageL.size()) >= frameSize)
+    {
+        const double audioTimeSecs = static_cast<double>(r->audioPts) /
+            static_cast<double>(kRecorderAudioRate);
+        if (!flush && audioTimeSecs >= videoTimeSecs)
+            break;  // do not encode audio ahead of the video
+        if (av_frame_make_writable(r->aframe) < 0)
+            break;
+        r->aframe->nb_samples = frameSize;
+        r->aframe->pts = r->audioPts;
+        std::memcpy(r->aframe->data[0], r->audioStageL.data(), static_cast<size_t>(frameSize) * sizeof(float));
+        std::memcpy(r->aframe->data[1], r->audioStageR.data(), static_cast<size_t>(frameSize) * sizeof(float));
+        r->audioStageL.erase(r->audioStageL.begin(), r->audioStageL.begin() + frameSize);
+        r->audioStageR.erase(r->audioStageR.begin(), r->audioStageR.begin() + frameSize);
+        if (!EncodeAndWrite(r, r->aenc, r->astream, r->aframe))
+            break;
+        r->audioPts += frameSize;
+    }
+
+    // 3) Flush: pad the final partial frame with silence and encode it,
+    // so the tail of the audio is not dropped at StopRecording.
+    if (flush && !r->audioStageL.empty())
+    {
+        r->audioStageL.resize(static_cast<size_t>(frameSize), 0.0f);
+        r->audioStageR.resize(static_cast<size_t>(frameSize), 0.0f);
+        if (av_frame_make_writable(r->aframe) == 0)
+        {
+            r->aframe->nb_samples = frameSize;
+            r->aframe->pts = r->audioPts;
+            std::memcpy(r->aframe->data[0], r->audioStageL.data(), static_cast<size_t>(frameSize) * sizeof(float));
+            std::memcpy(r->aframe->data[1], r->audioStageR.data(), static_cast<size_t>(frameSize) * sizeof(float));
+            if (EncodeAndWrite(r, r->aenc, r->astream, r->aframe))
+                r->audioPts += frameSize;
+        }
+        r->audioStageL.clear();
+        r->audioStageR.clear();
+    }
+}
+
+// Encode one BGRA video frame. The input may be any size (the back-buffer
+// size); it is scaled to the recording size (m_width x m_height) by the
+// sws. ts100ns is the frame timestamp in MF 100-ns units relative to the
+// recording start (kept for API symmetry with the Windows path -- the
+// video pts itself is the frame index, so timestamps stay evenly spaced).
+// Caller must hold m_mutex.
+void ScreenRecorder::WriteVideoFrameFFmpeg(const uint8_t* bgra, uint32_t width, uint32_t height, uint32_t rowPitch, LONGLONG ts100ns)
+{
+    (void)ts100ns;
+    RecorderFFmpeg* r = static_cast<RecorderFFmpeg*>(m_ffmpeg);
+    if (!r || !r->venc || !r->vframe || !bgra || width == 0 || height == 0)
+        return;
+
+    // Recreate the scaler when the input size changes.
+    if (!r->sws || r->swsInW != static_cast<int>(width) || r->swsInH != static_cast<int>(height))
+    {
+        if (r->sws)
+            sws_freeContext(r->sws);
+        r->sws = sws_getContext(static_cast<int>(width), static_cast<int>(height), AV_PIX_FMT_BGRA,
+            static_cast<int>(m_width), static_cast<int>(m_height), AV_PIX_FMT_YUV420P,
+            SWS_BILINEAR, nullptr, nullptr, nullptr);
+        r->swsInW = static_cast<int>(width);
+        r->swsInH = static_cast<int>(height);
+        if (!r->sws)
+            return;
+    }
+
+    if (av_frame_make_writable(r->vframe) < 0)
+        return;
+    const uint8_t* src[4] = { bgra, nullptr, nullptr, nullptr };
+    int srcLinesize[4] = { static_cast<int>(rowPitch), 0, 0, 0 };
+    sws_scale(r->sws, src, srcLinesize, 0, static_cast<int>(height),
+        r->vframe->data, r->vframe->linesize);
+    r->vframe->pts = m_videoFrameIndex.load();
+    if (!EncodeAndWrite(r, r->venc, r->vstream, r->vframe))
+        return;
+    m_videoFrameIndex.fetch_add(1);
+
+    // Keep the audio timestamp-locked to the video just written.
+    WriteAudioFramesFFmpeg();
+}
+
+#endif // HAS_FFMPEG
+
+// ---------------------------------------------------------------------------
+// CaptureFrame (OpenGL / Linux)
+// ---------------------------------------------------------------------------
+#if defined(__USE_OPENGL__)
+void ScreenRecorder::CaptureFrame(UINT width, UINT height)
+{
+    if (!m_captureEnabled.load() || !m_isRecording.load()) return;
+#if !HAS_FFMPEG
+    LogScreenRecorderUnavailableOnce();
+    return;
+#else
+    // Throttle to target FPS with the steady clock (same logic as the
+    // Windows QPC path, but in nanoseconds).
+    const auto now = std::chrono::steady_clock::now();
+    const auto framePeriodNs = std::chrono::nanoseconds(m_framePeriod * 100);
+    {
+        const auto elapsed = now - m_lastVideoTime;
+        if (elapsed < framePeriodNs) return;
+        m_lastVideoTime += framePeriodNs;
+    }
+    const LONGLONG ts100ns = static_cast<LONGLONG>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            now - m_recordingStart).count() / 100) - m_pausedTicks;
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_isRecording.load()) return;
+
+    // Clamp to even dimensions (required by the H.264 encoder)
+    UINT w = (width  > 0 ? width  : m_width)  & ~1u;
+    UINT h = (height > 0 ? height : m_height) & ~1u;
+    if (w == 0 || h == 0) return;
+
+    // Resize pixel buffer lazily
+    UINT rowBytes = w * 4;
+    if (w != m_glCaptureWidth || h != m_glCaptureHeight) {
+        m_glPixelBuffer.resize(static_cast<size_t>(rowBytes) * h);
+        m_glCaptureWidth  = w;
+        m_glCaptureHeight = h;
+    }
+
+    // Read back from the default framebuffer (origin = bottom-left in OpenGL).
+    // Desktop GL reads BGRA directly (the layout the encoder expects);
+    // GLES has no BGRA readback, so Android reads RGBA and swaps R/B below.
+#if defined(PLATFORM_LINUX)
+    glReadPixels(0, 0, (GLsizei)w, (GLsizei)h, GL_BGRA_EXT, GL_UNSIGNED_BYTE, m_glPixelBuffer.data());
+
+    // Flip rows: OpenGL origin is bottom-left; the encoder expects top-left
+    std::vector<BYTE> flipped(m_glPixelBuffer.size());
+    for (UINT y = 0; y < h; ++y)
+        memcpy(flipped.data() + y * rowBytes,
+               m_glPixelBuffer.data() + (h - 1u - y) * rowBytes,
+               rowBytes);
+#elif defined(PLATFORM_ANDROID)
+    glReadPixels(0, 0, (GLsizei)w, (GLsizei)h, GL_RGBA, GL_UNSIGNED_BYTE, m_glPixelBuffer.data());
+
+    // Flip rows and swap R/B (RGBA -> BGRA) in one pass.
+    std::vector<BYTE> flipped(m_glPixelBuffer.size());
+    for (UINT y = 0; y < h; ++y)
+    {
+        const BYTE* src = m_glPixelBuffer.data() + (h - 1u - y) * rowBytes;
+        BYTE* dst = flipped.data() + y * rowBytes;
+        for (UINT x = 0; x < w; ++x)
+        {
+            dst[x * 4 + 0] = src[x * 4 + 2];
+            dst[x * 4 + 1] = src[x * 4 + 1];
+            dst[x * 4 + 2] = src[x * 4 + 0];
+            dst[x * 4 + 3] = src[x * 4 + 3];
+        }
+    }
+#else
+    // Other platforms: no GL readback wired in yet (Phase D).
+    return;
+#endif
+
+    WriteVideoFrameFFmpeg(flipped.data(), w, h, rowBytes, ts100ns);
+#endif
+}
+#endif // __USE_OPENGL__
+
+// ---------------------------------------------------------------------------
+// CaptureFrame (Vulkan / Linux)
+//
+// Submits a one-shot command buffer that:
+//   1. Transitions the swap chain image  srcLayout -> TRANSFER_SRC_OPTIMAL
+//   2. Copies the image to a host-visible staging buffer
+//   3. Transitions the image back to srcLayout
+// Then waits for completion and writes the pixel data to the video stream.
+//
+// The caller must have waited for the render fence before calling this so the
+// swap chain image is not still being written by the GPU.  The function holds
+// queueMutex only for the VkQueueSubmit call so the render thread can proceed.
+// ---------------------------------------------------------------------------
+#if defined(__USE_VULKAN__)
+void ScreenRecorder::CaptureFrame(VkDevice         device,
+                                   VkPhysicalDevice physDevice,
+                                   VkCommandPool    cmdPool,
+                                   VkQueue          queue,
+                                   VkImage          swapchainImage,
+                                   VkImageLayout    srcLayout,
+                                   VkFormat         format,
+                                   uint32_t         width,
+                                   uint32_t         height,
+                                   std::mutex*      queueMutex)
+{
+    if (!m_captureEnabled.load() || !m_isRecording.load() || !device || !swapchainImage) return;
+#if !HAS_FFMPEG
+    LogScreenRecorderUnavailableOnce();
+    return;
+#else
+    // FPS throttle -- same steady-clock logic as the OpenGL path
+    const auto now = std::chrono::steady_clock::now();
+    const auto framePeriodNs = std::chrono::nanoseconds(m_framePeriod * 100);
+    {
+        const auto elapsed = now - m_lastVideoTime;
+        if (elapsed < framePeriodNs) return;
+        m_lastVideoTime += framePeriodNs;
+    }
+    const LONGLONG ts100ns = static_cast<LONGLONG>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            now - m_recordingStart).count() / 100) - m_pausedTicks;
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (!m_isRecording.load()) return;
+
+    // Create / resize the staging buffer when dimensions change
+    const VkDeviceSize bufSize = static_cast<VkDeviceSize>(width) * height * 4;
+    if (m_vkStagingBuffer == VK_NULL_HANDLE ||
+        m_vkStagingWidth  != width          ||
+        m_vkStagingHeight != height)
+    {
+        CleanupVulkanCapture();
+
+        VkBufferCreateInfo bi{};
+        bi.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bi.size        = bufSize;
+        bi.usage       = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        bi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        if (vkCreateBuffer(device, &bi, nullptr, &m_vkStagingBuffer) != VK_SUCCESS) return;
+
+        VkMemoryRequirements memReq{};
+        vkGetBufferMemoryRequirements(device, m_vkStagingBuffer, &memReq);
+
+        VkPhysicalDeviceMemoryProperties memProps{};
+        vkGetPhysicalDeviceMemoryProperties(physDevice, &memProps);
+
+        uint32_t memIdx = UINT32_MAX;
+        const VkMemoryPropertyFlags needed =
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        for (uint32_t i = 0; i < memProps.memoryTypeCount; ++i) {
+            if ((memReq.memoryTypeBits & (1u << i)) &&
+                (memProps.memoryTypes[i].propertyFlags & needed) == needed) {
+                memIdx = i; break;
+            }
+        }
+        if (memIdx == UINT32_MAX) { CleanupVulkanCapture(); return; }
+
+        VkMemoryAllocateInfo ai{};
+        ai.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        ai.allocationSize  = memReq.size;
+        ai.memoryTypeIndex = memIdx;
+        if (vkAllocateMemory(device, &ai, nullptr, &m_vkStagingMemory) != VK_SUCCESS) {
+            CleanupVulkanCapture(); return;
+        }
+        vkBindBufferMemory(device, m_vkStagingBuffer, m_vkStagingMemory, 0);
+        vkMapMemory(device, m_vkStagingMemory, 0, bufSize, 0, &m_vkStagingMapped);
+        m_vkStagingWidth  = width;
+        m_vkStagingHeight = height;
+        m_vkDevice        = device;
+    }
+
+    // Allocate a one-shot command buffer
+    VkCommandBufferAllocateInfo cbai{};
+    cbai.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    cbai.commandPool        = cmdPool;
+    cbai.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    cbai.commandBufferCount = 1;
+    VkCommandBuffer cmd = VK_NULL_HANDLE;
+    if (vkAllocateCommandBuffers(device, &cbai, &cmd) != VK_SUCCESS) return;
+
+    VkCommandBufferBeginInfo cbbi{};
+    cbbi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    cbbi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(cmd, &cbbi);
+
+    // 1. Transition: srcLayout -> TRANSFER_SRC_OPTIMAL
+    VkImageMemoryBarrier toSrc{};
+    toSrc.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    toSrc.oldLayout           = srcLayout;
+    toSrc.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    toSrc.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toSrc.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toSrc.image               = swapchainImage;
+    toSrc.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    toSrc.srcAccessMask       = VK_ACCESS_MEMORY_READ_BIT;
+    toSrc.dstAccessMask       = VK_ACCESS_TRANSFER_READ_BIT;
+    vkCmdPipelineBarrier(cmd,
+        VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0, 0, nullptr, 0, nullptr, 1, &toSrc);
+
+    // 2. Copy image -> staging buffer
+    VkBufferImageCopy region{};
+    region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+    region.imageExtent      = { width, height, 1 };
+    vkCmdCopyImageToBuffer(cmd, swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           m_vkStagingBuffer, 1, &region);
+
+    // 3. Transition back: TRANSFER_SRC_OPTIMAL -> srcLayout
+    VkImageMemoryBarrier toPresent{};
+    toPresent.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    toPresent.oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    toPresent.newLayout           = srcLayout;
+    toPresent.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toPresent.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toPresent.image               = swapchainImage;
+    toPresent.subresourceRange    = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    toPresent.srcAccessMask       = VK_ACCESS_TRANSFER_READ_BIT;
+    toPresent.dstAccessMask       = VK_ACCESS_MEMORY_READ_BIT;
+    vkCmdPipelineBarrier(cmd,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+        0, 0, nullptr, 0, nullptr, 1, &toPresent);
+
+    vkEndCommandBuffer(cmd);
+
+    // Create a local fence so we can wait for capture completion independently
+    VkFenceCreateInfo fci{};
+    fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    VkFence captureFence = VK_NULL_HANDLE;
+    if (vkCreateFence(device, &fci, nullptr, &captureFence) != VK_SUCCESS) {
+        vkFreeCommandBuffers(device, cmdPool, 1, &cmd);
+        return;
+    }
+
+    VkSubmitInfo si{};
+    si.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    si.commandBufferCount = 1;
+    si.pCommandBuffers    = &cmd;
+    // Serialise against the render thread's vkQueueSubmit via the shared queue mutex
+    if (queueMutex) {
+        std::lock_guard<std::mutex> qlock(*queueMutex);
+        vkQueueSubmit(queue, 1, &si, captureFence);
+    } else {
+        vkQueueSubmit(queue, 1, &si, captureFence);
+    }
+    // Wait for the copy to complete (outside the queue lock so the render thread can proceed)
+    vkWaitForFences(device, 1, &captureFence, VK_TRUE, UINT64_MAX);
+    vkDestroyFence(device, captureFence, nullptr);
+    vkFreeCommandBuffers(device, cmdPool, 1, &cmd);
+
+    // The staging buffer is HOST_COHERENT so no explicit invalidation is needed.
+    // Handle pixel format: the encoder expects BGRA byte order in memory.
+    // VK_FORMAT_B8G8R8A8_* -> bytes are [B,G,R,A] -> matches directly.
+    // VK_FORMAT_R8G8B8A8_* -> bytes are [R,G,B,A] -> swap R and B.
+    const bool needByteSwap = (format == VK_FORMAT_R8G8B8A8_UNORM  ||
+                                format == VK_FORMAT_R8G8B8A8_SRGB   ||
+                                format == VK_FORMAT_R8G8B8A8_SNORM  ||
+                                format == VK_FORMAT_A8B8G8R8_UNORM_PACK32);
+    if (needByteSwap) {
+        uint8_t* px = static_cast<uint8_t*>(m_vkStagingMapped);
+        const size_t pixCount = static_cast<size_t>(width) * height;
+        for (size_t i = 0; i < pixCount; ++i)
+            std::swap(px[i * 4 + 0], px[i * 4 + 2]);
+    }
+
+    WriteVideoFrameFFmpeg(static_cast<const uint8_t*>(m_vkStagingMapped), width, height, width * 4, ts100ns);
+#endif
+}
+
+void ScreenRecorder::CleanupVulkanCapture()
+{
+    VkDevice dev = m_vkDevice;
+    if (!dev) return;
+    if (m_vkStagingMapped) {
+        vkUnmapMemory(dev, m_vkStagingMemory);
+        m_vkStagingMapped = nullptr;
+    }
+    if (m_vkStagingBuffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(dev, m_vkStagingBuffer, nullptr);
+        m_vkStagingBuffer = VK_NULL_HANDLE;
+    }
+    if (m_vkStagingMemory != VK_NULL_HANDLE) {
+        vkFreeMemory(dev, m_vkStagingMemory, nullptr);
+        m_vkStagingMemory = VK_NULL_HANDLE;
+    }
+    m_vkStagingWidth  = 0;
+    m_vkStagingHeight = 0;
+    m_vkDevice        = VK_NULL_HANDLE;
+}
+#endif // __USE_VULKAN__
 
 #endif // !PLATFORM_WINDOWS

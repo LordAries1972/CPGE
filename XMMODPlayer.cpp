@@ -3,6 +3,9 @@
 #include "Debug.h"
 #include "Configuration.h"
 #include "ThreadManager.h"
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+#include "MiniaudioStream.h"
+#endif
 
 extern HWND hwnd;
 extern Debug debug;
@@ -41,10 +44,16 @@ void XMMODPlayer::Shutdown() {
             directSound->Release();
             directSound = nullptr;
         }
-    #else
+    #elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+        delete static_cast<Miniaudio::Stream*>(m_miniaudioStream);
+        m_miniaudioStream = nullptr;
         secondaryBuffer = nullptr;
         primaryBuffer   = nullptr;
         directSound     = nullptr;
+    #else
+        secondaryBuffer = nullptr;
+        primaryBuffer = nullptr;
+        directSound = nullptr;
     #endif
 
     // Clear voices and patterns
@@ -481,6 +490,15 @@ bool XMMODPlayer::Play(const std::wstring& filename) {
             debug.logLevelMessage(LogLevel::LOG_ERROR, L"Play(): Failed to start DirectSound buffer playback.");
             return false;
         }
+    #elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+        // Linux (miniaudio): start the streaming device created by CreateAudioDevice.
+        // (When creation failed the stream is null and playback stays silent.)
+        if (m_miniaudioStream != nullptr) {
+            if (!static_cast<Miniaudio::Stream*>(m_miniaudioStream)->Start()) {
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"Play(): Failed to start miniaudio playback.");
+                return false;
+            }
+        }
     #endif
 
     isPlaying = true;
@@ -633,6 +651,11 @@ void XMMODPlayer::Stop() {
     if (playbackThread.joinable()) {
         playbackThread.join();
     }
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    if (m_miniaudioStream != nullptr) {
+        static_cast<Miniaudio::Stream*>(m_miniaudioStream)->Stop();
+    }
+#endif
 }
 
 void XMMODPlayer::SilenceBuffer() {
@@ -713,8 +736,23 @@ bool XMMODPlayer::CreateAudioDevice() {
     writeCursor = 0;
 
     return true;
-#else
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    // Linux (miniaudio): create the streaming device now, so a failure is
+    // caught before playback starts; Play() starts it. If creation fails
+    // (no audio device at all, not even the null backend), warn once and
+    // carry on silent — the game must never break for lack of a sound card.
+    delete static_cast<Miniaudio::Stream*>(m_miniaudioStream);
+    m_miniaudioStream = nullptr;
+    Miniaudio::Stream* stream = new Miniaudio::Stream();
+    if (!stream->IsReady()) {
+        delete stream;
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"XMMODPlayer: miniaudio device could not be created; music is silent.");
+        return true;
+    }
+    m_miniaudioStream = stream;
     return true; // Non-DX: audio handled by platform audio layer
+#else
+    return true;
 #endif
 }
 
@@ -787,6 +825,25 @@ void XMMODPlayer::FillAudioBuffer() {
     #if defined(_DEBUG_XMPlayer_)
         debug.logLevelMessage(LogLevel::LOG_DEBUG, L"FillAudioBuffer: End");
     #endif
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    // Linux (miniaudio): the PlaybackLoop calls this about once a millisecond.
+    // Top the ring up to ~186 ms of buffered audio, mixing at most 2048 frames
+    // per call. The miniaudio data callback drains the ring on the audio
+    // thread; MixAudio itself only ever runs here, on the playback thread,
+    // exactly as on Windows.
+    if (m_miniaudioStream == nullptr) return;
+    Miniaudio::Stream* stream = static_cast<Miniaudio::Stream*>(m_miniaudioStream);
+    constexpr size_t kTargetFrames = 8192;      // ~186 ms at 44100 Hz
+    constexpr size_t kMaxFramesPerCall = 2048;
+    const size_t readable = stream->Readable();
+    if (readable >= kTargetFrames) return;
+    size_t want = kTargetFrames - readable;
+    if (want > kMaxFramesPerCall) want = kMaxFramesPerCall;
+    if (mixScratch.size() < want * 2) mixScratch.resize(want * 2);
+    MixAudio(mixScratch.data(), want);
+    stream->Write(mixScratch.data(), want);
+#else
+    // No audio device on this platform; nothing to fill.
 #endif // PLATFORM_WINDOWS
 }
 

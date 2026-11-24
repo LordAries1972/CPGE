@@ -793,3 +793,7 @@ public:
 ---
 
 This comprehensive guide covers all aspects of using the Model class effectively. For additional information or specific use cases not covered here, refer to the inline documentation within the source code or contact the development team.
+
+## Platform-directive fix — GLEW includes (24 November 2026)
+
+`Models.h` and `OpenGLModels.h` included GLEW under a bare `!PLATFORM_WINDOWS`, which would also have pulled it in on macOS/iOS. Both now use `#if defined(PLATFORM_WINDOWS) || defined(PLATFORM_LINUX)`. No behaviour change on Windows or Linux.

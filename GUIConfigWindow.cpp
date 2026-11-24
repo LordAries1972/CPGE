@@ -7,6 +7,8 @@
     #include <cwchar>   // swprintf on Linux
     #include <unistd.h>   // fork / execl / sleep (SpawnRelaunchForConfiguredRenderer)
     #include <sys/types.h>  // pid_t
+#endif
+#if defined(PLATFORM_LINUX)
     // X11 display-size query for ScanDisplayModes() below (KeyCode dance:
     // X11's KeyCode typedef collides with the engine's enum class KeyCode).
     #define KeyCode X11KeyCode
@@ -54,7 +56,7 @@ static std::vector<DispMode> ScanDisplayModes()
         for (auto& e : out) if (e.w == m.w && e.h == m.h && e.hz == m.hz) { dup = true; break; }
         if (!dup) out.push_back(m);
     }
-#else
+#elif defined(PLATFORM_LINUX)
     // Linux: no EnumDisplaySettings — report the primary X11 display's
     // current resolution as the single available mode (a full RandR mode
     // enumeration is Phase B polish; the config window only needs one valid
@@ -69,10 +71,12 @@ static std::vector<DispMode> ScanDisplayModes()
         if (w >= 800 && h >= 600)
             out.push_back(DispMode{ w, h, 60 });
     }
+#else
     if (out.empty())
     {
-        // Headless / no X server: fall back to the configured resolution so
-        // the config window still has one valid entry.
+        // Headless / no X server (or a platform with no display query):
+        // fall back to the configured resolution so the config window
+        // still has one valid entry.
         out.push_back(DispMode{ config.myConfig.resolutionWidth,
                                 config.myConfig.resolutionHeight, 60 });
     }
@@ -252,6 +256,20 @@ static void SpawnRelaunchForConfiguredRenderer()
         _exit(1);  // exec failed
     }
     // Parent: returns immediately; the quit path below closes this process.
+}
+
+#elif defined(PLATFORM_ANDROID)
+// ---------------------------------------------------------------------------
+// Relaunch after a video-settings restart (Android: no-op).
+//
+// Android has no per-renderer executable to relaunch — the game runs inside
+// a single APK/activity — so there is nothing to spawn. The call sites
+// invoke this unconditionally, so the no-op keeps the Android build linking.
+// ---------------------------------------------------------------------------
+static void SpawnRelaunchForConfiguredRenderer()
+{
+    debug.logLevelMessage(LogLevel::LOG_WARNING,
+        L"[GUIConfigWindow] Relaunch: not supported on Android - restart the game manually.");
 }
 #endif
 

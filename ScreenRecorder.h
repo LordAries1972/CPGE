@@ -32,6 +32,8 @@
     #include <audioclient.h>
 #endif
 #include <atomic>
+#include <chrono>
+#include <memory>
 #include <mutex>
 #include <thread>
 #include <string>
@@ -105,15 +107,17 @@ public:
     void CaptureFrame(ID3D11Device*        device,
                       ID3D11DeviceContext* context,
                       IDXGISwapChain1*     swapChain);
-#elif defined(__USE_OPENGL__) && defined(PLATFORM_WINDOWS)
+#elif defined(__USE_OPENGL__)
     // Capture the current OpenGL back-buffer via glReadPixels.
     // Call BEFORE SwapBuffers so the fully-composed frame is read.
+    // (Windows MF path and Linux FFmpeg path share this overload.)
     void CaptureFrame(UINT width, UINT height);
-#elif defined(__USE_VULKAN__) && defined(PLATFORM_WINDOWS)
-    // Capture the presented swap chain image into the MF video stream.
+#elif defined(__USE_VULKAN__)
+    // Capture the presented swap chain image into the video stream.
     // Call this AFTER vkWaitForFences (GPU render done) and BEFORE vkQueuePresentKHR.
     // srcLayout  — image layout after the render pass (typically VK_IMAGE_LAYOUT_PRESENT_SRC_KHR).
     // queueMutex — renderer's queue mutex to serialise one-shot CB submissions.
+    // (Windows MF path and Linux FFmpeg path share this overload.)
     void CaptureFrame(VkDevice         device,
                       VkPhysicalDevice physDevice,
                       VkCommandPool    cmdPool,
@@ -248,8 +252,9 @@ private:
     LONGLONG m_pauseStart = 0, m_pausedTicks = 0;
     std::mutex              m_mutex;
 #else
-    // Linux / Android stub state (Phase A): no Media Foundation / WASAPI.
-    // Only the state the inline accessors and the stub .cpp need is kept.
+    // Linux / Android state (Phase B): FFmpeg replaces Media Foundation /
+    // WASAPI. Only the state the inline accessors and the FFmpeg .cpp need
+    // is kept, mirroring the Windows block above.
     UINT                    m_width;
     UINT                    m_height;
     RecordFPS               m_targetFPS;
@@ -274,6 +279,49 @@ private:
     std::atomic<bool>       m_captureEnabled { true };
     LONGLONG m_pauseStart = 0, m_pausedTicks = 0;
     std::mutex              m_mutex;
+
+    // FFmpeg encoder state. Opaque void* so the FFmpeg headers stay out of
+    // this header -- the real struct (RecorderFFmpeg) lives in
+    // ScreenRecorder.cpp and is only allocated when HAS_FFMPEG is true.
+    // nullptr when FFmpeg is unavailable or not recording.
+    void* m_ffmpeg = nullptr;
+
+    // Renderer capture resources (Linux/Android, per renderer).
+#if defined(__USE_OPENGL__)
+    // glReadPixels pixel buffer -- resized lazily inside CaptureFrame
+    std::vector<BYTE> m_glPixelBuffer;
+    UINT              m_glCaptureWidth  = 0;
+    UINT              m_glCaptureHeight = 0;
+#endif
+#if defined(__USE_VULKAN__)
+    VkBuffer        m_vkStagingBuffer  = VK_NULL_HANDLE;
+    VkDeviceMemory  m_vkStagingMemory  = VK_NULL_HANDLE;
+    void*           m_vkStagingMapped  = nullptr;
+    uint32_t        m_vkStagingWidth   = 0;
+    uint32_t        m_vkStagingHeight  = 0;
+    VkDevice        m_vkDevice         = VK_NULL_HANDLE;
+    void CleanupVulkanCapture();
+#endif
+
+    // Wall-clock recording clock (std::chrono replaces the Windows QPC
+    // members, which do not exist on Linux). m_lastVideoTime throttles
+    // CaptureFrame to the target FPS; m_recordingStart anchors timestamps.
+    std::chrono::steady_clock::time_point m_recordingStart;
+    std::chrono::steady_clock::time_point m_lastVideoTime;
+
+    // Game-audio tap queue: the miniaudio tap (audio thread) appends mixed
+    // music PCM (44100 Hz stereo s16) here; the render thread drains it
+    // into the AAC encoder. Held by shared_ptr so a tap invocation already
+    // in flight cannot dangle if the recorder is destroyed.
+    struct AudioTapQueue { std::mutex mutex; std::vector<int16_t> pcm; };
+    std::shared_ptr<AudioTapQueue> m_audioTapQueue;
+
+    // FFmpeg helpers (ScreenRecorder.cpp, Linux/Android only). The caller
+    // must hold m_mutex. ts100ns is a timestamp in MF 100-ns units
+    // relative to the recording start, matching the Windows path.
+    void WriteVideoFrameFFmpeg(const uint8_t* bgra, uint32_t width, uint32_t height, uint32_t rowPitch, LONGLONG ts100ns);
+    void WriteAudioFramesFFmpeg(bool flush = false);
+    void CleanupFFmpegLocked();
 #endif
 };
 

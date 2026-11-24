@@ -278,9 +278,11 @@ private:
     void* directSound      = nullptr;
     void* primaryBuffer    = nullptr;
     void* secondaryBuffer  = nullptr;
+    void* m_miniaudioStream = nullptr;          // Miniaudio::Stream* (Linux/Android only; owned by the .cpp)
 #endif
     DWORD writeCursor = 0;
     DWORD bufferSize = 0;
+    std::vector<int16_t> mixScratch;   // Reused mix buffer (Linux miniaudio path); avoids a per-call allocation
 
     void MixAudio(int16_t* buffer, size_t samples);
     void TickRow();

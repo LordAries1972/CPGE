@@ -3054,26 +3054,165 @@ const uint8_t* MoviePlayer::GetCurrentFrameRGBA(uint32_t& outWidth, uint32_t& ou
 
 #else
 // ============================================================================
-// Linux / Android stub (Phase A)
-// No Media Foundation / DirectShow / XAudio2 backend yet, so every playback
-// operation is a safe no-op: action methods log one warning the first time the
-// subsystem is used and return safe defaults (false / 0.0 / nullptr); the
-// polling getters stay silent and return the same safe defaults. Nothing here
-// throws or quits, so the renderers can keep polling IsPlaying() every frame.
+// Linux / Android FFmpeg backend (Phase B)
+//
+// Decodes movies with libavformat / libavcodec / libswscale / libswresample
+// and feeds the decoded frames into the same CPU-side BGRA buffer the
+// Windows Media Foundation path produces (m_cpuFrameBuffer), so the
+// renderers keep working unchanged: the Vulkan overlay upload path reads
+// GetCurrentFrameRGBA() and memcpys the frame into the overlay staging
+// buffer. Movie audio is decoded, resampled to 44100 Hz stereo s16 and
+// fed through the shared Miniaudio::Stream helper (the same ring the
+// tracker players use), so it plays on the miniaudio device -- or the null
+// backend when no audio device exists.
+//
+// Sync model: wall-clock master. Play() anchors the media clock
+// (m_playStartWallTime); the current media time is the PTS of the last
+// presented frame (m_llCurrentPosition, absolute MF units) minus the PTS
+// of the first frame (m_playStartMediaTime) plus the wall-clock elapsed
+// since Play(). UpdateFrame() presents the latest video frame whose PTS
+// is at or before the current media time and keeps the audio ring topped
+// up. A video frame decoded ahead of the media time is held as a single
+// pending frame until it is due, which also bounds how far ahead packets
+// are read (the audio ring holds ~186 ms, so a one-frame pause in packet
+// reading never starves audio).
+//
+// FFmpeg is optional: when the headers are absent (__has_include fails)
+// HAS_FFMPEG is 0 and every playback operation keeps the old stub
+// behaviour -- one "FFmpeg not available" warning, safe defaults, no
+// throw, no quit -- so the code still compiles on a machine without
+// FFmpeg dev files. CMake links the FFmpeg libraries only when both
+// the headers and the libraries are found (see Linux/CMakeLists.txt).
 // ============================================================================
+
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    #if __has_include(<libavformat/avformat.h>) && __has_include(<libavcodec/avcodec.h>) && \
+        __has_include(<libswscale/swscale.h>) && __has_include(<libswresample/swresample.h>)
+        #define HAS_FFMPEG 1
+        extern "C" {
+        #include <libavformat/avformat.h>
+        #include <libavcodec/avcodec.h>
+        #include <libswscale/swscale.h>
+        #include <libswresample/swresample.h>
+        #include <libavutil/avutil.h>
+        #include <libavutil/imgutils.h>
+        #include <libavutil/opt.h>
+        #include <libavutil/channel_layout.h>
+        }
+        #include "MiniaudioStream.h"
+    #else
+        #define HAS_FFMPEG 0
+    #endif
+#else
+    #define HAS_FFMPEG 0
+#endif
+
 namespace {
-    // One warning per process, however often the stub is used (UpdateFrame()
-    // and ProcessMovieRequest() are called every frame by the renderers).
+    // One warning per process, however often the subsystem is used
+    // (UpdateFrame() and ProcessMovieRequest() are called every frame
+    // by the renderers).
     void LogMoviePlayerUnavailableOnce()
     {
         static std::atomic<bool> warned{ false };
         if (!warned.exchange(true))
         {
             Debug::logDiagLevelMessage(LogLevel::LOG_WARNING,
-                L"MoviePlayer is unavailable on Linux in this phase (Media Foundation / DirectShow are Windows-only); movie playback is disabled.");
+                L"MoviePlayer is unavailable on this build (FFmpeg headers not found: libavformat / libavcodec / libswscale / libswresample); movie playback is disabled.");
         }
     }
 }
+
+#if HAS_FFMPEG
+
+namespace
+{
+
+// All FFmpeg state for one open movie. Owned through the opaque void*
+// MoviePlayer::m_ffmpeg so the FFmpeg types never leak into the header.
+struct MovieFFmpeg
+{
+    AVFormatContext* fmt = nullptr;
+    AVCodecContext* vdec = nullptr;
+    AVCodecContext* adec = nullptr;
+    int vstream = -1;
+    int astream = -1;
+    AVRational vtb{ 0, 1 };                     // video stream time base
+    AVRational atb{ 0, 1 };                     // audio stream time base
+    SwsContext* sws = nullptr;                  // video scaler (native -> BGRA, renderer size)
+    SwrContext* swr = nullptr;                  // audio resampler (native -> 44100 stereo s16)
+    AVFrame* vframe = nullptr;                  // scratch decoded video frame
+    AVFrame* aframe = nullptr;                  // scratch decoded audio frame
+    AVFrame* pending = nullptr;                 // video frame decoded ahead of media time
+    double pendingPtsRel = 0.0;                 // its PTS, relative to firstVideoPts
+    AVPacket* pkt = nullptr;
+    Miniaudio::Stream* audioStream = nullptr;   // movie audio output (null backend if no device)
+    int outW = 0;                               // scaled output size (renderer size)
+    int outH = 0;
+    int srcW = 0;
+    int srcH = 0;
+    AVPixelFormat srcFmt = AV_PIX_FMT_NONE;
+    double durationSecs = 0.0;
+    double firstVideoPts = -1.0;                // PTS of the first video frame (seconds, absolute)
+    double resumePtsRel = 0.0;                  // media time (seconds, relative to the first frame) at the moment Play() was called
+    bool eof = false;
+    // Resampled audio that did not fit in the miniaudio ring yet (s16 stereo
+    // interleaved). Drained into the ring at the start of each UpdateFrame,
+    // so no decoded audio is ever dropped when the ring is full.
+    std::vector<int16_t> audioBacklog;
+};
+
+void FreeMovieFFmpeg(MovieFFmpeg* m)
+{
+    if (!m)
+        return;
+    if (m->audioStream)
+    {
+        m->audioStream->Stop();
+        delete m->audioStream;
+        m->audioStream = nullptr;
+    }
+    if (m->pending)
+        av_frame_free(&m->pending);
+    if (m->vframe)
+        av_frame_free(&m->vframe);
+    if (m->aframe)
+        av_frame_free(&m->aframe);
+    if (m->pkt)
+        av_packet_free(&m->pkt);
+    if (m->sws)
+    {
+        sws_freeContext(m->sws);
+        m->sws = nullptr;
+    }
+    if (m->swr)
+        swr_free(&m->swr);
+    if (m->vdec)
+        avcodec_free_context(&m->vdec);
+    if (m->adec)
+        avcodec_free_context(&m->adec);
+    if (m->fmt)
+        avformat_close_input(&m->fmt);
+    delete m;
+}
+
+// Frame PTS in seconds (absolute, in the stream time base).
+inline double FramePtsSeconds(const AVFrame* frame, const AVRational& tb)
+{
+    if (frame->pts == AV_NOPTS_VALUE)
+        return 0.0;
+    return av_q2d(tb) * static_cast<double>(frame->pts);
+}
+
+} // namespace
+
+// Target audio ring level, in frames (~186 ms at 44100 Hz -- the same
+// target the tracker players use). UpdateFrame tops the ring up to this.
+static constexpr size_t kMovieAudioRingTarget = 8192;
+// Maximum packets read per UpdateFrame call, so one call can never stall
+// the render thread decoding a long stretch of the file.
+static constexpr int kMovieMaxPacketsPerCall = 64;
+
+#endif // HAS_FFMPEG
 
 // Owned by the rendering thread; suppresses live game overlays.
 bool gameplayPlaybackActive = false;
@@ -3122,17 +3261,24 @@ bool MoviePlayer::IsPaused() const
 
 bool MoviePlayer::Initialize(std::shared_ptr<Renderer> rendererPtr, ThreadManager* threadManager, float fps, bool enableAudio)
 {
-    LogMoviePlayerUnavailableOnce();
     m_targetFPS = (fps > 0.0f) ? fps : 30.0f;
     m_enableAudio = enableAudio;
     m_renderer = rendererPtr;
     m_threadManager = threadManager;
+    m_isInitialized.store(true);
+#if !HAS_FFMPEG
+    LogMoviePlayerUnavailableOnce();
     return false;
+#else
+    return true;
+#endif
 }
 
 void MoviePlayer::RequestMovie(const std::wstring& path, bool holdOpeningFrame)
 {
+#if !HAS_FFMPEG
     LogMoviePlayerUnavailableOnce();
+#endif
     std::lock_guard<std::mutex> lock(m_requestMutex);
     m_requestedMovie = path; m_holdOpeningFrame.store(holdOpeningFrame);
     m_resumeRequested.store(false); m_movieRequested.store(true);
@@ -3140,7 +3286,9 @@ void MoviePlayer::RequestMovie(const std::wstring& path, bool holdOpeningFrame)
 
 void MoviePlayer::ProcessMovieRequest()
 {
+#if !HAS_FFMPEG
     LogMoviePlayerUnavailableOnce();
+#endif
     if (m_resumeRequested.exchange(false)) { SeekTo(0.0); Play(); }
     if (!m_movieRequested.load()) {
         if (m_holdOpeningFrame.load() && IsPlaying() && GetCurrentPosition() >= 0.05) {
@@ -3155,52 +3303,545 @@ void MoviePlayer::ProcessMovieRequest()
     else if (OpenMovie(path)) Play();
 }
 
+#if HAS_FFMPEG
+
+// Close the currently open movie (if any) and clear all playback state.
+// Caller must hold m_mutex.
+void MoviePlayer::CloseFFmpegLocked()
+{
+    MovieFFmpeg* ff = static_cast<MovieFFmpeg*>(m_ffmpeg);
+    if (ff)
+    {
+        FreeMovieFFmpeg(ff);
+        m_ffmpeg = nullptr;
+    }
+    m_isPlaying.store(false);
+    m_isPaused.store(false);
+    m_hasVideo.store(false);
+    m_hasAudio.store(false);
+    m_hasNewFrame.store(false);
+    m_videoWidth = 0;
+    m_videoHeight = 0;
+    m_videoDuration = 0;
+    m_llCurrentPosition.store(0);
+    m_playStartMediaTime = -1;
+    m_cpuFrameBuffer.clear();
+    m_cpuFrameWidth = 0;
+    m_cpuFrameHeight = 0;
+}
+
+// Scale one decoded video frame into the CPU BGRA buffer at the renderer
+// size and publish it. ptsAbsSeconds is the frame PTS in seconds
+// (absolute, in the stream time base); it is stored in
+// m_llCurrentPosition in MF 100-ns units, like the Windows path.
+// Caller must hold m_mutex.
+void MoviePlayer::PresentVideoFrameLocked(void* ffVoid, void* frameVoid, double ptsAbsSeconds)
+{
+    MovieFFmpeg* ff = static_cast<MovieFFmpeg*>(ffVoid);
+    AVFrame* frame = static_cast<AVFrame*>(frameVoid);
+    if (!ff || !frame || !ff->sws || ff->outW <= 0 || ff->outH <= 0)
+        return;
+    const size_t bytes = static_cast<size_t>(ff->outW) * static_cast<size_t>(ff->outH) * 4;
+    if (m_cpuFrameBuffer.size() != bytes)
+        m_cpuFrameBuffer.resize(bytes);
+    uint8_t* dst[4] = { m_cpuFrameBuffer.data(), nullptr, nullptr, nullptr };
+    int dstLinesize[4] = { ff->outW * 4, 0, 0, 0 };
+    sws_scale(ff->sws, frame->data, frame->linesize, 0, ff->srcH, dst, dstLinesize);
+    m_cpuFrameWidth = static_cast<uint32_t>(ff->outW);
+    m_cpuFrameHeight = static_cast<uint32_t>(ff->outH);
+    m_llCurrentPosition.store(static_cast<LONGLONG>(ptsAbsSeconds * 10000000.0));
+    m_hasNewFrame.store(true);
+    m_lastFrameTime = std::chrono::steady_clock::now();
+}
+
+// Drain resampled audio from the backlog into the miniaudio ring.
+// Caller must hold m_mutex.
+void MoviePlayer::DrainAudioBacklogLocked(void* ffVoid)
+{
+    MovieFFmpeg* ff = static_cast<MovieFFmpeg*>(ffVoid);
+    if (!ff || !ff->audioStream || ff->audioBacklog.empty())
+        return;
+    const size_t frames = ff->audioBacklog.size() / 2;
+    const size_t written = ff->audioStream->Write(ff->audioBacklog.data(), frames);
+    if (written >= frames)
+    {
+        ff->audioBacklog.clear();
+    }
+    else if (written > 0)
+    {
+        ff->audioBacklog.erase(ff->audioBacklog.begin(),
+            ff->audioBacklog.begin() + static_cast<std::ptrdiff_t>(written * 2));
+    }
+}
+
+// Resample one decoded audio frame to 44100 Hz stereo s16 and append it
+// to the backlog (drained into the ring by DrainAudioBacklogLocked, so
+// nothing is lost when the ring is momentarily full).
+// Caller must hold m_mutex.
+void MoviePlayer::ResampleAndQueueAudioLocked(void* ffVoid, void* frameVoid)
+{
+    MovieFFmpeg* ff = static_cast<MovieFFmpeg*>(ffVoid);
+    AVFrame* frame = static_cast<AVFrame*>(frameVoid);
+    if (!ff || !frame || !ff->swr || !ff->audioStream)
+        return;
+    const int outFrames = static_cast<int>(av_rescale_rnd(
+        swr_get_delay(ff->swr, static_cast<int64_t>(frame->sample_rate)) + frame->nb_samples,
+        Miniaudio::kSampleRate, frame->sample_rate, AV_ROUND_UP));
+    if (outFrames <= 0)
+        return;
+    const size_t base = ff->audioBacklog.size();
+    ff->audioBacklog.resize(base + static_cast<size_t>(outFrames) * 2);
+    uint8_t* out[1] = { reinterpret_cast<uint8_t*>(ff->audioBacklog.data() + base) };
+    const int converted = swr_convert(ff->swr, out, outFrames,
+        const_cast<const uint8_t**>(frame->data), frame->nb_samples);
+    if (converted <= 0)
+    {
+        ff->audioBacklog.resize(base);
+        return;
+    }
+    ff->audioBacklog.resize(base + static_cast<size_t>(converted) * 2);
+}
+
+// Decode packets until the video frame for mediaTimeRel is presented and
+// the audio ring is topped up. mediaTimeRel is seconds relative to the
+// first video frame; mediaTimeRel < 0 means "present the first video
+// frame, whatever its PTS" (opening frame, called from OpenMovie).
+// Returns true if a new video frame was presented. Caller must hold m_mutex.
+bool MoviePlayer::DecodeUntilLocked(double mediaTimeRel)
+{
+    MovieFFmpeg* ff = static_cast<MovieFFmpeg*>(m_ffmpeg);
+    if (!ff || ff->eof)
+        return false;
+    bool presented = false;
+
+    // 1) Drain any backlog into the ring first.
+    DrainAudioBacklogLocked(ff);
+
+    // 2) Present a pending frame if it is due now.
+    if (ff->pending && mediaTimeRel >= 0 && ff->pendingPtsRel <= mediaTimeRel)
+    {
+        PresentVideoFrameLocked(ff, ff->pending, ff->firstVideoPts + ff->pendingPtsRel);
+        // Free (not just unref): av_frame_unref leaves a non-null pointer
+        // to an empty frame, and the `if (ff->pending)` guard below would
+        // then stop all further packet reading -- freezing the video and
+        // starving the audio. av_frame_free nulls the pointer.
+        av_frame_free(&ff->pending);
+        ff->pendingPtsRel = 0.0;
+        presented = true;
+    }
+    // 3) A pending frame held for the future bounds packet reading: stop
+    //    here (the audio ring holds ~186 ms, so this never starves audio).
+    if (ff->pending)
+        return presented;
+
+    // 4) Read packets (bounded per call).
+    for (int n = 0; n < kMovieMaxPacketsPerCall && !ff->eof; ++n)
+    {
+        const int r = av_read_frame(ff->fmt, ff->pkt);
+        if (r < 0)
+        {
+            ff->eof = true;
+            break;
+        }
+
+        if (ff->pkt->stream_index == ff->vstream && ff->vdec)
+        {
+            if (avcodec_send_packet(ff->vdec, ff->pkt) < 0)
+            {
+                av_packet_unref(ff->pkt);
+                continue;
+            }
+            while (true)
+            {
+                const int rr = avcodec_receive_frame(ff->vdec, ff->vframe);
+                if (rr == AVERROR(EAGAIN) || rr == AVERROR_EOF)
+                    break;
+                if (rr < 0)
+                    break;
+                const double ptsAbs = FramePtsSeconds(ff->vframe, ff->vtb);
+                if (ff->firstVideoPts < 0.0)
+                    ff->firstVideoPts = ptsAbs;
+                const double ptsRel = ptsAbs - ff->firstVideoPts;
+                if (mediaTimeRel < 0 || ptsRel <= mediaTimeRel)
+                {
+                    PresentVideoFrameLocked(ff, ff->vframe, ptsAbs);
+                    presented = true;
+                    // Continue: another frame from this packet may also be due.
+                }
+                else
+                {
+                    // Decoded ahead of the media time -- hold this one frame
+                    // for the next call and stop reading packets.
+                    if (!ff->pending)
+                        ff->pending = av_frame_alloc();
+                    if (ff->pending)
+                    {
+                        av_frame_move_ref(ff->pending, ff->vframe);
+                        ff->pendingPtsRel = ptsRel;
+                    }
+                    av_packet_unref(ff->pkt);
+                    return presented;
+                }
+            }
+        }
+        else if (ff->pkt->stream_index == ff->astream && ff->adec && ff->audioStream)
+        {
+            // Decode audio only while the ring (plus backlog) is below the
+            // target, so a long UpdateFrame gap cannot queue seconds of
+            // audio ahead of the video. The backlog absorbs any overflow.
+            if (ff->audioStream->Readable() + ff->audioBacklog.size() / 2 < kMovieAudioRingTarget)
+            {
+                if (avcodec_send_packet(ff->adec, ff->pkt) == 0)
+                {
+                    while (true)
+                    {
+                        const int rr = avcodec_receive_frame(ff->adec, ff->aframe);
+                        if (rr == AVERROR(EAGAIN) || rr == AVERROR_EOF)
+                            break;
+                        if (rr < 0)
+                            break;
+                        ResampleAndQueueAudioLocked(ff, ff->aframe);
+                    }
+                }
+            }
+        }
+        av_packet_unref(ff->pkt);
+    }
+
+    // 5) Whatever audio was decoded, push it into the ring now.
+    DrainAudioBacklogLocked(ff);
+    return presented;
+}
+
+#endif // HAS_FFMPEG
+
 bool MoviePlayer::OpenMovie(const std::wstring& filePath)
 {
-    (void)filePath;
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    if (!m_isInitialized.load())
+    {
+        Debug::logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MoviePlayer] OpenMovie called before Initialize; ignoring.");
+        return false;
+    }
+#if !HAS_FFMPEG
     LogMoviePlayerUnavailableOnce();
     return false;
+#else
+    // Close any movie already open.
+    CloseFFmpegLocked();
+
+    const std::string narrow = NarrowPathForFstream(filePath);
+    MovieFFmpeg* ff = new MovieFFmpeg();
+    if (avformat_open_input(&ff->fmt, narrow.c_str(), nullptr, nullptr) < 0)
+    {
+        delete ff;
+        Debug::logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MoviePlayer] Could not open movie file.");
+        return false;
+    }
+    if (avformat_find_stream_info(ff->fmt, nullptr) < 0)
+    {
+        FreeMovieFFmpeg(ff);
+        Debug::logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MoviePlayer] Could not read movie stream info.");
+        return false;
+    }
+
+    ff->vstream = av_find_best_stream(ff->fmt, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
+    ff->astream = av_find_best_stream(ff->fmt, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
+    if (ff->vstream < 0 && ff->astream < 0)
+    {
+        FreeMovieFFmpeg(ff);
+        Debug::logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MoviePlayer] Movie has no video or audio stream.");
+        return false;
+    }
+
+    // ---- Video decoder ----
+    if (ff->vstream >= 0)
+    {
+        AVCodecParameters* par = ff->fmt->streams[ff->vstream]->codecpar;
+        ff->vtb = ff->fmt->streams[ff->vstream]->time_base;
+        const AVCodec* codec = avcodec_find_decoder(par->codec_id);
+        if (codec)
+        {
+            ff->vdec = avcodec_alloc_context3(codec);
+            if (ff->vdec && avcodec_parameters_to_context(ff->vdec, par) >= 0 &&
+                avcodec_open2(ff->vdec, codec, nullptr) >= 0)
+            {
+                ff->srcW = ff->vdec->width;
+                ff->srcH = ff->vdec->height;
+                ff->srcFmt = ff->vdec->pix_fmt;
+                const AVRational fr = ff->fmt->streams[ff->vstream]->avg_frame_rate;
+                if (fr.num > 0 && fr.den > 0)
+                    m_targetFPS = static_cast<float>(av_q2d(fr));
+            }
+            else
+            {
+                if (ff->vdec)
+                    avcodec_free_context(&ff->vdec);
+                ff->vstream = -1;
+            }
+        }
+        else
+        {
+            ff->vstream = -1;
+        }
+    }
+
+    // ---- Audio decoder (only when the engine wants movie audio) ----
+    if (ff->astream >= 0 && m_enableAudio)
+    {
+        AVCodecParameters* par = ff->fmt->streams[ff->astream]->codecpar;
+        ff->atb = ff->fmt->streams[ff->astream]->time_base;
+        const AVCodec* codec = avcodec_find_decoder(par->codec_id);
+        if (codec)
+        {
+            ff->adec = avcodec_alloc_context3(codec);
+            if (ff->adec && avcodec_parameters_to_context(ff->adec, par) >= 0 &&
+                avcodec_open2(ff->adec, codec, nullptr) >= 0)
+            {
+                // Resampler: source format -> 44100 Hz stereo s16.
+                // (AV_CHANNEL_LAYOUT_STEREO is a braced list, not a value,
+                // so it needs a named variable before its address is taken.)
+                const AVChannelLayout outLayout = AV_CHANNEL_LAYOUT_STEREO;
+                swr_alloc_set_opts2(&ff->swr,
+                    &outLayout, AV_SAMPLE_FMT_S16, Miniaudio::kSampleRate,
+                    &ff->adec->ch_layout, ff->adec->sample_fmt, ff->adec->sample_rate,
+                    0, nullptr);
+                if (!ff->swr || swr_init(ff->swr) < 0)
+                {
+                    if (ff->swr)
+                        swr_free(&ff->swr);
+                    avcodec_free_context(&ff->adec);
+                    ff->astream = -1;
+                }
+                else
+                {
+                    ff->audioStream = new Miniaudio::Stream();
+                    if (!ff->audioStream->IsReady())
+                    {
+                        delete ff->audioStream;
+                        ff->audioStream = nullptr;
+                        avcodec_free_context(&ff->adec);
+                        ff->astream = -1;
+                    }
+                }
+            }
+            else
+            {
+                if (ff->adec)
+                    avcodec_free_context(&ff->adec);
+                ff->astream = -1;
+            }
+        }
+        else
+        {
+            ff->astream = -1;
+        }
+    }
+    else
+    {
+        ff->astream = -1;
+    }
+
+    if (ff->vstream < 0 && ff->astream < 0)
+    {
+        FreeMovieFFmpeg(ff);
+        Debug::logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MoviePlayer] No usable video or audio decoder for this movie.");
+        return false;
+    }
+
+    // ---- Output size: the renderer size, so the Vulkan overlay upload
+    //      (which requires an exact match) accepts the frame as-is.
+    //      Falls back to the native video size when there is no renderer.
+    ff->outW = (m_renderer && m_renderer->iOrigWidth > 0) ? m_renderer->iOrigWidth : ff->srcW;
+    ff->outH = (m_renderer && m_renderer->iOrigHeight > 0) ? m_renderer->iOrigHeight : ff->srcH;
+    if (ff->vdec)
+    {
+        ff->sws = sws_getContext(ff->srcW, ff->srcH, ff->srcFmt,
+            ff->outW, ff->outH, AV_PIX_FMT_BGRA, SWS_BILINEAR, nullptr, nullptr, nullptr);
+        if (!ff->sws)
+        {
+            FreeMovieFFmpeg(ff);
+            Debug::logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MoviePlayer] Could not create the video scaler.");
+            return false;
+        }
+    }
+    ff->vframe = av_frame_alloc();
+    ff->aframe = av_frame_alloc();
+    ff->pkt = av_packet_alloc();
+    if (!ff->vframe || !ff->aframe || !ff->pkt)
+    {
+        FreeMovieFFmpeg(ff);
+        Debug::logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MoviePlayer] Could not allocate decode frames.");
+        return false;
+    }
+
+    ff->durationSecs = (ff->fmt->duration != AV_NOPTS_VALUE)
+        ? static_cast<double>(ff->fmt->duration) / static_cast<double>(AV_TIME_BASE)
+        : 0.0;
+    m_videoDuration = static_cast<LONGLONG>(ff->durationSecs * 10000000.0);
+    m_videoWidth = static_cast<uint32_t>(ff->srcW);
+    m_videoHeight = static_cast<uint32_t>(ff->srcH);
+    m_hasVideo.store(ff->vdec != nullptr);
+    m_hasAudio.store(ff->adec != nullptr && ff->audioStream != nullptr);
+    m_ffmpeg = ff;
+
+    // Decode the opening frame so the first GetCurrentFrameRGBA() is not
+    // empty even before Play() is called. This also anchors
+    // m_playStartMediaTime to the first frame's PTS.
+    if (ff->vdec)
+    {
+        DecodeUntilLocked(-1.0);
+        if (ff->firstVideoPts >= 0.0)
+            m_playStartMediaTime = static_cast<LONGLONG>(ff->firstVideoPts * 10000000.0);
+    }
+    return true;
+#endif
 }
 
 bool MoviePlayer::Play()
 {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+#if !HAS_FFMPEG
     LogMoviePlayerUnavailableOnce();
     return false;
+#else
+    if (!m_ffmpeg)
+    {
+        Debug::logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MoviePlayer] Play called with no movie open.");
+        return false;
+    }
+    MovieFFmpeg* ff = static_cast<MovieFFmpeg*>(m_ffmpeg);
+    // Capture the resume anchor ONCE: the relative PTS of the frame being
+    // shown when Play() is called (0 for a fresh play, the paused PTS on
+    // resume). UpdateFrame() adds the wall-clock elapsed to this -- it
+    // must NOT recompute the anchor from m_llCurrentPosition on every
+    // call, because that member advances as frames are presented and
+    // would double-count the elapsed time (video running at ~2x).
+    ff->resumePtsRel = (m_playStartMediaTime >= 0)
+        ? static_cast<double>(m_llCurrentPosition.load() - m_playStartMediaTime) / 10000000.0
+        : 0.0;
+    m_playStartWallTime = std::chrono::steady_clock::now();
+    m_isPaused.store(false);
+    m_isPlaying.store(true);
+    if (ff->audioStream)
+        ff->audioStream->Start();
+    return true;
+#endif
 }
 
 bool MoviePlayer::Pause()
 {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+#if !HAS_FFMPEG
     LogMoviePlayerUnavailableOnce();
     return false;
+#else
+    if (!m_isPlaying.load() || m_isPaused.load())
+        return false;
+    // m_llCurrentPosition already holds the PTS of the last presented
+    // frame, so Play() resumes the clock from exactly here.
+    m_isPaused.store(true);
+    MovieFFmpeg* ff = static_cast<MovieFFmpeg*>(m_ffmpeg);
+    if (ff && ff->audioStream)
+        ff->audioStream->Stop();
+    return true;
+#endif
 }
 
 bool MoviePlayer::Stop()
 {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+#if !HAS_FFMPEG
     LogMoviePlayerUnavailableOnce();
     return false;
+#else
+    MovieFFmpeg* ff = static_cast<MovieFFmpeg*>(m_ffmpeg);
+    if (!ff)
+        return false;
+    if (ff->audioStream)
+        ff->audioStream->Stop();
+    m_isPlaying.store(false);
+    m_isPaused.store(false);
+    // Seek back to the start so a later Play() replays from the beginning.
+    if (ff->fmt && av_seek_frame(ff->fmt, -1, 0, AVSEEK_FLAG_BACKWARD) >= 0)
+    {
+        if (ff->vdec)
+            avcodec_flush_buffers(ff->vdec);
+        if (ff->adec)
+            avcodec_flush_buffers(ff->adec);
+        ff->eof = false;
+        ff->firstVideoPts = -1.0;
+        if (ff->pending)
+        {
+            av_frame_free(&ff->pending);
+            ff->pendingPtsRel = 0.0;
+        }
+        ff->audioBacklog.clear();
+    }
+    m_llCurrentPosition.store(m_playStartMediaTime >= 0 ? m_playStartMediaTime : 0);
+    ff->resumePtsRel = 0.0;
+    return true;
+#endif
 }
 
 bool MoviePlayer::Reset()
 {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+#if !HAS_FFMPEG
     LogMoviePlayerUnavailableOnce();
     return false;
+#else
+    CloseFFmpegLocked();
+    return true;
+#endif
 }
 
 bool MoviePlayer::SeekTo(double timeInSeconds)
 {
-    (void)timeInSeconds;
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+#if !HAS_FFMPEG
     LogMoviePlayerUnavailableOnce();
     return false;
+#else
+    MovieFFmpeg* ff = static_cast<MovieFFmpeg*>(m_ffmpeg);
+    if (!ff || !ff->fmt)
+        return false;
+    const int64_t ts = static_cast<int64_t>(
+        (ff->firstVideoPts >= 0.0 ? ff->firstVideoPts : 0.0) * static_cast<double>(AV_TIME_BASE) +
+        timeInSeconds * static_cast<double>(AV_TIME_BASE));
+    if (av_seek_frame(ff->fmt, -1, ts, AVSEEK_FLAG_BACKWARD) < 0)
+        return false;
+    if (ff->vdec)
+        avcodec_flush_buffers(ff->vdec);
+    if (ff->adec)
+        avcodec_flush_buffers(ff->adec);
+    ff->eof = false;
+    ff->firstVideoPts = -1.0;
+    if (ff->pending)
+    {
+        av_frame_free(&ff->pending);
+        ff->pendingPtsRel = 0.0;
+    }
+    ff->audioBacklog.clear();
+    // Re-anchor the clock at the seek target (relative to the first frame).
+    m_llCurrentPosition.store(m_playStartMediaTime +
+        static_cast<LONGLONG>(timeInSeconds * 10000000.0));
+    ff->resumePtsRel = timeInSeconds;
+    m_playStartWallTime = std::chrono::steady_clock::now();
+    return true;
+#endif
 }
 
 double MoviePlayer::GetDuration()
 {
-    return 0.0;
+    // m_videoDuration is plain LONGLONG (MF 100-ns units); the
+    // ConvertMFTimeToSeconds helper is Windows-only, so divide directly.
+    return static_cast<double>(m_videoDuration) / 10000000.0;
 }
 
 double MoviePlayer::GetCurrentPosition()
 {
-    return 0.0;
+    return static_cast<double>(m_llCurrentPosition.load()) / 10000000.0;
 }
 
 Vector2 MoviePlayer::GetVideoDimensions()
@@ -3210,24 +3851,78 @@ Vector2 MoviePlayer::GetVideoDimensions()
 
 bool MoviePlayer::UpdateFrame()
 {
+    if (!m_isPlaying.load() || m_isPaused.load())
+        return false;
+#if !HAS_FFMPEG
     LogMoviePlayerUnavailableOnce();
     return false;
+#else
+    MovieFFmpeg* ff = static_cast<MovieFFmpeg*>(m_ffmpeg);
+    if (!ff)
+        return false;
+
+    std::unique_lock<std::recursive_mutex> updateLock(m_mutex, std::try_to_lock);
+    if (!updateLock.owns_lock())
+        return false;
+
+    // Media time, in seconds relative to the first video frame: the
+    // resume anchor captured in Play()/SeekTo() plus the wall-clock
+    // elapsed since then. (The anchor is fixed for the whole play run;
+    // recomputing it from m_llCurrentPosition would double-count.)
+    const double elapsed = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - m_playStartWallTime).count();
+    const double mediaTimeRel = ff->resumePtsRel + elapsed;
+
+    const bool presented = DecodeUntilLocked(mediaTimeRel);
+
+    // End of movie: video reached the end of the file, or (audio-only)
+    // the file is fully read and the ring has drained.
+    if (ff->eof)
+    {
+        if (m_hasVideo.load())
+        {
+            if (ff->durationSecs > 0.0 && mediaTimeRel >= ff->durationSecs)
+            {
+                m_isPlaying.store(false);
+                if (ff->audioStream)
+                    ff->audioStream->Stop();
+            }
+        }
+        else if (ff->audioStream && ff->audioStream->Readable() == 0 && ff->audioBacklog.empty())
+        {
+            m_isPlaying.store(false);
+        }
+    }
+    return presented;
+#endif
 }
 
 const uint8_t* MoviePlayer::GetCurrentFrameRGBA(uint32_t& outWidth, uint32_t& outHeight)
 {
-    outWidth = 0; outHeight = 0;
-    return nullptr;
+    if (m_cpuFrameBuffer.empty() || m_cpuFrameWidth == 0 || m_cpuFrameHeight == 0)
+    {
+        outWidth = 0; outHeight = 0;
+        return nullptr;
+    }
+    outWidth  = m_cpuFrameWidth;
+    outHeight = m_cpuFrameHeight;
+    return m_cpuFrameBuffer.data();
 }
 
+// On Linux the renderers draw the frame themselves (Vulkan overlay upload
+// via GetCurrentFrameRGBA, OpenGL texture upload); there is no
+// renderer-independent draw call here.
 void MoviePlayer::Render(const Vector2& position, const Vector2& size)
 {
     (void)position; (void)size;
-    LogMoviePlayerUnavailableOnce();
 }
 
 void MoviePlayer::Cleanup()
 {
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+#if HAS_FFMPEG
+    CloseFFmpegLocked();
+#else
     LogMoviePlayerUnavailableOnce();
     m_isInitialized.store(false);
     m_isPlaying.store(false);
@@ -3238,6 +3933,7 @@ void MoviePlayer::Cleanup()
     m_cpuFrameBuffer.clear();
     m_cpuFrameWidth = 0;
     m_cpuFrameHeight = 0;
+#endif
 }
 
 #endif // !PLATFORM_WINDOWS

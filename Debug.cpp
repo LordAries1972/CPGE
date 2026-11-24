@@ -367,8 +367,17 @@ void Debug::EmitMessage(LogLevel level, const std::wstring& message, bool bAllow
 #else
             if (level == LogLevel::LOG_TERMINATION)
                 std::exit(EXIT_FAILURE);
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+            // Linux/Android: only quit on ERROR/CRITICAL once the main loop
+            // is actually running. Errors raised during startup (a missing
+            // intro movie, a failed asset load before the first frame) must
+            // not kill the engine before it runs; they are logged above.
+            else if (g_cpgeMainLoopActive.load())
+                g_cpgeQuitRequested.store(true);
+#else
             else
                 g_cpgeQuitRequested.store(true);
+#endif
 #endif
         }
     }

@@ -412,3 +412,8 @@ cause a crash. Always stop the recorder before tearing down the renderer.
 Media Foundation holds internal COM objects. Calling `CoUninitialize` first
 leaves those objects in an invalid state. Always follow the order:
 `StopRecording` → `MFShutdown` → `CoUninitialize`.
+
+
+## Linux backend — FFmpeg (23 November 2026)
+
+On Linux the recorder muxes H.264 (libx264) + AAC into MP4 with FFmpeg 8.1.2, instead of Media Foundation. Media test: 55 checks, 0 failures (shared with the movie player). Limits: the recorder captures tracker music but not SFX (the miniaudio engine has no output tap); microphone recording is not implemented on Linux — it warns once and records without a mic.

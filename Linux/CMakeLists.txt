@@ -89,6 +89,7 @@ set(SOURCES
     ${SRC_DIR}/ShaderLoaders.cpp
     ${SRC_DIR}/ShaderManager.cpp
     ${SRC_DIR}/SoundManager.cpp
+    ${SRC_DIR}/MiniaudioStream.cpp   # miniaudio implementation (single TU) + the tracker players' streaming helper
     ${SRC_DIR}/ThreadManager.cpp
     ${SRC_DIR}/TTSManager.cpp
     ${SRC_DIR}/XMMODPlayer.cpp
@@ -312,6 +313,51 @@ if(NOT ANDROID)
         message(STATUS "ALSA       : ${ALSA_LIB}")
     else()
         message(STATUS "ALSA       : not found (SoundManager may produce no audio on Linux)")
+    endif()
+endif()
+
+# ── FFmpeg for MoviePlayer / ScreenRecorder / MPTM external samples ──────────
+# FFmpeg is optional: the code detects the headers itself with __has_include
+# (HAS_FFMPEG, like HAS_SHADERC) and reports "FFmpeg not available" when they
+# are absent. CMake only links the libraries when BOTH the headers and the
+# libraries are found, so a machine without FFmpeg dev files still builds.
+#   Ubuntu/Debian: sudo apt install libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libswresample-dev
+#   (the -dev packages must match the installed libav* runtime version)
+if(NOT ANDROID)
+    find_path(FFMPEG_INCLUDE_DIR libavformat/avformat.h
+        HINTS /usr/include /usr/local/include)
+    find_library(AVFORMAT_LIB avformat)
+    find_library(AVCODEC_LIB avcodec)
+    find_library(AVUTIL_LIB avutil)
+    find_library(SWSCALE_LIB swscale)
+    find_library(SWRESAMPLE_LIB swresample)
+    if(FFMPEG_INCLUDE_DIR AND AVFORMAT_LIB AND AVCODEC_LIB AND AVUTIL_LIB AND SWSCALE_LIB AND SWRESAMPLE_LIB)
+        target_include_directories(CrossPlatformGameEngine PRIVATE ${FFMPEG_INCLUDE_DIR})
+        target_link_libraries(CrossPlatformGameEngine PRIVATE ${AVFORMAT_LIB} ${AVCODEC_LIB} ${AVUTIL_LIB} ${SWSCALE_LIB} ${SWRESAMPLE_LIB})
+        message(STATUS "FFmpeg     : ${AVFORMAT_LIB} (headers ${FFMPEG_INCLUDE_DIR})")
+    else()
+        message(STATUS "FFmpeg     : not found (MoviePlayer/ScreenRecorder disabled; MPTM external samples silent)")
+    endif()
+endif()
+
+# ── eSpeak-ng for TTSManager (Linux text-to-speech) ──────────────────────────
+# Same optional pattern as FFmpeg: the code detects the headers itself with
+# __has_include (HAS_ESPEAK) and TTSManager reports STATE_ERROR when they
+# are absent, so the engine runs without TTS instead of failing the build.
+# CMake only links the library when BOTH the headers and the library are
+# found. (Android uses the platform TextToSpeech via JNI in Phase D, so
+# eSpeak-ng is not linked there.)
+#   Ubuntu/Debian: sudo apt install libespeak-ng-dev espeak-ng
+if(NOT ANDROID)
+    find_path(ESPEAK_NG_INCLUDE_DIR espeak-ng/speak_lib.h
+        HINTS /usr/include /usr/local/include)
+    find_library(ESPEAK_NG_LIB espeak-ng)
+    if(ESPEAK_NG_INCLUDE_DIR AND ESPEAK_NG_LIB)
+        target_include_directories(CrossPlatformGameEngine PRIVATE ${ESPEAK_NG_INCLUDE_DIR})
+        target_link_libraries(CrossPlatformGameEngine PRIVATE ${ESPEAK_NG_LIB})
+        message(STATUS "eSpeak-ng  : ${ESPEAK_NG_LIB} (headers ${ESPEAK_NG_INCLUDE_DIR})")
+    else()
+        message(STATUS "eSpeak-ng  : not found (TTSManager disabled on Linux)")
     endif()
 endif()
 

@@ -39,7 +39,11 @@ extern ExceptionHandler exceptionHandler;
 #define PLATFORM_WINDOWS
 #include <windows.h>
 #include <winuser.h>
-#elif defined(__linux__)
+#elif defined(__ANDROID__)
+#define PLATFORM_ANDROID
+#include <android/input.h>
+#include <android/keycodes.h>
+#elif defined(__linux__) && !defined(__ANDROID__)
 #define PLATFORM_LINUX
 // X11 typedefs KeyCode (unsigned char), which collides with the engine's
 // enum class KeyCode (KeyboardHandler.h). Rename the X11 typedef at include
@@ -53,10 +57,6 @@ extern ExceptionHandler exceptionHandler;
 #define PLATFORM_MACOS
 #include <Carbon/Carbon.h>
 #include <ApplicationServices/ApplicationServices.h>
-#elif defined(__ANDROID__)
-#define PLATFORM_ANDROID
-#include <android/input.h>
-#include <android/keycodes.h>
 #elif defined(__iOS__)
 #define PLATFORM_IOS
 // iOS uses different input handling through UIKit

@@ -91,6 +91,91 @@ namespace {
 }
 #endif
 
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+#include "miniaudio.h"
+
+namespace {
+    // The miniaudio engine, owned by SoundManager (as the opaque
+    // m_miniaudioEngine pointer). First tries the default backends (ALSA /
+    // PulseAudio / JACK / ...); when there is no audio device at all
+    // (headless machine, container) it falls back to the null backend, so
+    // the engine still runs and SFX still "play" (silently) instead of the
+    // game failing to start.
+    struct MiniaudioEngine {
+        ma_context context{};
+        bool hasContext = false;
+        bool nullBackend = false;
+        ma_engine engine{};
+        bool ready = false;
+        MiniaudioEngine() {
+            ma_engine_config cfg = ma_engine_config_init();
+            if (ma_engine_init(&cfg, &engine) == MA_SUCCESS) { ready = true; return; }
+            ma_backend backs[] = { ma_backend_null };
+            if (ma_context_init(backs, 1, nullptr, &context) == MA_SUCCESS) {
+                hasContext = true;
+                cfg.pContext = &context;
+                if (ma_engine_init(&cfg, &engine) == MA_SUCCESS) { ready = true; nullBackend = true; }
+            }
+        }
+        ~MiniaudioEngine() {
+            if (ready) ma_engine_uninit(&engine);
+            if (hasContext) ma_context_uninit(&context);
+        }
+        ma_engine* Engine() { return ready ? &engine : nullptr; }
+    };
+
+    // Milliseconds since an arbitrary steady point (same units as
+    // GetTickCount64() on Windows; used for the bank sounds' started/lastPlayed).
+    unsigned long long TickMs() {
+        return static_cast<unsigned long long>(std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count());
+    }
+
+    // Map a loaded WAV's format to a miniaudio format. Returns false when
+    // the WAV is in a format miniaudio cannot play from a raw buffer.
+    bool WavFormatToMiniaudio(const WAVEFORMATEX& fmt, ma_format& outFormat, ma_uint32& outBytesPerSample) {
+        const bool isFloat = fmt.wFormatTag == 3;   // WAVE_FORMAT_IEEE_FLOAT
+        const bool isPcm = fmt.wFormatTag == 1;     // WAVE_FORMAT_PCM
+        if (!isPcm && !isFloat) return false;
+        switch (fmt.wBitsPerSample) {
+        case 8:  outFormat = ma_format_u8;  outBytesPerSample = 1; return isPcm;
+        case 16: outFormat = ma_format_s16; outBytesPerSample = 2; return isPcm;
+        case 24: outFormat = ma_format_s24; outBytesPerSample = 3; return isPcm;
+        case 32: outFormat = isFloat ? ma_format_f32 : ma_format_s32; outBytesPerSample = 4; return true;
+        default: return false;
+        }
+    }
+
+    // Build an ma_audio_buffer (referencing, not copying, `pcm` — the caller
+    // guarantees the PCM outlives the buffer) and an ma_sound playing it.
+    // On failure both outputs are null and any partial object is freed.
+    bool CreateSoundFromSFX(ma_engine* engine, const WAVEFORMATEX& fmt, const std::vector<BYTE>& pcm,
+                            ma_audio_buffer** outBuffer, ma_sound** outSound) {
+        *outBuffer = nullptr; *outSound = nullptr;
+        if (engine == nullptr || pcm.empty() || fmt.nChannels == 0) return false;
+        ma_format format = ma_format_unknown;
+        ma_uint32 bytesPerSample = 0;
+        if (!WavFormatToMiniaudio(fmt, format, bytesPerSample)) return false;
+        const ma_uint64 frames = pcm.size() / (static_cast<ma_uint64>(fmt.nChannels) * bytesPerSample);
+        if (frames == 0) return false;
+        ma_audio_buffer* buffer = new ma_audio_buffer();
+        ma_audio_buffer_config cfg = ma_audio_buffer_config_init(format, fmt.nChannels, frames, pcm.data(), nullptr);
+        if (ma_audio_buffer_init(&cfg, buffer) != MA_SUCCESS) { delete buffer; return false; }
+        ma_sound* sound = new ma_sound();
+        if (ma_sound_init_from_data_source(engine, buffer, 0, nullptr, sound) != MA_SUCCESS) {
+            ma_audio_buffer_uninit(buffer); delete buffer; delete sound; return false;
+        }
+        *outBuffer = buffer; *outSound = sound;
+        return true;
+    }
+
+    void FreeSound(ma_sound* sound, ma_audio_buffer* buffer) {
+        if (sound != nullptr) { ma_sound_uninit(sound); delete sound; }
+        if (buffer != nullptr) { ma_audio_buffer_uninit(buffer); delete buffer; }
+    }
+}
+#endif
+
 SoundManager::SoundManager() :
     m_directSound(nullptr),
     m_primaryBuffer(nullptr),
@@ -135,19 +220,40 @@ bool SoundManager::Initialize(HWND hwnd) {
         debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"CreateSoundBuffer (primary) failed");
         return false;
     }
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    // Linux / Android (miniaudio): create the engine (see MiniaudioEngine:
+    // null backend when there is no audio device). A failed engine is a
+    // warning, not a failure — the game must never break for lack of a
+    // sound card; every playback call below no-ops when the engine is null.
+    {
+        MiniaudioEngine* engine = new MiniaudioEngine();
+        if (!engine->ready) {
+            delete engine;
+            Debug::logDiagLevelMessage(LogLevel::LOG_WARNING, L"SoundManager: miniaudio engine could not be created; sounds are silent.");
+        } else {
+            m_miniaudioEngine = engine;
+            if (engine->nullBackend)
+                debug.logLevelMessage(LogLevel::LOG_INFO, L"SoundManager initialized using miniaudio (null backend - no audio device)");
+        }
+    }
 #else
-    // Linux / Android (Phase A): no DirectSound backend. Succeed with no audio
-    // so main.cpp does not abort; every playback call below is a silent no-op.
+    // Other platforms (macOS/iOS): no audio backend yet - sounds are silent.
     {
         static std::atomic<bool> warned{ false };
         if (!warned.exchange(true))
-            Debug::logDiagLevelMessage(LogLevel::LOG_WARNING, L"SoundManager is unavailable on Linux in this phase (DirectSound is Windows-only); sounds are silent.");
+            Debug::logDiagLevelMessage(LogLevel::LOG_WARNING, L"SoundManager audio backend is unavailable on this platform; sounds are silent.");
     }
 #endif
 
     m_initialized = true;
     #if defined(_DEBUG_SOUNDMANAGER_)
+        #if defined(PLATFORM_WINDOWS)
         debug.logLevelMessage(LogLevel::LOG_INFO, L"SoundManager initialized using DirectSound");
+        #elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"SoundManager initialized using miniaudio");
+        #else
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"SoundManager initialized (no audio backend on this platform)");
+        #endif
     #endif
     return true;
 }
@@ -249,7 +355,7 @@ void SoundManager::AddToQueue(SFX_ID id, float volume, StereoBalance balance, Pl
 
 void SoundManager::SetGlobalVolume(float volume) {
     m_globalVolume = std::clamp(volume, 0.0f, 1.0f);
-#if defined(PLATFORM_WINDOWS)
+#if defined(PLATFORM_WINDOWS) || defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
     {   // bank sounds already playing follow the new volume at once (the options window's volume sliders call this)
         std::lock_guard<std::mutex> lock(m_bankMutex);
         for (BankSound& b : m_bank)
@@ -264,7 +370,7 @@ void SoundManager::SetGlobalVolume(float volume) {
 
 void SoundManager::SetAmbientVolume(float volume) {
     m_ambientVolume = std::clamp(volume, 0.0f, 1.0f);
-#if defined(PLATFORM_WINDOWS)
+#if defined(PLATFORM_WINDOWS) || defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
     std::lock_guard<std::mutex> lock(m_bankMutex);              // loops that are playing follow the new level at once
     for (BankSound& b : m_bank)
         for (BankVoice& v : b.voices)
@@ -416,6 +522,28 @@ void SoundManager::PlayImmediateSFX(SFX_ID id) {
     #if defined(_DEBUG_SOUNDMANAGER_)
         debug.logLevelMessage(LogLevel::LOG_INFO, L"DirectSound: Immediate SFX played");
     #endif
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    // Linux (miniaudio): a one-shot from the preloaded PCM. The sound plays
+    // asynchronously, so its ma_sound + ma_audio_buffer are kept in the
+    // one-shot list until PlayQueueList reaps them after they finish.
+    ma_engine* engine = (m_miniaudioEngine != nullptr)
+        ? static_cast<MiniaudioEngine*>(m_miniaudioEngine)->Engine() : nullptr;
+    if (engine == nullptr) return;
+    ma_audio_buffer* buffer = nullptr;
+    ma_sound* sound = nullptr;
+    if (!CreateSoundFromSFX(engine, sfx.waveFormat, sfx.audioData, &buffer, &sound)) {
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"PlayImmediateSFX: unsupported SFX format");
+        return;
+    }
+    ma_sound_set_volume(sound, m_globalVolume.load());
+    if (ma_sound_start(sound) != MA_SUCCESS) {
+        FreeSound(sound, buffer);
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lock(m_oneShotMutex);
+        m_oneShots.push_back({ sound, buffer });
+    }
 #endif // PLATFORM_WINDOWS
 }
 
@@ -448,9 +576,50 @@ void SoundManager::UpdateFadeInVolumes() {
                 debug.logLevelMessage(LogLevel::LOG_DEBUG, L"Fade-in update - ID: " + std::to_wstring(static_cast<int>(item.id)) +
                     L" fadeRatio: " + std::to_wstring(fadeRatio) + L" db: " + std::to_wstring(volumeDb));
             #endif
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+        // miniaudio takes a linear gain directly (no dB conversion).
+        if (item.buffer) ma_sound_set_volume(static_cast<ma_sound*>(item.buffer), volume);
 #endif // PLATFORM_WINDOWS
     }
 }
+
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+void SoundManager::ReapOneShots() {
+    std::lock_guard<std::mutex> lock(m_oneShotMutex);
+    m_oneShots.erase(std::remove_if(m_oneShots.begin(), m_oneShots.end(), [](OneShot& o) {
+        ma_sound* sound = static_cast<ma_sound*>(o.sound);
+        if (sound != nullptr && ma_sound_is_playing(sound)) return false;
+        FreeSound(sound, static_cast<ma_audio_buffer*>(o.buffer));
+        return true;
+    }), m_oneShots.end());
+}
+
+bool SoundManager::IsAnySoundPlaying() {
+    {
+        std::lock_guard<std::mutex> lock(m_oneShotMutex);
+        for (OneShot& o : m_oneShots) {
+            ma_sound* sound = static_cast<ma_sound*>(o.sound);
+            if (sound != nullptr && ma_sound_is_playing(sound)) return true;
+        }
+    }
+    {
+        std::lock_guard<std::mutex> lock(m_queueMutex);
+        for (SoundQueueItem& item : m_soundQueue) {
+            ma_sound* sound = static_cast<ma_sound*>(item.buffer);
+            if (sound != nullptr && ma_sound_is_playing(sound)) return true;
+        }
+    }
+    {
+        std::lock_guard<std::mutex> lock(m_bankMutex);
+        for (BankSound& b : m_bank)
+            for (BankVoice& v : b.voices) {
+                ma_sound* sound = static_cast<ma_sound*>(v.buf);
+                if (sound != nullptr && ma_sound_is_playing(sound)) return true;
+            }
+    }
+    return false;
+}
+#endif
 
 void SoundManager::PlayQueueList() {
 #if defined(PLATFORM_WINDOWS)
@@ -534,6 +703,94 @@ void SoundManager::PlayQueueList() {
             debug.logLevelMessage(LogLevel::LOG_INFO, L"PlayQueueList: Playing SFX - ID: " + std::to_wstring(static_cast<int>(item.id)));
         #endif
     }
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    ReapOneShots();
+
+    ma_engine* engine = (m_miniaudioEngine != nullptr)
+        ? static_cast<MiniaudioEngine*>(m_miniaudioEngine)->Engine() : nullptr;
+    if (engine == nullptr) {
+        // No audio device and the null backend failed too: drop queued sounds
+        // instead of letting them pile up unplayed.
+        std::lock_guard<std::mutex> lock(m_queueMutex);
+        m_soundQueue.clear();
+        return;
+    }
+
+    // Automatically remove expired or finished sounds (same rules as Windows).
+    // The erase holds the queue mutex (unlike the Windows branch, which is a
+    // pre-existing race) so IsAnySoundPlaying can read the queue safely.
+    {
+        std::lock_guard<std::mutex> eraseLock(m_queueMutex);
+        m_soundQueue.erase(std::remove_if(m_soundQueue.begin(), m_soundQueue.end(), [](SoundQueueItem& item) {
+        if (!item.isPlaying) {
+            // Never started: drop it if it was disabled (e.g. an unplayable format).
+            return !item.enabled;
+        }
+        if (!item.buffer)
+            return false;
+
+        ma_sound* sound = static_cast<ma_sound*>(item.buffer);
+        bool isLooping = item.playbackType == PlaybackType::pbtSFX_Loop;
+        bool hasTimeout = item.timeoutSeconds > 0.0f;
+        auto now = std::chrono::steady_clock::now();
+        float elapsed = std::chrono::duration<float>(now - item.playTime).count();
+
+        bool expired = !isLooping && !ma_sound_is_playing(sound);
+        bool timeout = hasTimeout && elapsed >= item.timeoutSeconds;
+
+        if (expired || timeout) {
+            FreeSound(sound, static_cast<ma_audio_buffer*>(item.audioBuffer));
+            item.buffer = nullptr;
+            item.audioBuffer = nullptr;
+            #if defined(_DEBUG_SOUNDMANAGER_)
+                debug.logLevelMessage(LogLevel::LOG_DEBUG, L"[PlayQueueList] Sound expired and removed - ID: " + std::to_wstring(static_cast<int>(item.id)));
+            #endif
+            return true;
+        }
+
+        return false;
+        }), m_soundQueue.end());
+    }
+
+    std::lock_guard<std::mutex> lock(m_queueMutex);
+    const auto now = std::chrono::steady_clock::now();
+
+    for (auto& item : m_soundQueue) {
+        if (!item.enabled || item.isPlaying)
+            continue;
+
+        ma_audio_buffer* buffer = nullptr;
+        ma_sound* sound = nullptr;
+        if (!CreateSoundFromSFX(engine, item.waveFormat, item.audioData, &buffer, &sound)) {
+            debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"PlayQueueList: unsupported SFX format - ID: " + std::to_wstring(static_cast<int>(item.id)));
+            item.enabled = false;   // dropped by the next erase pass; do not retry (and log) every 10 ms
+            continue;
+        }
+
+        float pan = 0.0f;
+        switch (item.balance) {
+        case StereoBalance::BALANCE_LEFT: pan = -1.0f; break;
+        case StereoBalance::BALANCE_RIGHT: pan = 1.0f; break;
+        default: pan = 0.0f; break;
+        }
+        ma_sound_set_pan(sound, pan);
+        ma_sound_set_volume(sound, item.fadeIn ? 0.0f : item.volume);
+        ma_sound_set_looping(sound, item.playbackType == PlaybackType::pbtSFX_Loop ? MA_TRUE : MA_FALSE);
+        if (ma_sound_start(sound) != MA_SUCCESS) {
+            FreeSound(sound, buffer);
+            item.enabled = false;
+            continue;
+        }
+
+        item.buffer = sound;
+        item.audioBuffer = buffer;
+        item.playTime = now;
+        item.isPlaying = true;
+
+        #if defined(_DEBUG_SOUNDMANAGER_)
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"PlayQueueList: Playing SFX - ID: " + std::to_wstring(static_cast<int>(item.id)));
+        #endif
+    }
 #endif // PLATFORM_WINDOWS
 }
 
@@ -545,6 +802,13 @@ void SoundManager::ApplyBankVoiceVolume(BankVoice& v) {
         if (gain == v.appliedGain) return;
         // Retry failed driver writes; every volume control still takes effect immediately.
         if (SUCCEEDED(v.buf->SetVolume(GainToDirectSound(gain)))) v.appliedGain = gain;
+    #elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+        if (!v.buf) return;
+        const float gain = v.level * m_globalVolume.load() * (v.loop ? m_ambientVolume.load() : 1.0f);
+        if (gain == v.appliedGain) return;
+        // miniaudio takes a linear gain directly (no dB conversion).
+        ma_sound_set_volume(static_cast<ma_sound*>(v.buf), gain);
+        v.appliedGain = gain;
     #endif
 }
 
@@ -552,6 +816,25 @@ void SoundManager::ReleaseBankSound(BankSound& b) {
 #if defined(PLATFORM_WINDOWS)
     for (BankVoice& v : b.voices)
         if (v.buf) { v.buf->Stop(); v.buf->Release(); v.buf = nullptr; }
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    for (BankVoice& v : b.voices) {
+        if (v.buf) {
+            ma_sound* sound = static_cast<ma_sound*>(v.buf);
+            ma_sound_stop(sound);
+            ma_sound_uninit(sound);
+            delete sound;
+            v.buf = nullptr;
+        }
+        // Every voice owns its ma_audio_buffer (each has its own read cursor);
+        // all of them reference the slot's shared PCM.
+        if (v.audioBuffer != nullptr) {
+            ma_audio_buffer* buffer = static_cast<ma_audio_buffer*>(v.audioBuffer);
+            ma_audio_buffer_uninit(buffer);
+            delete buffer;
+            v.audioBuffer = nullptr;
+        }
+    }
+    b.pcm = LoadedSFX{};   // drop the shared PCM now that no buffer references it
 #endif
     b.voices.clear();
     b.ok = false;
@@ -584,6 +867,38 @@ bool SoundManager::RegisterBankSound(int slot, const std::wstring& file, int voi
         if (FAILED(m_directSound->DuplicateSoundBuffer(master, &dup)) || !dup) break;
         bs.voices.push_back({ dup, 0, 0.0f });
     }
+    bs.ok = true;
+
+    std::lock_guard<std::mutex> lock(m_bankMutex);
+    if (static_cast<size_t>(slot) >= m_bank.size()) m_bank.resize(static_cast<size_t>(slot) + 1);
+    ReleaseBankSound(m_bank[slot]);                             // registering a slot twice replaces it
+    m_bank[slot] = std::move(bs);
+    return true;
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    if (!m_initialized || slot < 0 || slot > 4095 || voices < 1) return false;
+    std::error_code ec;
+    if (!std::filesystem::exists(file, ec)) return false;       // checked here: LoadSFXFile logs an error for a missing file, and a missing optional effect is not one
+
+    LoadedSFX sfx;
+    if (!LoadSFXFile(file, sfx)) return false;
+
+    ma_engine* engine = (m_miniaudioEngine != nullptr)
+        ? static_cast<MiniaudioEngine*>(m_miniaudioEngine)->Engine() : nullptr;
+    if (engine == nullptr) return false;   // no audio device: the slot stays unloaded
+
+    BankSound bs;
+    bs.minGapMs = minGapMs; bs.maxPlayMs = maxPlayMs; bs.gain = gain;
+    bs.pcm = std::move(sfx);   // the slot's PCM; every voice's buffer references it (no copy per voice)
+    for (int i = 0; i < voices; ++i) {                          // extra voices each get their own ma_sound + ma_audio_buffer (their own read cursor) over the SAME PCM
+        ma_audio_buffer* buffer = nullptr;
+        ma_sound* sound = nullptr;
+        if (!CreateSoundFromSFX(engine, bs.pcm.waveFormat, bs.pcm.audioData, &buffer, &sound)) break;
+        BankVoice v;
+        v.buf = sound;
+        v.audioBuffer = buffer;
+        bs.voices.push_back(v);
+    }
+    if (bs.voices.empty()) return false;
     bs.ok = true;
 
     std::lock_guard<std::mutex> lock(m_bankMutex);
@@ -625,8 +940,29 @@ void SoundManager::PlayBankSound(int slot, float volume) {
     ApplyBankVoiceVolume(*pick);
     pick->buf->Play(0, 0, 0);
     pick->started = now; b.lastPlayed = now;
-#else
-    (void)slot; (void)volume;
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    std::lock_guard<std::mutex> lock(m_bankMutex);
+    if (slot < 0 || static_cast<size_t>(slot) >= m_bank.size() || !m_bank[slot].ok) return;
+    BankSound& b = m_bank[slot];
+    const unsigned long long now = TickMs();
+    if (now - b.lastPlayed < b.minGapMs) return;                // throttle rapid retriggers
+
+    BankVoice* pick = nullptr;                                  // a free voice, else steal the oldest one
+    for (BankVoice& v : b.voices) {
+        ma_sound* sound = static_cast<ma_sound*>(v.buf);
+        if (!ma_sound_is_playing(sound)) { pick = &v; break; }
+        if (!pick || v.started < pick->started) pick = &v;
+    }
+    if (!pick) return;
+    pick->level = volume * b.gain;
+    pick->loop = false;                                         // a one-shot effect: not ambient
+    ma_sound* sound = static_cast<ma_sound*>(pick->buf);
+    ma_sound_stop(sound);
+    ma_sound_seek_to_pcm_frame(sound, 0);
+    ma_sound_set_looping(sound, MA_FALSE);                      // a stolen loop voice must not keep looping
+    ApplyBankVoiceVolume(*pick);
+    ma_sound_start(sound);
+    pick->started = now; b.lastPlayed = now;
 #endif
 }
 
@@ -645,8 +981,20 @@ void SoundManager::PlayBankLoop(int slot, float volume) {
     ApplyBankVoiceVolume(v);
     v.buf->Play(0, 0, DSBPLAY_LOOPING);
     v.started = GetTickCount64();
-#else
-    (void)slot; (void)volume;
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    std::lock_guard<std::mutex> lock(m_bankMutex);
+    if (slot < 0 || static_cast<size_t>(slot) >= m_bank.size() || !m_bank[slot].ok) return;
+    BankSound& b = m_bank[slot];
+    BankVoice& v = b.voices[0];
+    ma_sound* sound = static_cast<ma_sound*>(v.buf);
+    if (ma_sound_is_playing(sound)) return;                     // already running: nothing to do
+    v.level = volume * b.gain;
+    v.loop = true;                                              // a looping background sound: scaled by the ambient volume
+    ma_sound_seek_to_pcm_frame(sound, 0);
+    ApplyBankVoiceVolume(v);
+    ma_sound_set_looping(sound, MA_TRUE);
+    ma_sound_start(sound);
+    v.started = TickMs();
 #endif
 }
 
@@ -665,6 +1013,10 @@ void SoundManager::StopBankSound(int slot) {
     // Games stop inactive loops every frame. An idle voice needs no driver call.
     for (BankVoice& v : m_bank[slot].voices)
         if (v.started != 0) { v.buf->Stop(); v.started = 0; }
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    // Games stop inactive loops every frame. An idle voice needs no driver call.
+    for (BankVoice& v : m_bank[slot].voices)
+        if (v.started != 0) { ma_sound_stop(static_cast<ma_sound*>(v.buf)); v.started = 0; }
 #endif
 }
 
@@ -674,6 +1026,10 @@ void SoundManager::StopAllBankSounds() {
     for (BankSound& b : m_bank)
         for (BankVoice& v : b.voices)
             if (v.buf && v.started != 0) { v.buf->Stop(); v.started = 0; }
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    for (BankSound& b : m_bank)
+        for (BankVoice& v : b.voices)
+            if (v.buf && v.started != 0) { ma_sound_stop(static_cast<ma_sound*>(v.buf)); v.started = 0; }
 #endif
 }
 
@@ -685,6 +1041,14 @@ void SoundManager::UpdateBankSounds() {
         if (!b.ok || b.maxPlayMs == 0) continue;
         for (BankVoice& v : b.voices)
             if (v.started && now - v.started > b.maxPlayMs) { v.buf->Stop(); v.started = 0; }
+    }
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    std::lock_guard<std::mutex> lock(m_bankMutex);
+    const unsigned long long now = TickMs();
+    for (BankSound& b : m_bank) {
+        if (!b.ok || b.maxPlayMs == 0) continue;
+        for (BankVoice& v : b.voices)
+            if (v.started && now - v.started > b.maxPlayMs) { ma_sound_stop(static_cast<ma_sound*>(v.buf)); v.started = 0; }
     }
 #endif
 }
@@ -731,6 +1095,29 @@ void SoundManager::CleanUp() {
 #else
     m_primaryBuffer = nullptr;
     m_directSound   = nullptr;
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    // Linux (miniaudio): free every sound that references the engine before
+    // deleting it (queue items and one-shots), or ma_engine_uninit would run
+    // under live sounds.
+    {
+        std::lock_guard<std::mutex> lock(m_queueMutex);
+        for (SoundQueueItem& item : m_soundQueue) {
+            if (item.buffer != nullptr) {
+                FreeSound(static_cast<ma_sound*>(item.buffer), static_cast<ma_audio_buffer*>(item.audioBuffer));
+                item.buffer = nullptr;
+                item.audioBuffer = nullptr;
+            }
+        }
+        m_soundQueue.clear();
+    }
+    {
+        std::lock_guard<std::mutex> lock(m_oneShotMutex);
+        for (OneShot& o : m_oneShots) FreeSound(static_cast<ma_sound*>(o.sound), static_cast<ma_audio_buffer*>(o.buffer));
+        m_oneShots.clear();
+    }
+    delete static_cast<MiniaudioEngine*>(m_miniaudioEngine);
+    m_miniaudioEngine = nullptr;
+#endif
 #endif
 
     #if defined(_DEBUG_SOUNDMANAGER_)

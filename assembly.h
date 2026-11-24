@@ -11,8 +11,9 @@
 
 #include <cstddef>      // size_t
 #include <cstring>      // std::memcpy / std::memset (portable fallback below)
+#include "Platform.h"   // PLATFORM_WINDOWS / PLATFORM_LINUX / PLATFORM_ANDROID
 
-#if defined(_WIN64)
+#if defined(PLATFORM_WINDOWS) && defined(_WIN64)
 // Windows x64: the routines are implemented in assembly.asm (ml64.exe) and
 // follow the Windows x64 calling convention; extern "C" keeps their names
 // undecorated so the assembler exports match.

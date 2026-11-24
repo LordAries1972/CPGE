@@ -1470,12 +1470,15 @@ void OpenGLRenderer::RenderFrame()
             #endif
 
             // ---- Present frame ----
-            #if defined(_WIN32) || defined(_WIN64)
-                // ---- Screen recorder: capture back-buffer BEFORE Present (mirrors DX11 behaviour) ----
-                if (screenRecorder.IsRecording() || gameplayRecorder.IsRecording())
-                    screenRecorder.CaptureFrame(static_cast<UINT>(renderW), static_cast<UINT>(renderH));
-                if (gameplayRecorder.IsRecording()) gameplayRecorder.CaptureFrame(static_cast<UINT>(renderW), static_cast<UINT>(renderH));
+            // ---- Screen recorder: capture back-buffer BEFORE Present (mirrors DX11 behaviour) ----
+            // Runs on every platform (the OpenGL CaptureFrame overload is
+            // declared for __USE_OPENGL__ on Windows and Linux); it is a
+            // no-op while neither recorder is running.
+            if (screenRecorder.IsRecording() || gameplayRecorder.IsRecording())
+                screenRecorder.CaptureFrame(static_cast<UINT>(renderW), static_cast<UINT>(renderH));
+            if (gameplayRecorder.IsRecording()) gameplayRecorder.CaptureFrame(static_cast<UINT>(renderW), static_cast<UINT>(renderH));
 
+            #if defined(_WIN32) || defined(_WIN64)
                 // Apply per-frame VSync setting — update swap interval if config changed
                 static bool lastVSync = true;
                 bool vsyncNow = config.myConfig.enableVSync;

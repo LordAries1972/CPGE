@@ -36,6 +36,20 @@
 class Debug;
 class ThreadManager;
 
+// eSpeak-ng (Linux TTS backend). Included here, like SAPI on Windows, so
+// the synth callback can name espeak_EVENT. Optional: when the headers
+// are absent HAS_ESPEAK is 0 and TTS is disabled (see TTSManager.cpp).
+#if defined(PLATFORM_LINUX)
+    #if __has_include(<espeak-ng/speak_lib.h>)
+        #define HAS_ESPEAK 1
+        #include <espeak-ng/speak_lib.h>
+    #else
+        #define HAS_ESPEAK 0
+    #endif
+#else
+    #define HAS_ESPEAK 0
+#endif
+
 // TTS Speaker channel enumeration for audio output control
 enum class TTSSpeakerChannel : int {
     CHANNEL_LEFT = 0,                                                       // Output audio to left speaker only
@@ -181,8 +195,22 @@ private:
     void LogTTSError(HRESULT hr, const std::wstring& operation) const;      // Log TTS-specific errors
     std::wstring HResultToString(HRESULT hr) const;                         // Convert HRESULT to readable string
 #else
-    // Linux / Android (Phase A): no SAPI. The helpers above are Windows-only;
-    // the Linux stub in TTSManager.cpp implements only the public API.
+    // Linux (Phase B): eSpeak-ng backend. Android (Phase D) will use the
+    // platform TextToSpeech via JNI; until then TTS is disabled there.
+    // The helpers above are Windows-only. The eSpeak state lives in
+    // TTSManager.cpp behind the opaque void* m_espeak, and the two
+    // callbacks below are invoked from eSpeak's synthesis thread.
+    void* m_espeak = nullptr;
+    #if HAS_ESPEAK
+    void OnEspeakAudio(const short* wav, int numsamples);
+    void OnEspeakUtteranceDone();
+    void StopSynthThreadLocked(void* es);
+    void SynthThreadMain(std::string utf8Text);
+    // eSpeak synth callback (a static member so it can reach the private
+    // OnEspeakAudio; eSpeak's t_espeak_callback is a plain function
+    // pointer, which a static member satisfies).
+    static int EspeakSynthCallback(short* wav, int numsamples, espeak_EVENT* events);
+    #endif
 #endif
 };
 

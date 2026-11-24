@@ -1168,8 +1168,20 @@ void ExceptionHandler::GetExceptionDescription(DWORD exceptionCode, char* descri
 #else
 // Internal method to process and log signal exceptions (Unix-like systems)
 void ExceptionHandler::ProcessSignalException(int signal, siginfo_t* info, void* context) {
-    // Thread-safe signal exception processing
-    std::lock_guard<std::mutex> lock(m_exceptionMutex);
+    // Async-signal-safe re-entry guard. A std::mutex must never be taken
+    // inside a signal handler: it is not async-signal-safe and can deadlock
+    // if the fault interrupted a thread that already holds it. An
+    // atomic_flag test-and-set is lock-free and safe here. If a second fatal
+    // signal arrives while one is already being handled, restore the default
+    // disposition and re-raise so this thread dies instead of looping.
+    static std::atomic_flag s_inSignalHandler{};
+    if (s_inSignalHandler.test_and_set(std::memory_order_acquire)) {
+        // (Qualified ::signal/::raise: the parameter is also named `signal`
+        // and would shadow the function without the qualifier.)
+        ::signal(signal, SIG_DFL);
+        ::raise(signal);
+        abort(); // Safety net: never return from a fatal signal handler.
+    }
 
     // Extract basic signal information
     ExceptionDetails details;
@@ -1234,6 +1246,17 @@ void ExceptionHandler::ProcessSignalException(int signal, siginfo_t* info, void*
     // Log additional context information
     debug.logDebugMessage(LogLevel::LOG_INFO, L"[ExceptionHandler] Process ID: %d, Thread ID: %d, Timestamp: %llu",
         details.processId, details.threadId, details.timeStamp);
+
+    // Fatal synchronous signals must never return to the faulting
+    // instruction: returning re-executes it and the handler loops forever
+    // (one segfault became 16,000+ identical log entries and a crash dump
+    // per fault). Restore the default disposition and re-raise so the
+    // process dies with the original signal (and core dump) after the
+    // diagnostics above. abort() is only a safety net if re-raise returns.
+    // (Qualified ::signal/::raise: the parameter is also named `signal`.)
+    ::signal(signal, SIG_DFL);
+    ::raise(signal);
+    abort();
 }
 
 // Internal method to convert signal to human-readable description

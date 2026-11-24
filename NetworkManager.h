@@ -154,8 +154,8 @@ struct NetworkStatistics {
 };
 
 // Main NetworkManager class for all network operations
-// Linux/Android (Phase A): stub backend — Initialize() succeeds so the
-// engine can start, but connections and packets are unavailable.
+// Linux/Android (Phase B): BSD sockets backend — same protocol, packet and
+// thread logic as Windows; only the OS socket calls differ (see .cpp).
 class NetworkManager {
 public:
     // Constructor and destructor
@@ -277,11 +277,6 @@ private:
     // Debug and logging helpers
     void LogNetworkActivity(const std::string& activity);               // Log network activity for debugging
     void LogPacketInfo(const NetworkPacket& packet, bool sending);      // Log detailed packet information
-#if !defined(PLATFORM_WINDOWS)
-    // Linux/Android stub (Phase A): logs the one-time "networking is
-    // unavailable on Linux" warning (see NetworkManager.cpp).
-    void LogLinuxStubWarningOnce();
-#endif
 };
 
 // Global NetworkManager instance declaration

@@ -608,3 +608,10 @@ if (pad.valid()) log(pad.typeName);              // "Xbox 360 controller", "Dual
 * **Logical buttons**: `joystick.ReadPadButtons(slot, ji, &left, &right)` turns the raw `JOYINFOEX` into `PadButton` bits - `kPadSouth / East / West / North` (the A B X Y diamond by POSITION: an Xbox A, a PlayStation cross and a Switch B are all south), `kPadL1 / R1 / L2 / R2`, `kPadSelect / Start / L3 / R3 / Guide` - using the numbering of that pad's family. The Xbox triggers are an axis (left pushes Z up, right pulls it down): past 35 % they count as pressed, and the 0..1 values come back through the optional pointers. `GetPadType(slot)` is the cheap per-frame query.
 * **Right stick**: an Xbox-style pad keeps its triggers on Z, so its right stick is on the U / R axes; PlayStation and most other pads use Z / R (the vector demo's pad input now asks the type).
 * The vector demo reads its pad through `ReadPadButtons`, so a PlayStation pad's cross is "south" (fire / A) and its R2 resets the racing car, with no per-pad code in the games.
+
+
+## Linux backend — evdev (23 November 2026)
+
+On Linux the joystick reads `/dev/input/event*` directly (evdev) instead of WinMM. Xbox and PlayStation trigger models are supported: the combined-Z trigger mapping is fixed, so a pad at rest no longer reads as a fully-pressed trigger, and `ReadPadButtons` returns the same logical `PadButton` bits (`kPadSouth`, `kPadL1` / `R1` / `L2` / `R2`, ...) on every platform. The hard-point rule from the 23 November joystick fix is preserved: hardware faults (unplugged pad, no driver, bad parameters, caps/read failures) are `LOG_WARNING` only, never errors, criticals, dialogs or quits, with a status dump to `DebugLog.txt`.
+
+Verification: a virtual-device shim test — 71 checks in pad mode + 5 in no-device mode, 0 failures. No physical pad was available on the build machine, so real hardware is still untested. One Linux limit: button-to-key events are dropped (no XTest) with a single throttled warning.

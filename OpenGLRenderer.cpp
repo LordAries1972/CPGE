@@ -843,7 +843,7 @@ int OpenGLRenderer::FindMultisamplePixelFormat(HDC realDC, const PIXELFORMATDESC
 // ─────────────────────────────────────────────────────────────────────────────
 bool OpenGLRenderer::CreateOpenGLContext(NativeWindowHandle hWnd)
 {
-    #if defined(_WIN32) || defined(_WIN64)
+    #if defined(PLATFORM_WINDOWS)
         m_glContext.windowHandle = hWnd;
         m_glContext.deviceContext = GetDC(hWnd);
         if (!m_glContext.deviceContext) {
@@ -1021,10 +1021,20 @@ bool OpenGLRenderer::CreateOpenGLContext(NativeWindowHandle hWnd)
                 None
             };
             m_glContext.glxContext = glXCreateContextAttribsARB(m_glContext.display, fbConfig, nullptr, True, ctxAttribs);
+            // Shared loader context (Linux mirror of the Windows WGL loader
+            // context): same 3.3 core attribs, sharing GL objects with the
+            // main context so the loader thread can upload textures.
+            if (m_glContext.glxContext)
+                m_loaderGLContext = glXCreateContextAttribsARB(m_glContext.display, fbConfig, m_glContext.glxContext, True, ctxAttribs);
         }
         XFree(fbConfigs);
         if (!m_glContext.glxContext)
             m_glContext.glxContext = glXCreateContext(m_glContext.display, m_glContext.visualInfo, nullptr, True);
+        // Legacy fallback for the loader context (no attribs extension, or
+        // the attribs creation above failed): a legacy context sharing
+        // objects with the main context is enough for texture uploads.
+        if (!m_loaderGLContext && m_glContext.glxContext)
+            m_loaderGLContext = glXCreateContext(m_glContext.display, m_glContext.visualInfo, m_glContext.glxContext, True);
         if (!m_glContext.glxContext)
         {
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[OpenGLRenderer] GLX context creation failed");
@@ -1032,9 +1042,14 @@ bool OpenGLRenderer::CreateOpenGLContext(NativeWindowHandle hWnd)
             XCloseDisplay(m_glContext.display); m_glContext.display = nullptr;
             return false;
         }
+        if (!m_loaderGLContext)
+            debug.logLevelMessage(LogLevel::LOG_WARNING, L"[OpenGLRenderer] Shared loader context creation failed — textures must load on the render thread");
+        else
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[OpenGLRenderer] Shared loader GLX context created");
         if (!glXMakeCurrent(m_glContext.display, m_glContext.window, m_glContext.glxContext))
         {
             debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[OpenGLRenderer] glXMakeCurrent failed");
+            if (m_loaderGLContext) { glXDestroyContext(m_glContext.display, m_loaderGLContext); m_loaderGLContext = nullptr; }
             glXDestroyContext(m_glContext.display, m_glContext.glxContext); m_glContext.glxContext = nullptr;
             XFree(m_glContext.visualInfo); m_glContext.visualInfo = nullptr;
             XCloseDisplay(m_glContext.display); m_glContext.display = nullptr;
@@ -1085,7 +1100,7 @@ void OpenGLRenderer::SetupPlatformSpecificContext()
 
 void OpenGLRenderer::CleanupPlatformSpecificContext()
 {
-    #if defined(_WIN32) || defined(_WIN64)
+    #if defined(PLATFORM_WINDOWS)
         if (m_loaderGLContext) {
             wglDeleteContext(m_loaderGLContext);
             m_loaderGLContext = nullptr;
@@ -1099,7 +1114,14 @@ void OpenGLRenderer::CleanupPlatformSpecificContext()
             ReleaseDC(m_glContext.windowHandle, m_glContext.deviceContext);
             m_glContext.deviceContext = nullptr;
         }
-    #elif defined(__linux__)
+    #elif defined(PLATFORM_LINUX)
+        // Destroy the shared loader context first: the loader thread is
+        // already joined by this point (see main.cpp shutdown order), so no
+        // thread can have it current any more.
+        if (m_loaderGLContext) {
+            glXDestroyContext(m_glContext.display, m_loaderGLContext);
+            m_loaderGLContext = nullptr;
+        }
         if (m_glContext.glxContext) {
             glXMakeCurrent(m_glContext.display, None, nullptr);
             glXDestroyContext(m_glContext.display, m_glContext.glxContext);
@@ -1113,7 +1135,7 @@ void OpenGLRenderer::CleanupPlatformSpecificContext()
             XCloseDisplay(m_glContext.display);
             m_glContext.display = nullptr;
         }
-    #elif defined(__ANDROID__)
+    #elif defined(PLATFORM_ANDROID)
         if (m_glContext.eglDisplay != EGL_NO_DISPLAY) {
             eglMakeCurrent(m_glContext.eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
             if (m_glContext.eglContext  != EGL_NO_CONTEXT) eglDestroyContext(m_glContext.eglDisplay, m_glContext.eglContext);
@@ -1954,8 +1976,19 @@ bool OpenGLRenderer::LoadTexture(int textureId, const std::wstring& filename, bo
         // ── Non-Windows path: stb_image via OpenGLModelUtils ──────────────────
         GLuint texID = OpenGLModelUtils::LoadGLTextureFromFile(filename);
         if (!texID) {
-            debug.logLevelMessage(LogLevel::LOG_ERROR,
-                L"[OpenGLRenderer] LoadTexture: stb_image cannot open: " + filename);
+            // LoadGLTextureFromFile returns 0 both when the file cannot be
+            // opened and when the GL upload fails (e.g. no current GL
+            // context on this thread). The old message blamed the file in
+            // both cases; distinguish them so the log points at the real
+            // cause. (The error_code overload never throws.)
+            std::error_code ec;
+            if (!std::filesystem::exists(std::filesystem::path(filename), ec)) {
+                debug.logLevelMessage(LogLevel::LOG_ERROR,
+                    L"[OpenGLRenderer] LoadTexture: cannot open texture file: " + filename);
+            } else {
+                debug.logLevelMessage(LogLevel::LOG_ERROR,
+                    L"[OpenGLRenderer] LoadTexture: GL texture upload failed (no current GL context on this thread?): " + filename);
+            }
             return false;
         }
 

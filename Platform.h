@@ -1,5 +1,11 @@
 #pragma once
 
+// <atomic> is needed on every platform: the cross-platform quit flags at
+// the bottom of this file (g_cpgeQuitRequested, g_cpgeMainLoopActive) are
+// std::atomic, and the <atomic> include inside the non-Windows block below
+// is skipped on Windows.
+#include <atomic>
+
 // One OS identity shared by all CPGE base classes. Android also defines
 // __linux__, and every Apple target defines __APPLE__: test the narrower
 // targets first so their input, timer and filesystem backends stay correct.
@@ -136,10 +142,19 @@
     {
         std::this_thread::sleep_for(std::chrono::milliseconds(ms));
     }
-
-    // Cross-platform quit request. Set by any subsystem that used to call
-    // PostQuitMessage(0) (GUIWindows, ScriptManager, Debug fatal path) and
-    // polled by the main loop in main.cpp. One inline variable (C++17) so
-    // every translation unit shares the same flag without a .cpp definition.
-    inline std::atomic<bool> g_cpgeQuitRequested{ false };
 #endif
+
+// Cross-platform quit request. Set by any subsystem that used to call
+// PostQuitMessage(0) (GUIWindows, ScriptManager, Debug fatal path) and
+// polled by the main loop in main.cpp. One inline variable (C++17) so
+// every translation unit shares the same flag without a .cpp definition.
+// Declared outside the non-Windows block above on purpose: the shared main
+// loop and the Windows message pump both use this flag, so guarding it out
+// on Windows breaks the Windows build.
+inline std::atomic<bool> g_cpgeQuitRequested{ false };
+
+// Set while the main loop in main.cpp is running. The non-Windows fatal
+// path in Debug::EmitMessage only requests a quit for LOG_ERROR /
+// LOG_CRITICAL once the loop is active: errors raised during startup
+// (a missing intro movie, ...) must not kill the engine before it runs.
+inline std::atomic<bool> g_cpgeMainLoopActive{ false };

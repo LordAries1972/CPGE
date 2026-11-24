@@ -88,6 +88,12 @@ public:
     void PlaybackLoop();
     void Shutdown();
 
+    // The global player is destroyed at process exit; a still-joinable
+    // playback thread makes ~std::thread call std::terminate(). Shutdown()
+    // is idempotent (it joins only if joinable), so destroying through it
+    // is safe even if Shutdown() was already called explicitly.
+    ~MODPlayer() { Shutdown(); }
+
     bool Play(const std::wstring& path);
     bool Play(const std::string& path);
     bool IsPlaying() const;
@@ -170,6 +176,7 @@ private:
     void* directSound = nullptr;
     void* primaryBuffer = nullptr;
     void* secondaryBuffer = nullptr;
+    void* m_miniaudioStream = nullptr;          // Miniaudio::Stream* (Linux/Android only; owned by the .cpp)
 #endif
     uint32_t writeCursor = 0;
     uint32_t bufferSize = 0;

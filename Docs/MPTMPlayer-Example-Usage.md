@@ -95,3 +95,14 @@ MPTM/IT pattern notes are 0-based (note value `60` == C-5). A stored value of `0
 ## Notes
 
 This class is intentionally independent of `XMMODPlayer` and `S3MPlayer`. Those players were used only as local style and audio-buffer references.
+
+
+## Linux / Android backend — miniaudio (23 November 2026)
+
+On Linux and Android this player renders through miniaudio (vendored v0.11.26, `include/miniaudio.h`) instead of DirectSound: 44100 Hz stereo 16-bit PCM through a lock-free ring into a miniaudio device. No caller changes — the same load / play / shutdown calls work on every platform; the backend is selected by the platform guards at compile time. Covered by the Phase B sound test: 37 checks across all five tracker players, 0 failures (PCM observed at the callback; null backend — no audio device on the build machine, so nothing was actually heard).
+
+**Bug fixed while porting:** MPTM sample paths were written with Windows backslashes (`.\Samples\`), which never resolve on Linux — external FLAC samples now decode.
+
+## Platform-directive re-guard (24 November 2026)
+
+The miniaudio backend in `Shutdown()` / `CreateAudioDevice()` / `FillAudioBuffer()` was in a bare `#else` (the unguarded default branch), which would not compile on macOS/iOS. Each is now explicitly `#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)`, with the Windows DirectSound backend under `#if defined(PLATFORM_WINDOWS)` and the disabled-stub fallback kept as `#else`. No behaviour change on any platform.

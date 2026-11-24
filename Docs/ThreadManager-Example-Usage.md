@@ -38,6 +38,7 @@
 14. [Common Pitfalls](#common-pitfalls)
 15. [Advanced Usage](#advanced-usage)
 16. [API Reference](#api-reference)
+17. [Linux/Android Shutdown Order (24 November 2026)](#linuxandroid-shutdown-order-24-november-2026)
 
 ---
 
@@ -1851,3 +1852,65 @@ Key takeaways:
 - `GetThreadInfoUnsafe()` is the public raw accessor; prefer the safe per-field getters for general use
 
 For additional examples and advanced usage patterns, refer to the source code and debug output from your specific implementation.
+
+---
+
+## Linux/Android Shutdown Order (24 November 2026)
+
+**What changed:** `RunEngine` (`main.cpp`) used to tear the renderer down
+*before* stopping the worker threads on every platform: `renderer->Cleanup()`
+ran, and only afterwards did `threadManager.Cleanup()` join
+`THREAD_RENDERER` / `THREAD_LOADER`. The render thread kept running frames
+into freed resources, which the Linux Xvfb crash diagnosis (24 November
+2026) proved with gdb backtraces: a SIGSEGV use-after-free in
+`BuildProbePixels` (`Lights.cpp:619`) writing into reflection-probe buffers
+freed by `ReleaseReflectionResourcesGL`, and a SIGSEGV null display in
+`glXSwapBuffers` after cleanup.
+
+On Linux/Android the order is now reversed, behind its own condition
+directive, and the Windows branch keeps the existing order behind
+`#if defined(PLATFORM_WINDOWS)` (Windows shutdown order and behaviour are
+unchanged):
+
+```cpp
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    // Stop the AI thread first (see below), then join the workers.
+    #if defined(__USE_GAMINGAI__)
+        gamingAI.EndMonitoring();
+        gamingAI.Cleanup();
+    #endif
+    threadManager.Cleanup();   // Sets bIsShuttingDown, joins the workers
+#endif
+
+renderer->Cleanup();           // Renderer torn down only after the join
+```
+
+**Thread exit conditions - what the join relies on:** `Cleanup()` sets
+`threadVars.bIsShuttingDown = true` and notifies `pauseCV`, then joins every
+registered thread. Each worker loop must watch that flag:
+
+| Thread | Loop exit condition | Exits on `Cleanup()`? |
+| --- | --- | --- |
+| `THREAD_RENDERER` | `threadVars.bIsShuttingDown` (`OpenGLRenderFrame.cpp`, `VULKAN_RenderFrame.cpp`) | Yes |
+| `THREAD_LOADER` | `threadVars.bIsShuttingDown` (`IOLoaderThread.cpp`) | Yes |
+| `THREAD_FILEIO` | `m_threadRunning && ... && !threadVars.bIsShuttingDown` (`FileIO.cpp`) | Yes |
+| `THREAD_AI_PROCESSING` | `m_shouldShutdown` only (`GamingAI.cpp`) - **not** `bIsShuttingDown` | **No - see below** |
+
+**The AI deadlock (found by gdb during verification):** the first version of
+this fix joined the workers before the AI shutdown and deadlocked on every
+Linux/Android shutdown: the main thread sat in `std::thread::join()` at
+`ThreadManager.cpp:622` while the AI thread waited on its 500 ms
+condition-variable timeout in `GamingAI::AIThreadTasking()`, forever,
+because `m_shouldShutdown` is only set by `GamingAI::EndMonitoring()` /
+`Cleanup()`. The fix is to run those two calls *before* the early
+`threadManager.Cleanup()` (shown above). Both are idempotent
+(`EndMonitoring` returns at once when not monitoring; `Cleanup` returns at
+once when `m_hasCleanedUp` is set), so the shared calls later in the
+shutdown sequence become safe no-ops. See also
+`Docs/GamingAI-Example-Usage.md`, 24 November 2026 section.
+
+**How to use it:** when adding a new `ThreadManager` worker thread, make
+its loop exit on `threadVars.bIsShuttingDown` (and on its own
+`GetThreadStatus() == ThreadStatus::Running` check, like the FileIO
+thread). If the thread has its own shutdown flag, stop it explicitly
+before `threadManager.Cleanup()` runs, or the join will hang the shutdown.

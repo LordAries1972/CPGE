@@ -346,3 +346,9 @@ Check these states using `GetPlaybackState()` to ensure proper operation.
 ## Voice tone (merged 2026-11-19, uncompiled)
 
 `TTSManager::ProsodyForTone(TTSManager::Tone tone, bool female)` returns the `{ rate, pitch }` to feed `SetVoiceRate` / `SetVoicePitch` for what a line says: `Official` (calm, crisp), `Stern` (level, firm), `Warning` (brisk, low), `Threat` (slower, lower), `Taunt` (lazy, cynical), `Flat` (deep and level: machines, aliens). All values stay near the engine's natural rate so speech stays clean.
+
+## Linux backend — eSpeak-ng (23 November 2026)
+
+On Linux, text-to-speech uses eSpeak-ng 1.51 instead of SAPI. The synth callback resamples 22050 Hz mono to 44100 Hz stereo into the miniaudio ring, with backpressure so a long line cannot overrun the buffer. All 7 `main.cpp` TTS call sites are enabled on Linux. Test: 42 checks, 0 failures, 131 voices; speech captured to `~/workspace/cpge-linux-android/scope/tts-test.wav`.
+
+Call it exactly as on Windows — the public API is unchanged; only the backend differs, selected by the platform guards at compile time. On Android, TTS is compiled out entirely until Phase D wires the JNI bridge (`android.speech.tts.TextToSpeech`) — there is no stub. Rule: use TTS where the platform supports it, disable it completely where it does not.

@@ -17,6 +17,7 @@ The GamingAI system is a comprehensive artificial intelligence framework designe
 9. [Proper Shutdown Sequence](#proper-shutdown-sequence)
 10. [Game Loop Integration](#game-loop-integration)
 11. [Complete Usage Example](#complete-usage-example)
+12. [AI Thread Shutdown (24 November 2026)](#ai-thread-shutdown-24-november-2026)
 
 ---
 
@@ -1391,3 +1392,58 @@ All of these are value-only policies in `GamingAI` (no game types): the caller m
 | `StepWarp` | `AIWarpMemory`, `AIWarpFacts` | One steady rule for a drive that takes seconds to spin up: engage on trips over 4.5 km when lined up, drop on arrival / stand-down / a close obstacle, and lock the drive out for 10 s after an obstacle drop. Returns true when the pilot should press the cruise key. |
 
 Typical per-frame flow of an autopilot: `AvoidObstacles` -> `SteadyAim` -> `FlyToward` -> `StepWarp`; a demo pilot adds `PlanSpaceMission` a few times a second and executes the goal / contact it names.
+
+---
+
+## AI Thread Shutdown (24 November 2026)
+
+**What changed:** nothing in `GamingAI` itself - this entry documents a
+shutdown-ordering rule that the Linux/Android crash fixes depend on.
+
+`GamingAI::AIThreadTasking()` runs on `THREAD_AI_PROCESSING` (registered
+with `ThreadManager` in `GamingAI::Initialize`). Its loop exits on one
+condition only:
+
+```cpp
+// GamingAI.cpp - AIThreadTasking:
+while (!m_shouldShutdown.load()) {
+    // ... process commands, periodic analysis ...
+    m_commandAvailableCV.wait_for(lock, std::chrono::milliseconds(500),
+        [this] { return !m_commandQueue.empty() || m_shouldShutdown.load(); });
+}
+```
+
+`m_shouldShutdown` is set only by `GamingAI::Cleanup()` (which also clears
+the command queue, notifies `m_commandAvailableCV`, and calls
+`threadManager.TerminateThread(THREAD_AI_PROCESSING)`). It is **not** set by
+`ThreadManager::Cleanup()`, which only sets `threadVars.bIsShuttingDown` and
+notifies `pauseCV` - a different flag and a different condition variable.
+So joining the AI thread before the AI shutdown deadlocks: gdb proved it
+during verification of the Linux shutdown-order fix (24 November 2026) -
+the main thread stuck in `std::thread::join()` at `ThreadManager.cpp:622`
+while the AI thread waited out its 500 ms timeouts forever.
+
+**The rule:** on Linux/Android, `RunEngine` (`main.cpp`) calls
+`gamingAI.EndMonitoring()` and `gamingAI.Cleanup()` *before* the early
+`threadManager.Cleanup()` that joins the worker threads. Both calls are
+idempotent - `EndMonitoring()` returns at once when not monitoring, and
+`Cleanup()` returns at once when `m_hasCleanedUp` is set - so the shared
+calls later in the shutdown sequence (after `renderer->Cleanup()`) become
+safe no-ops. On Windows the order is unchanged (AI shutdown after the
+renderer cleanup, worker join last).
+
+**How to use it:** always shut the AI system down through `Cleanup()` (or
+`EndMonitoring()` + `Cleanup()`), never by joining the thread directly:
+
+```cpp
+// Correct shutdown - the AI thread stops itself via m_shouldShutdown:
+gamingAI.EndMonitoring();
+gamingAI.Cleanup();
+
+// WRONG - deadlocks: ThreadManager::Cleanup() cannot stop the AI thread:
+// threadManager.Cleanup();   // joins THREAD_AI_PROCESSING, which never exits
+```
+
+See also `Docs/ThreadManager-Example-Usage.md`, 24 November 2026 section,
+for the full Linux/Android shutdown order and the exit conditions of every
+worker thread.

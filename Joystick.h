@@ -12,6 +12,7 @@
 #include <atomic>
 #include <mutex>
 #include <array>
+#include <set>
 #include <string>
 
 // ---- Joystick error policy -------------------------------------------------------------------------------------------------------------------------------
@@ -44,10 +45,10 @@ const float JOYSTICK_DEADZONE = 4000.0f;                                        
 // via Includes.h).  Platform.h provides the generic Win32 aliases
 // (DWORD, UINT, ...); the winmm-specific types below live here because no
 // other header provides them on Linux/Android.  Minimal layout only: the
-// Linux stub never reads a real pad, it only needs the types to exist so
-// the public API (JoystickState, ReadPadButtons, ReadRawPad) keeps its
-// signatures on every platform.  Platform.h must not define JOYINFOEX or
-// MMRESULT as well — these are the single definitions.
+// public API (JoystickState, ReadPadButtons, ReadRawPad) keeps its winmm
+// signatures on every platform, and the Linux evdev backend fills the
+// JOYINFOEX from the kernel's input events.  Platform.h must not define
+// JOYINFOEX or MMRESULT as well — these are the single definitions.
 using MMRESULT = std::uint32_t;
 struct JOYINFOEX
 {
@@ -63,6 +64,12 @@ struct JOYINFOEX
     DWORD dwButtonNumber;
     DWORD dwPOV;
 };
+
+// winmm JOY_RETURN* bits: the engine always asks for everything.
+constexpr DWORD JOY_RETURNALL = 0x000000FF;
+// winmm POV: centred.  Directions are hundredths of a degree clockwise
+// from up (0 = up, 9000 = right, 18000 = down, 27000 = left).
+constexpr DWORD JOY_POVCENTERED = 0xFFFF;
 #endif
 struct JoystickState 
 {
@@ -115,8 +122,10 @@ struct JoystickAxes {
     float rz;                                                                       // Rotation Z-axis (if available)
 };
 
-// Linux/Android (Phase A): stub backend — no evdev input yet; methods
-// return safe defaults (no controllers, zeroed axes, no key events).
+// Linux (Phase B): evdev backend — reads real pads from /dev/input/event*.
+// Android, macOS and iOS have no backend yet: detectJoysticks clears the pad
+// list, ReadRawPad returns false and no warning is logged (disabled, not
+// stubbed).  Android input arrives through AInputEvent in Phase D.
 class Joystick {
 public:
     // Shared menu navigation: a held east button never skips pages, and a
@@ -199,6 +208,34 @@ private:
 #endif
     std::wstring m_lastWarning;
 
+#if defined(PLATFORM_LINUX)
+    // ---------------------------------------------------------------------
+    // Per-slot evdev state (Linux only).  One slot per physical pad; the fd
+    // stays open across re-scans so button/axis state is not lost when a
+    // pad is unplugged and replugged, and so a hotplug re-scan does not
+    // have to re-open every device.  Axis index order: X, Y, Z, R (RZ),
+    // U (RX), V (RY) — the winmm order used by JOYINFOEX.
+    // ---------------------------------------------------------------------
+    struct EvdevSlot {
+        int fd = -1;                                // open /dev/input/eventN, or -1
+        std::string path;                           // the /dev/input/eventN path
+        // Cached axis state: raw evdev values plus the range the device reports.
+        std::array<int, 6> axisValue{};
+        std::array<int, 6> axisMin{};
+        std::array<int, 6> axisMax{};
+        std::array<bool, 6> axisPresent{};
+        int hatX = 0, hatY = 0;                     // ABS_HAT0X/Y, each -1, 0 or 1
+        float brake = 0.0f, gas = 0.0f;             // ABS_BRAKE / ABS_GAS, 0..1
+        int brakeMin = 0, brakeMax = 0;             // ranges the device reports for the trigger axes
+        int gasMin = 0, gasMax = 0;
+        // Pressed evdev buttons, bit (code - BTN_JOYSTICK) for codes 0x120..0x13F.
+        std::uint32_t buttonMask = 0;
+    };
+    std::array<EvdevSlot, MAX_JOYSTICKS> m_evdev;
+    // Paths that already produced a one-time open warning (permission /
+    // other error), so a re-scan does not repeat the same warning.
+    std::set<std::string> m_evdevWarnedPaths;
+#endif
     // Central warning path.  Every joystick failure in this file goes through
     // one of these two helpers, which use the diagnostics path only, so a
     // failure can never show a dialog or quit the application.  The message is
@@ -207,10 +244,17 @@ private:
     // result and, for a hard point result, dumps a status snapshot.
     void LogJoystickWarning(const std::wstring& message);
     void LogJoystickWarningWithResult(const std::wstring& what, MMRESULT result);
-#if !defined(PLATFORM_WINDOWS)
-    // Linux/Android stub (Phase A): logs the one-time "joystick input is
-    // unavailable on Linux" warning (see Joystick.cpp).  No evdev backend.
-    void LogLinuxStubWarningOnce();
+#if defined(PLATFORM_LINUX)
+    // Linux evdev helpers (see Joystick.cpp).  EvdevOpenSlot opens one
+    // /dev/input/eventN node, queries its identity/capabilities and fills
+    // the slot's PadInfo; EvdevProbeSlot returns false when a slot's device
+    // has gone away; EvdevDrainSlot reads pending events into the cached
+    // state; EvdevFillJoyInfo turns the cached state into a JOYINFOEX.
+    bool EvdevOpenSlot(int slot, const std::string& path);
+    void EvdevCloseSlot(int slot);
+    bool EvdevProbeSlot(int slot);
+    bool EvdevDrainSlot(int slot);
+    void EvdevFillJoyInfo(int slot, JOYINFOEX& ji) const;
 #endif
     static std::wstring DescribeWinMmResult(MMRESULT result);
     static bool IsHardPointResult(MMRESULT result);

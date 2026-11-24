@@ -238,6 +238,7 @@ private:
     void* directSound = nullptr;
     void* primaryBuffer = nullptr;
     void* secondaryBuffer = nullptr;
+    void* m_miniaudioStream = nullptr;          // Miniaudio::Stream* (Linux/Android only; owned by the .cpp)
 #endif
     uint32_t writeCursor = 0;
     uint32_t bufferSize = 0;

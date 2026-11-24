@@ -2385,3 +2385,8 @@ The low-level hook is the fast path, but Windows silently drops hook events, and
 * Called **once per rendered frame by one owner** (a classic game loop): `UpdateKeyStates()` + `IsKeyJustPressed()` / `IsPlatformKeyJustPressed()`.
 * `UpdateKeyStates()` called from a **free-running main loop**, or edges needed by several consumers/threads: keep your own last-seen value of `GetPlatformKeyPressCount(vk)` (or `GetPressCount`-style per key) and compare. Never loses a tap, never double-reports.
 * `SyncWithOS()` is throttled to once per 2 ms, so calling it from a tight loop or from several places is cheap.
+
+
+## Platform-directive fix — Android before Linux (24 November 2026)
+
+The platform branches in `KeyboardHandler.h` tested `__linux__` before `__ANDROID__`. Android also defines `__linux__`, so an Android build would have taken the Linux branch. The Android branch now comes first and the Linux branch is `#elif defined(__linux__) && !defined(__ANDROID__)`. No behaviour change on Linux or Windows; Android now takes the correct branch.

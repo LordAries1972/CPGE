@@ -1776,3 +1776,14 @@ separate Soldier On / arcade boundary check. Run
 files and new library conversions. See
 [the audio/performance audit](Vector-Audio-Performance-Audit.md). Playback remains
 unverified until a manual engine run.
+
+
+## Linux / Android backend — miniaudio (23 November 2026)
+
+On Linux and Android, `SoundManager` streams through miniaudio v0.11.26 (vendored at `include/miniaudio.h`, with `MiniaudioStream.h/.cpp`). All five tracker players (MOD, IT, S3M, MPTM, XM) render 44100 Hz stereo 16-bit PCM through a lock-free ring buffer into a miniaudio device. No caller changes — tracker playback works the same on every platform; the backend is selected by the platform guards at compile time. Test: 37 checks, 0 failures; PCM was observed at the miniaudio callback (null backend — no audio device on the build machine, so nothing was actually heard).
+
+**Known finding — mixer gain (platform-independent, out of scope for the port):** the S3M mixer renders `test1.s3m` ~200x quieter than the libopenmpt reference (MOD ~21x, IT ~7x, XM ~22x quieter). This is engine mixer-gain code, not a Linux issue, and is left for a separate decision.
+
+## Platform-directive re-guard (24 November 2026)
+
+The miniaudio backend in `SoundManager::Initialize()` / `RegisterBankSound()` was sitting in a bare `#else` (the unguarded default branch), which would not compile on macOS/iOS. It is now explicitly `#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)`, with the Windows DirectSound backend under `#if defined(PLATFORM_WINDOWS)` and the disabled-stub fallback kept as `#else`. The debug-log message for the backend is guarded the same way, and other platforms now get an explicit "unsupported" message instead of silence. No behaviour change on any platform.

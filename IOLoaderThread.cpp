@@ -202,6 +202,16 @@ static bool LoadMusicFile(const std::wstring& assetsRelativeName)
                     L"[LOADER] wglMakeCurrent failed -- texture uploads will silently fail and screen will be blank");
             }
         }
+    #elif defined(__USE_OPENGL__) && defined(PLATFORM_LINUX)
+        // Linux mirror of the Windows block above: make the shared GLX
+        // loader context current so glGenTextures / glTexImage2D calls in
+        // LoadAllKnownTextures() have a valid context on this thread.
+        if (m_loaderGLContext && m_glContext.display) {
+            if (!glXMakeCurrent(m_glContext.display, m_glContext.window, m_loaderGLContext)) {
+                debug.logLevelMessage(LogLevel::LOG_ERROR,
+                    L"[LOADER] glXMakeCurrent (loader context) failed -- texture uploads will silently fail and screen will be blank");
+            }
+        }
     #endif
 
     // Check the status of the Loader thread and flag that we have loading to do.
@@ -922,6 +932,11 @@ static bool LoadMusicFile(const std::wstring& assetsRelativeName)
         if (m_loaderGLContext) {
             glFlush();
             wglMakeCurrent(nullptr, nullptr);
+        }
+    #elif defined(__USE_OPENGL__) && defined(PLATFORM_LINUX)
+        if (m_loaderGLContext && m_glContext.display) {
+            glFlush();
+            glXMakeCurrent(m_glContext.display, None, nullptr);
         }
     #endif
 

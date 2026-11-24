@@ -1622,8 +1622,9 @@ void VulkanRenderer::RenderFrame()
                 }
             #endif
 
-#if defined(PLATFORM_WINDOWS)
+#if defined(PLATFORM_WINDOWS) || defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
             // Screen recording: capture the swap chain image before handing it to the WSI.
+            // (Windows MF path and Linux/Android FFmpeg path share this call site.)
             // We wait for the render fence so the GPU has finished writing the image.
             // The fence is intentionally NOT reset here — it stays signalled until the
             // start of the next iteration for this slot where vkResetFences() resets it.

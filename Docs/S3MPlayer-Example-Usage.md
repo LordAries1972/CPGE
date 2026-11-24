@@ -401,3 +401,14 @@ public:
 - Stereo source samples are downmixed to mono during load; the stereo field in the output comes from the per-channel panning position.
 - Channel panning defaults are derived from the S3M header `channelSettings` array (channels 0–7 = left, 8–15 = right, etc.). If the `defaultPanFlag` field is `0xFC`, the per-channel pan table stored after the header is used instead.
 - Volume range for all API calls is `0`–`64`, matching the S3M internal range. Values above `64` are silently clamped.
+
+
+## Linux / Android backend — miniaudio (23 November 2026)
+
+On Linux and Android this player renders through miniaudio (vendored v0.11.26, `include/miniaudio.h`) instead of DirectSound: 44100 Hz stereo 16-bit PCM through a lock-free ring into a miniaudio device. No caller changes — the same load / play / shutdown calls work on every platform; the backend is selected by the platform guards at compile time. Covered by the Phase B sound test: 37 checks across all five tracker players, 0 failures (PCM observed at the callback; null backend — no audio device on the build machine, so nothing was actually heard).
+
+**Known finding — mixer gain (platform-independent, out of scope for the port):** the S3M mixer renders `test1.s3m` ~200x quieter than the libopenmpt reference (MOD ~21x, IT ~7x, XM ~22x quieter). This is engine mixer-gain code, not a Linux issue, and is left for a separate decision.
+
+## Platform-directive re-guard (24 November 2026)
+
+The miniaudio backend in `Shutdown()` / `CreateAudioDevice()` / `FillAudioBuffer()` was in a bare `#else` (the unguarded default branch), which would not compile on macOS/iOS. Each is now explicitly `#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)`, with the Windows DirectSound backend under `#if defined(PLATFORM_WINDOWS)` and the disabled-stub fallback kept as `#else`. No behaviour change on any platform.

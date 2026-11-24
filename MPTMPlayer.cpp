@@ -3,12 +3,40 @@
 #include "Debug.h"
 #include "Configuration.h"
 #include "ThreadManager.h"
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+#include "MiniaudioStream.h"
+#endif
 
 #include <filesystem>
 #include <limits>
 
 extern Debug debug;
 extern Configuration config;
+
+// FFmpeg (Linux/Android only): decodes external MPTM samples (FLAC / WAV /
+// MP3) to PCM. Same __has_include pattern as HAS_SHADERC -- when the
+// headers are absent HAS_FFMPEG is 0 and LoadExternalSample keeps
+// returning false, so the code still compiles on a machine without FFmpeg
+// dev files. CMake links the FFmpeg libraries only when both the headers
+// and the libraries are found (see Linux/CMakeLists.txt).
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    #if __has_include(<libavformat/avformat.h>) && __has_include(<libavcodec/avcodec.h>) && \
+        __has_include(<libswresample/swresample.h>)
+        #define HAS_FFMPEG 1
+        extern "C" {
+        #include <libavformat/avformat.h>
+        #include <libavcodec/avcodec.h>
+        #include <libswresample/swresample.h>
+        #include <libavutil/avutil.h>
+        #include <libavutil/opt.h>
+        #include <libavutil/channel_layout.h>
+        }
+    #else
+        #define HAS_FFMPEG 0
+    #endif
+#else
+    #define HAS_FFMPEG 0
+#endif
 
 #if defined(PLATFORM_WINDOWS)
     extern HWND hwnd;
@@ -259,7 +287,16 @@ namespace {
             return std::wstring();
         }
 
-        const fs::path reference(referencePath);
+        // MPTM files store Windows-style references (".\Samples\kick.flac").
+        // On Linux / Android the backslash is not a separator, so the
+        // reference would be treated as one opaque filename and never
+        // resolve -- normalise it to forward slashes first.
+        std::wstring referenceNormalized = referencePath;
+        for (wchar_t& c : referenceNormalized) {
+            if (c == L'\\') c = L'/';
+        }
+
+        const fs::path reference(referenceNormalized);
         if (reference.is_absolute() && fs::exists(reference)) {
             return reference.wstring();
         }
@@ -637,9 +674,124 @@ bool MPTMPlayer::LoadExternalSample(const std::wstring& path, MPTMSample& sample
     sample.sustainLoopEnd   = std::min(sample.sustainLoopEnd,   sample.length);
     return true;
 #else
+#if HAS_FFMPEG
+    // FFmpeg decode: the whole file is decoded to mono 16-bit PCM at
+    // MPTM_SAMPLE_RATE, mirroring the Windows Media Foundation path
+    // (which requests PCM mono at the same rate and averages channels).
+    // The resampler downmixes multi-channel sources to mono.
+    const std::string narrow = NarrowPathForFstream(path);
+    AVFormatContext* fmt = nullptr;
+    if (avformat_open_input(&fmt, narrow.c_str(), nullptr, nullptr) < 0)
+        return false;
+    if (avformat_find_stream_info(fmt, nullptr) < 0)
+    {
+        avformat_close_input(&fmt);
+        return false;
+    }
+    const int astream = av_find_best_stream(fmt, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
+    if (astream < 0)
+    {
+        avformat_close_input(&fmt);
+        return false;
+    }
+    AVCodecParameters* par = fmt->streams[astream]->codecpar;
+    const AVCodec* codec = avcodec_find_decoder(par->codec_id);
+    AVCodecContext* dec = nullptr;
+    SwrContext* swr = nullptr;
+    AVFrame* frame = nullptr;
+    AVPacket* pkt = nullptr;
+    bool setupOk = false;
+    if (codec)
+    {
+        dec = avcodec_alloc_context3(codec);
+        if (dec && avcodec_parameters_to_context(dec, par) >= 0 &&
+            avcodec_open2(dec, codec, nullptr) >= 0)
+        {
+            // (AV_CHANNEL_LAYOUT_MONO is a braced list, not a value, so it
+            // needs a named variable before its address is taken.)
+            const AVChannelLayout outLayout = AV_CHANNEL_LAYOUT_MONO;
+            swr_alloc_set_opts2(&swr,
+                &outLayout, AV_SAMPLE_FMT_S16, static_cast<int>(MPTM_SAMPLE_RATE),
+                &dec->ch_layout, dec->sample_fmt, dec->sample_rate,
+                0, nullptr);
+            if (swr && swr_init(swr) >= 0)
+            {
+                frame = av_frame_alloc();
+                pkt = av_packet_alloc();
+                if (frame && pkt)
+                    setupOk = true;
+            }
+        }
+    }
+
+    std::vector<int16_t> decoded;
+    if (setupOk)
+    {
+        // Resample one decoded frame to mono s16 at MPTM_SAMPLE_RATE and
+        // append it to the output.
+        auto appendFrame = [&](AVFrame* f)
+        {
+            const int outFrames = static_cast<int>(av_rescale_rnd(
+                swr_get_delay(swr, static_cast<int64_t>(f->sample_rate)) + f->nb_samples,
+                static_cast<int64_t>(MPTM_SAMPLE_RATE), f->sample_rate, AV_ROUND_UP));
+            if (outFrames <= 0)
+                return;
+            const size_t base = decoded.size();
+            decoded.resize(base + static_cast<size_t>(outFrames));
+            uint8_t* out[1] = { reinterpret_cast<uint8_t*>(decoded.data() + base) };
+            const int converted = swr_convert(swr, out, outFrames,
+                const_cast<const uint8_t**>(f->data), f->nb_samples);
+            decoded.resize(base + (converted > 0 ? static_cast<size_t>(converted) : 0));
+        };
+
+        while (av_read_frame(fmt, pkt) >= 0)
+        {
+            if (pkt->stream_index != astream)
+            {
+                av_packet_unref(pkt);
+                continue;
+            }
+            if (avcodec_send_packet(dec, pkt) == 0)
+            {
+                while (avcodec_receive_frame(dec, frame) == 0)
+                    appendFrame(frame);
+            }
+            av_packet_unref(pkt);
+        }
+        // Flush the decoder for any frames still buffered inside it.
+        avcodec_send_packet(dec, nullptr);
+        while (avcodec_receive_frame(dec, frame) == 0)
+            appendFrame(frame);
+    }
+
+    if (frame)
+        av_frame_free(&frame);
+    if (pkt)
+        av_packet_free(&pkt);
+    if (swr)
+        swr_free(&swr);
+    if (dec)
+        avcodec_free_context(&dec);
+    avformat_close_input(&fmt);
+
+    if (!setupOk || decoded.empty())
+    {
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"MPTMPlayer: External sample decoded no PCM data: " + path);
+        return false;
+    }
+
+    sample.pcm = std::move(decoded);
+    sample.length = static_cast<uint32_t>(std::min<size_t>(sample.pcm.size(), std::numeric_limits<uint32_t>::max()));
+    sample.loopStart        = std::min(sample.loopStart,        sample.length);
+    sample.loopEnd          = std::min(sample.loopEnd,          sample.length);
+    sample.sustainLoopStart = std::min(sample.sustainLoopStart, sample.length);
+    sample.sustainLoopEnd   = std::min(sample.sustainLoopEnd,   sample.length);
+    return true;
+#else
     (void)path;
     (void)sample;
     return false;
+#endif
 #endif
 }
 
@@ -998,6 +1150,15 @@ bool MPTMPlayer::Play(const std::wstring& filename) {
             debug.logLevelMessage(LogLevel::LOG_ERROR, L"MPTMPlayer: Failed to start DirectSound buffer playback.");
             return false;
         }
+    #elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+        // Linux (miniaudio): start the streaming device created by CreateAudioDevice.
+        // (When creation failed the stream is null and playback stays silent.)
+        if (m_miniaudioStream != nullptr) {
+            if (!static_cast<Miniaudio::Stream*>(m_miniaudioStream)->Start()) {
+                debug.logLevelMessage(LogLevel::LOG_ERROR, L"MPTMPlayer: Failed to start miniaudio playback.");
+                return false;
+            }
+        }
     #endif
 
     isPlaying = true;
@@ -1032,6 +1193,12 @@ void MPTMPlayer::Shutdown() {
         directSound->Release();
         directSound = nullptr;
     }
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    delete static_cast<Miniaudio::Stream*>(m_miniaudioStream);
+    m_miniaudioStream = nullptr;
+    secondaryBuffer = nullptr;
+    primaryBuffer = nullptr;
+    directSound = nullptr;
 #else
     secondaryBuffer = nullptr;
     primaryBuffer = nullptr;
@@ -1090,6 +1257,10 @@ void MPTMPlayer::Stop() {
 #if defined(PLATFORM_WINDOWS)
     if (secondaryBuffer) {
         secondaryBuffer->Stop();
+    }
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    if (m_miniaudioStream != nullptr) {
+        static_cast<Miniaudio::Stream*>(m_miniaudioStream)->Stop();
     }
 #endif
 
@@ -1243,6 +1414,21 @@ bool MPTMPlayer::CreateAudioDevice() {
     bufferSize = secondaryDesc.dwBufferBytes;
     writeCursor = 0;
     return true;
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    // Linux (miniaudio): create the streaming device now, so a failure is
+    // caught before playback starts; Play() starts it. If creation fails
+    // (no audio device at all, not even the null backend), warn once and
+    // carry on silent — the game must never break for lack of a sound card.
+    delete static_cast<Miniaudio::Stream*>(m_miniaudioStream);
+    m_miniaudioStream = nullptr;
+    Miniaudio::Stream* stream = new Miniaudio::Stream();
+    if (!stream->IsReady()) {
+        delete stream;
+        debug.logDiagLevelMessage(LogLevel::LOG_WARNING, L"MPTMPlayer: miniaudio device could not be created; music is silent.");
+        return true;
+    }
+    m_miniaudioStream = stream;
+    return true;
 #else
     return true;
 #endif
@@ -1315,6 +1501,25 @@ void MPTMPlayer::FillAudioBuffer() {
         secondaryBuffer->Unlock(p1, b1, p2, b2);
         writeCursor = (writeCursor + bytesToWrite) % bufferSize;
     }
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    // Linux (miniaudio): the PlaybackLoop calls this about once a millisecond.
+    // Top the ring up to ~186 ms of buffered audio, mixing at most 2048 frames
+    // per call. The miniaudio data callback drains the ring on the audio
+    // thread; MixAudio itself only ever runs here, on the playback thread,
+    // exactly as on Windows.
+    if (m_miniaudioStream == nullptr) return;
+    Miniaudio::Stream* stream = static_cast<Miniaudio::Stream*>(m_miniaudioStream);
+    constexpr size_t kTargetFrames = 8192;      // ~186 ms at 44100 Hz
+    constexpr size_t kMaxFramesPerCall = 2048;
+    const size_t readable = stream->Readable();
+    if (readable >= kTargetFrames) return;
+    size_t want = kTargetFrames - readable;
+    if (want > kMaxFramesPerCall) want = kMaxFramesPerCall;
+    if (mixScratch.size() < want * 2) mixScratch.resize(want * 2);
+    MixAudio(mixScratch.data(), want);
+    stream->Write(mixScratch.data(), want);
+#else
+    // No audio device on this platform; nothing to fill.
 #endif
 }
 

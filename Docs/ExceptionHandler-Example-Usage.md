@@ -37,6 +37,7 @@
     - [15.2 Multi-threaded Application](#152-multi-threaded-application)
     - [15.3 Custom Exception Types](#153-custom-exception-types)
     - [15.4 Production Deployment](#154-production-deployment)
+16. [Fatal Signal Handling on Linux/Unix (24 November 2026)](#fatal-signal-handling-on-linuxunix-24-november-2026)
 
 16. [API Reference](#api-reference)
 17. [Frequently Asked Questions](#frequently-asked-questions)
@@ -1373,3 +1374,49 @@ Key benefits include:
 By following the examples and best practices in this guide, you can effectively integrate comprehensive exception handling into your application, improving debugging capabilities and providing valuable crash information for production deployments.
 
 For additional support or questions not covered in this guide, refer to the source code documentation and platform-specific debugging resources.
+
+---
+
+## Fatal Signal Handling on Linux/Unix (24 November 2026)
+
+**What changed:** `ProcessSignalException` (`ExceptionHandler.cpp`, Unix
+`#else` branch) used to return normally after handling a fatal synchronous
+signal (`SIGSEGV`, `SIGBUS`, `SIGILL`, `SIGFPE`). Returning from a signal
+handler for a synchronous fault re-executes the faulting instruction, so
+the engine crashed in a loop: the Linux Xvfb runs logged the same segfault
+16,544 and 20,465 times and wrote a `CrashDump_*.dmp` per fault (52 dumps)
+until the process was killed from outside.
+
+The handler now restores the default disposition and re-raises the signal
+after logging and dumping, so a fatal signal terminates the process once:
+
+```cpp
+// ExceptionHandler.cpp - ProcessSignalException (Unix branch only):
+// Fatal synchronous signals must never return to the faulting
+// instruction: restore the default disposition and re-raise so the
+// process terminates with the original signal instead of looping.
+::signal(signal, SIG_DFL);
+::raise(signal);
+abort(); // Unreachable if the re-raise works; guarantees termination.
+```
+
+The `::` qualification is required because the parameter is named `signal`
+and shadows the `signal()` function.
+
+Two related fixes in the same change:
+
+1. **No locks in the handler.** The handler used to take
+   `std::lock_guard<std::mutex> lock(m_exceptionMutex)`, which is not
+   async-signal-safe (a fault inside a locked section deadlocks the
+   handler). It now uses a `static std::atomic_flag` re-entry guard
+   instead, so a second fault while the first is being handled is dropped
+   rather than deadlocking.
+2. **Windows unchanged.** The Windows `__except` / `ProcessSEHException`
+   path is untouched by this change.
+
+**How to use it:** nothing changes for callers. A fatal synchronous signal
+now produces exactly one log entry and one crash dump, then the process
+dies with the original signal (`SIGSEGV`, `SIGABRT`, ...), which is what
+crash reporters, `systemd`, and debuggers expect. Do not add locks, heap
+allocation, or logging calls that take locks inside a signal handler - only
+async-signal-safe operations belong there.

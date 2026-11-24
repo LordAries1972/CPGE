@@ -81,3 +81,11 @@ Enable the player by defining `__USE_ITPLAYER__` in `Includes.h` and disabling t
 ## Known Limits
 
 `ITPlayer` now separates 64 IT host channels from a fixed 256-entry virtual voice pool, so old notes can continue, fade, or release when new notes arrive. Remaining fidelity gaps are per-voice resonant filters, MIDI macro execution, pitch/filter envelope evaluation, bidirectional loops, and some extended `S7x` envelope-control commands. Unsupported commands are accepted as no-ops where failing playback would be worse than ignoring tracker metadata.
+
+## Linux / Android backend — miniaudio (23 November 2026)
+
+On Linux and Android this player renders through miniaudio (vendored v0.11.26, `include/miniaudio.h`) instead of DirectSound: 44100 Hz stereo 16-bit PCM through a lock-free ring into a miniaudio device. No caller changes — the same load / play / shutdown calls work on every platform; the backend is selected by the platform guards at compile time. Covered by the Phase B sound test: 37 checks across all five tracker players, 0 failures (PCM observed at the callback; null backend — no audio device on the build machine, so nothing was actually heard).
+
+## Platform-directive re-guard (24 November 2026)
+
+The miniaudio backend in `Shutdown()` / `CreateAudioDevice()` / `FillAudioBuffer()` was in a bare `#else` (the unguarded default branch), which would not compile on macOS/iOS. Each is now explicitly `#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)`, with the Windows DirectSound backend under `#if defined(PLATFORM_WINDOWS)` and the disabled-stub fallback kept as `#else`. No behaviour change on any platform.

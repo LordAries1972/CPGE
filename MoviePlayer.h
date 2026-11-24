@@ -257,6 +257,23 @@ private:
     std::vector<uint8_t> m_cpuFrameBuffer;
     uint32_t             m_cpuFrameWidth  = 0;
     uint32_t             m_cpuFrameHeight = 0;
+
+    // FFmpeg decoder state (Linux/Android only). Opaque void* so the FFmpeg
+    // headers stay out of this header — the real struct (MovieFFmpeg) lives
+    // in MoviePlayer.cpp and is only allocated when HAS_FFMPEG is true.
+    // nullptr when FFmpeg is unavailable or no movie is open.
+    void* m_ffmpeg = nullptr;
+
+    // FFmpeg backend helpers (MoviePlayer.cpp, Linux/Android only). The
+    // FFmpeg state is passed as the opaque void* m_ffmpeg, and decoded
+    // frames as void* too, because the real MovieFFmpeg / AVFrame types
+    // live only in MoviePlayer.cpp. Caller must hold m_mutex.
+    void CloseFFmpegLocked();
+    void PresentVideoFrameLocked(void* ff, void* frame, double ptsAbsSeconds);
+    void DrainAudioBacklogLocked(void* ff);
+    void ResampleAndQueueAudioLocked(void* ff, void* frame);
+    bool DecodeUntilLocked(double mediaTime);
+
     static constexpr const char* MOVIE_MUTEX_LOCK = "movie_mutex";
     static constexpr const char* MOVIE_UPDATE_LOCK = "movie_update_lock";
     static constexpr const char* MOVIE_CONTROL_LOCK = "movie_control_lock";

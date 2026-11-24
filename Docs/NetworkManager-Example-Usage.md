@@ -822,3 +822,16 @@ The NetworkManager class provides a robust, thread-safe networking solution with
 ✅ **Debug Support** - Detailed logging for troubleshooting  
 
 Follow this guide to integrate robust networking into your game engine efficiently and safely.
+
+## Linux / Android backend — BSD sockets (23 November 2026)
+
+On Linux and Android the Windows Winsock backend is replaced by a BSD sockets backend (`socket` / `connect` / `send` / `recv`, `getaddrinfo`, non-blocking via `fcntl`), selected at compile time behind `PLATFORM_LINUX` / `PLATFORM_ANDROID`. No caller changes — the same `NetworkManager` calls work on every platform; the backend is chosen by the platform guards. Verified with loopback tests (TCP ping, localhost chat, UDP, refused connection): ALL PASS.
+
+Two cross-platform bugs were found and fixed while porting:
+
+- **Packet checksum was never computed.** Every packet carrying data was silently discarded on all platforms (Windows included). The checksum is now computed on send and verified on receive.
+- **`%S` in a wide `printf` printed `???????` under glibc.** The format string is now platform-correct.
+
+## Platform-directive re-guard (24 November 2026)
+
+The whole BSD backend — the socket include block and 9 function bodies — was sitting in bare `#else` branches (the unguarded default path), which would not compile on macOS/iOS. Each is now explicitly `#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)`, with the Winsock backend under `#if defined(PLATFORM_WINDOWS)` and the disabled-stub fallback kept as `#else`. No behaviour change on any platform.

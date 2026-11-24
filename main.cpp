@@ -77,7 +77,7 @@
 #include "GamingAI.h"
 #include "MyRandomizer.h"
 
-#if defined(PLATFORM_WINDOWS)
+#if defined(PLATFORM_WINDOWS) || defined(PLATFORM_LINUX)
     #include "TTSManager.h"
 #endif
 
@@ -196,8 +196,10 @@ extern ConsoleWindow consoleWindow;
     NetworkManager networkManager;
 #endif
 
-// If we are using Text To Speech, we need to include the TTSManager (Only for Windows)
-#if defined(PLATFORM_WINDOWS)
+// If we are using Text To Speech, we need to include the TTSManager
+// (Windows SAPI, Linux eSpeak-ng; Android uses the platform TTS via JNI
+// in Phase D, so it is not included there yet).
+#if defined(PLATFORM_WINDOWS) || defined(PLATFORM_LINUX)
     TTSManager ttsManager;
 #endif
 
@@ -446,7 +448,7 @@ static void ConfigureProcessDpiAwareness()
 // ----------------------------------------------------------------------------------------------
 static void CloseEngineWindow(HINSTANCE hInstance);
 static bool PumpPlatformMessages();
-static int RunEngine(HINSTANCE hInstance);  // defined below main()
+static int RunEngine(HINSTANCE hInstance, int nCmdShow);  // defined below main()
 
 #if defined(PLATFORM_WINDOWS)
 
@@ -754,6 +756,15 @@ static bool PumpPlatformMessages()
 // uintptr_t) so the renderer and WinSystem code can use it unchanged.
 static bool CreateLinuxWindow()
 {
+#if defined(PLATFORM_LINUX)
+    // XInitThreads() must be called before any XOpenDisplay() when Xlib is
+    // used from more than one thread. The renderer, loader and main threads
+    // all use X11 Display connections (the loader thread shares the
+    // renderer's Display for its GLX context), so enable Xlib threading
+    // here, before the first display is opened.
+    if (!XInitThreads())
+        debug.logLevelMessage(LogLevel::LOG_WARNING, L"[SYSTEM]: XInitThreads failed — X11 calls from worker threads may not be thread-safe");
+#endif
     g_linuxDisplay = XOpenDisplay(nullptr);
     if (!g_linuxDisplay)
     {
@@ -950,7 +961,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
         debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[SYSTEM]: Failed to create window.\n");
         return EXIT_FAILURE;
     }
-    return RunEngine(hInstance);
+    return RunEngine(hInstance, nCmdShow);
 }
 
 #elif defined(PLATFORM_LINUX)
@@ -996,9 +1007,9 @@ int main(int argc, char* argv[])
         // use one connection to the server; passing nullptr here would make
         // vkCreateXcbSurfaceKHR fail at runtime.
         HINSTANCE xcbConnection = reinterpret_cast<HINSTANCE>(XGetXCBConnection(g_linuxDisplay));
-        return RunEngine(xcbConnection);
+        return RunEngine(xcbConnection, 0);
     #else
-        return RunEngine(nullptr);
+        return RunEngine(nullptr, 0);
     #endif
 }
 #endif // PLATFORM_WINDOWS / PLATFORM_LINUX
@@ -1012,7 +1023,7 @@ int main(int argc, char* argv[])
 // guarded with PLATFORM_WINDOWS / PLATFORM_LINUX so the Windows path is
 // byte-for-byte the old WinMain body.
 // ----------------------------------------------------------------------------------------------
-static int RunEngine(HINSTANCE hInstance)
+static int RunEngine(HINSTANCE hInstance, int nCmdShow)
 {
     // Initialize the exception handler for comprehensive error tracking
     if (!exceptionHandler.Initialize()) {
@@ -1234,8 +1245,8 @@ static int RunEngine(HINSTANCE hInstance)
         // Initialise our FX Manager
         fxManager.Initialize();
 
-        // If we are using windows, Initialize TTSManager (Text To Speech)
-        #if defined(_WIN64) || defined(_WIN32)
+        // Initialize TTSManager (Text To Speech: Windows SAPI, Linux eSpeak-ng)
+        #if defined(PLATFORM_WINDOWS) || defined(PLATFORM_LINUX)
             // Initialise our TTS Manager
             if (!ttsManager.Initialize()) {
                 debug.logLevelMessage(LogLevel::LOG_WARNING, L"TTS system initialization failed - continuing without TTS");
@@ -1392,7 +1403,7 @@ static int RunEngine(HINSTANCE hInstance)
 
             screenRecorder.SetMicMonitorGain(static_cast<float>(cfg.microphoneVolume));
             screenRecorder.SetMicRecordGain (static_cast<float>(cfg.microphoneVolume));
-            #if defined(_WIN64) || defined(_WIN32)
+            #if defined(PLATFORM_WINDOWS) || defined(PLATFORM_LINUX)
                 // Always hand the volume to the speech engine, whether or not Text-to-Speech is switched on right now: the manager remembers it, so a line spoken after the
                 // switch is turned on already uses the slider's value (it used to keep the old volume until the slider was moved again).
                 if (ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR)
@@ -1400,9 +1411,9 @@ static int RunEngine(HINSTANCE hInstance)
             #endif
         });
 
-        // Add TTS announcement for Startup Splash Screen (Windows only:
-        // ttsManager exists only on Windows; on Linux the stub has no voice).
-    #if defined(_WIN64) || defined(_WIN32)
+        // Add TTS announcement for Startup Splash Screen (Windows SAPI,
+        // Linux eSpeak-ng; Android uses the platform TTS in Phase D).
+    #if defined(PLATFORM_WINDOWS) || defined(PLATFORM_LINUX)
         if (config.myConfig.UseTTS)
         {
             if (ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR) {
@@ -1411,13 +1422,20 @@ static int RunEngine(HINSTANCE hInstance)
                 ttsManager.PlayAsync(L"This system uses the Cross Platform Gaming Engine by Daniel J. Hobson of Australia 2023 to 2026.");
             }
         }
-    #endif // _WIN64 || _WIN32
+    #endif // PLATFORM_WINDOWS || PLATFORM_LINUX
 
         //  --------------------------------------------------------------------------
         //  --- Main Loop ---
         //  --------------------------------------------------------------------------
         sysUtils.StartTimer();                                  // Start the system timer
         OpenStartMovieAndPlay();                                // Start the opening movie
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+        // From here the main loop is running: fatal errors may now request
+        // a quit (see Debug::EmitMessage). Startup errors above this point
+        // are logged only, so a missing intro movie cannot kill the engine
+        // before its first frame.
+        g_cpgeMainLoopActive.store(true);
+#endif
         while (!g_cpgeQuitRequested.load())
         {
             // PumpPlatformMessages() dispatches ONE pending OS message (or X11
@@ -2044,7 +2062,7 @@ static int RunEngine(HINSTANCE hInstance)
                     }
                 }
 
-                #if defined(PLATFORM_WINDOWS)
+                #if defined(PLATFORM_WINDOWS) || defined(PLATFORM_LINUX)
                 // TTS volume — CTRL+ALT+NUMPAD+ raises, CTRL+ALT+NUMPAD- lowers. Range: 0.0-1.0 (step 0.05).
                 // Applied immediately to ttsManager and persisted in config; OSD auto-removed after 10 seconds.
                 {
@@ -2139,6 +2157,9 @@ static int RunEngine(HINSTANCE hInstance)
                 #endif
             }
         } // End of main loop (exits when g_cpgeQuitRequested is set)
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+        g_cpgeMainLoopActive.store(false);
+#endif
     }
     catch (const std::exception& e)
     {
@@ -2180,7 +2201,7 @@ static int RunEngine(HINSTANCE hInstance)
     scene.CleanUp();
 
     // TTS Stop
-    #if defined(_WIN64) || defined(_WIN32)
+    #if defined(PLATFORM_WINDOWS) || defined(PLATFORM_LINUX)
         if (config.myConfig.UseTTS)
         {
             ttsManager.Stop();                          // Stop immediately
@@ -2194,6 +2215,30 @@ static int RunEngine(HINSTANCE hInstance)
     // Stop screen recorder before the renderer releases the D3D11 device,
     // so the staging texture ComPtr is dropped while the device is still alive.
     screenRecorder.StopRecording();
+
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    // Linux/Android shutdown order (crash fix): stop and join the worker
+    // threads BEFORE the renderer is torn down. The render thread keeps
+    // running frames into freed renderer resources (reflection-probe
+    // buffers, GLX context, X11 display) if it is still alive when
+    // renderer->Cleanup() runs, and the loader thread can restart music
+    // playback after modPlayer.Shutdown() below. threadManager.Cleanup()
+    // sets bIsShuttingDown and joins the worker threads; it is idempotent,
+    // so the Windows-only call at the end of this function is skipped on
+    // these platforms.
+    // The AI thread MUST be stopped first: GamingAI::AIThreadTasking()
+    // only exits when m_shouldShutdown is set by EndMonitoring()/Cleanup()
+    // - it does not watch bIsShuttingDown - so joining it before the AI
+    // shutdown deadlocks (verified by gdb: main stuck in join() at
+    // ThreadManager.cpp:622 while the AI thread waited on its 500 ms
+    // condition-variable timeout). EndMonitoring() and Cleanup() are both
+    // idempotent, so the shared calls below become safe no-ops.
+    #if defined(__USE_GAMINGAI__)
+        gamingAI.EndMonitoring();
+        gamingAI.Cleanup();
+    #endif
+    threadManager.Cleanup();
+#endif
 
     // Release the Renderer System.
     renderer->Cleanup();
@@ -2288,9 +2333,13 @@ static int RunEngine(HINSTANCE hInstance)
     // Cleanup our MyRandomizer class instance.
     myRandomizer.Cleanup();
 
+#if defined(PLATFORM_WINDOWS)
     // IMPORTANT: DO THIS LAST!!!
-    // Now clean up the Thread Manager.
+    // Now clean up the Thread Manager. (Windows only: on Linux/Android the
+    // worker threads are already joined before renderer->Cleanup() above,
+    // so they cannot touch freed renderer resources.)
     threadManager.Cleanup();
+#endif
 
 	// Finally now remove the Exception Handler.
 	exceptionHandler.Cleanup();
@@ -2667,8 +2716,8 @@ void SwitchToGamePlay()
     fxManager.StopStarfield();
     fxManager.StopTextScroller(textScrollerEffectID);
     StopMusicPlayback();
-    // TTS announcement (Windows only: ttsManager exists only on Windows)
-#if defined(_WIN64) || defined(_WIN32)
+    // TTS announcement (Windows SAPI, Linux eSpeak-ng)
+#if defined(PLATFORM_WINDOWS) || defined(PLATFORM_LINUX)
     if (config.myConfig.UseTTS)
     {
         if (ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR) {
@@ -2704,7 +2753,16 @@ void SwitchToGamePlay()
 
 void OpenMovieAndPlay()
 {
+#if defined(PLATFORM_WINDOWS)
     auto fileName = baseDir + L"\\Assets\\test1.mp4";
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    // Linux/Android: forward slashes — the Windows backslash path never
+    // resolves on POSIX, so OpenMovie() failed and the engine quit at startup.
+    auto fileName = baseDir + L"/Assets/test1.mp4";
+#else
+    // Other POSIX platforms (macOS/iOS): same forward-slash path as Linux.
+    auto fileName = baseDir + L"/Assets/test1.mp4";
+#endif
     if (!moviePlayer.OpenMovie(fileName))
     {
         debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"Failed to open Video File for Playback! [%s]", fileName.c_str());
@@ -2718,7 +2776,16 @@ void OpenMovieAndPlay()
 
 void OpenStartMovieAndPlay()
 {
+#if defined(PLATFORM_WINDOWS)
     auto fileName = baseDir + L"\\Assets\\cpge.mp4";
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)
+    // Linux/Android: forward slashes — the Windows backslash path never
+    // resolves on POSIX, so OpenMovie() failed and the engine quit at startup.
+    auto fileName = baseDir + L"/Assets/cpge.mp4";
+#else
+    // Other POSIX platforms (macOS/iOS): same forward-slash path as Linux.
+    auto fileName = baseDir + L"/Assets/cpge.mp4";
+#endif
     if (!moviePlayer.OpenMovie(fileName))
     {
         debug.logDebugMessage(LogLevel::LOG_CRITICAL, L"Failed to open Video File for Playback! [%s]", fileName.c_str());
@@ -2733,8 +2800,8 @@ void OpenStartMovieAndPlay()
 void SwitchToMovieIntro()
 {
     threadManager.PauseThread(THREAD_RENDERER); // Pause the Renderer Thread
-    // Add TTS announcement for movie intro (Windows only)
-#if defined(_WIN64) || defined(_WIN32)
+    // Add TTS announcement for movie intro
+#if defined(PLATFORM_WINDOWS) || defined(PLATFORM_LINUX)
     if (config.myConfig.UseTTS)
     {
         if (ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR) {
@@ -2773,8 +2840,8 @@ void SwitchToGameIntro()
     threadManager.threadVars.bHasReset.store(true);
     // Stop Music Playback!
     StopMusicPlayback();
-    // Add TTS announcement for movie intro (Windows only)
-#if defined(_WIN64) || defined(_WIN32)
+    // Add TTS announcement for movie intro
+#if defined(PLATFORM_WINDOWS) || defined(PLATFORM_LINUX)
     if (config.myConfig.UseTTS)
     {
         if (ttsManager.GetPlaybackState() != TTSPlaybackState::STATE_ERROR) {

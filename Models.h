@@ -3,7 +3,7 @@
 #include "Includes.h"
 #include "Lights.h"
 
-#if defined(__USE_OPENGL__) && !defined(PLATFORM_WINDOWS)
+#if defined(__USE_OPENGL__) && defined(PLATFORM_LINUX)
     // GLuint/GLenum for the OpenGL-only members below: on Windows these arrive
     // via Includes.h (GLEW), but on Linux Includes.h includes no GL headers,
     // and this header is included by translation units that never see a
