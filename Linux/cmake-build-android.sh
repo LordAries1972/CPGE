@@ -78,6 +78,10 @@ Environment:
   ANDROID_NDK_HOME   Android NDK root (checked second)
   ANDROID_HOME       Android SDK root; uses ndk-bundle/ or the newest ndk/<ver>
   ANDROID_PLATFORM   Android API level (default: android-26)
+  GLM_ROOT           Override only: folder containing glm/ (GLM headers) to
+                     use instead of the vendored copy in include/ (version
+                     0.9.9.8, managed by Daniel). Normally unset — GLM is
+                     vendored and found automatically on every host.
   CMAKE_EXE          Path to the cmake binary (default: cmake on PATH)
 
 Examples:
@@ -118,6 +122,9 @@ if [[ -z "${ARG1}" ]]; then
     echo "Environment variables:"
     echo "  ANDROID_NDK        Path to the Android NDK root"
     echo "  ANDROID_PLATFORM   Android API level (default: android-26)"
+    echo "  GLM_ROOT           Override only: folder containing glm/ to use instead"
+    echo "                     of the vendored copy in include/ (normally unset —"
+    echo "                     GLM is vendored and found automatically)"
     echo "  CMAKE_EXE          Path to cmake binary (default: cmake)"
     echo ""
     echo "Examples:"

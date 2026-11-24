@@ -274,9 +274,17 @@ if(NOT ANDROID)
 
     # GLM (header-only math; required — VULKAN_Renderer.h, FXManager.h and the
     # cameras include <glm/glm.hpp> unconditionally, so a missing glm is a
-    # hard compile error, not a warning).
-    find_package(glm REQUIRED)
-    target_link_libraries(CrossPlatformGameEngine PRIVATE glm::glm)
+    # hard compile error, not a warning). GLM is vendored in include/glm
+    # (version 0.9.9.8, managed by Daniel — see ReleaseInfo.md, 24 Nov 2026);
+    # ${SRC_DIR}/include is already on the include path for every build, so
+    # no find_package or link step is needed. The check below fails fast with
+    # a clear message if the vendored copy is ever removed.
+    if(NOT EXISTS "${SRC_DIR}/include/glm/glm.hpp")
+        message(FATAL_ERROR
+            "Vendored GLM headers not found (expected include/glm/glm.hpp).\n"
+            "  GLM is vendored in the repo — restore include/glm from version\n"
+            "  control, or point the build at a GLM copy with GLM_ROOT.")
+    endif()
 endif()
 
 # ── OpenGL ES / EGL (Android) ─────────────────────────────────────────────────
@@ -292,8 +300,11 @@ if(ANDROID)
         "${ANDROID_NDK}/sources/android/native_app_glue")
 
     # ── GLM for Android ──────────────────────────────────────────────────────
-    # GLM is header-only and the engine includes <glm/glm.hpp> unconditionally,
-    # but the host /usr/include must NEVER be added to the NDK compile: host
+    # GLM is header-only and the engine includes <glm/glm.hpp> unconditionally.
+    # It is vendored in include/glm (version 0.9.9.8, managed by Daniel — see
+    # ReleaseInfo.md, 24 Nov 2026), and that copy is the primary source, so
+    # the Android build needs no system install and no setup on any host.
+    # The host /usr/include must NEVER be added to the NDK compile: host
     # glibc headers would shadow the Bionic sysroot (proven by the step-1
     # probe — <features.h> resolved to the host copy and bits/wordsize.h went
     # missing). Stage a copy of the glm headers into the build directory
@@ -302,14 +313,21 @@ if(ANDROID)
     # under the NDK toolchain CMAKE_FIND_ROOT_PATH_MODE_PACKAGE is ONLY, so
     # the host /usr/share/cmake/glm config is invisible, and its glm::glm
     # target would carry /usr/include into the compile anyway.
+    # GLM_ROOT (env var or -DGLM_ROOT=...) is an override only — a different
+    # GLM copy to use instead of the vendored one. It must be the folder
+    # containing glm/ (the download root, not the glm/ subfolder itself).
+    # The system paths are a last resort for hosts whose vendored copy was
+    # removed.
     find_path(GLM_INCLUDE_DIR glm/glm.hpp
-        HINTS /usr/include /usr/local/include
+        HINTS ${SRC_DIR}/include $ENV{GLM_ROOT} ${GLM_ROOT} /usr/include /usr/local/include
         NO_CMAKE_FIND_ROOT_PATH
         NO_DEFAULT_PATH)
     if(NOT GLM_INCLUDE_DIR)
         message(FATAL_ERROR
-            "GLM headers not found on the host (need libglm-dev for the Android build).\n"
-            "  sudo apt install libglm-dev")
+            "GLM headers not found for the Android build.\n"
+            "  GLM is vendored in include/glm — restore it from version control.\n"
+            "  Or set GLM_ROOT to a GLM copy (the folder containing glm/),\n"
+            "  or install it on the system (Linux: sudo apt install libglm-dev).")
     endif()
     file(COPY "${GLM_INCLUDE_DIR}/glm" DESTINATION "${CMAKE_BINARY_DIR}/android-deps")
     target_include_directories(CrossPlatformGameEngine PRIVATE "${CMAKE_BINARY_DIR}/android-deps")

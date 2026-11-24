@@ -34,6 +34,14 @@ NativeActivity app that packages the engine (`libCPGE.so`) as an APK. Created
   24 Nov 2026 from Adoptium; the SDK tree previously had only a JRE, which
   cannot run Gradle). Pinned by `org.gradle.java.home` in `gradle.properties`,
   so `JAVA_HOME` does not need to point at it for Gradle.
+- GLM headers — none needed. GLM 0.9.9.8 is vendored in the repo at
+  `include/glm/` (Daniel manages updates by replacing that folder), and
+  both the Android and Linux builds use it automatically on every host.
+  No system install, no `GLM_ROOT`. `GLM_ROOT` remains only as an
+  override (a different GLM copy to use instead of the vendored one).
+  For the Android build the headers are staged into the build
+  directory (`android-deps/`) — the host include path is never added
+  to the NDK compile.
 - Gradle 8.7 (wrapper; downloaded on first `./gradlew` run from
   `services.gradle.org`).
 - `sdkmanager` does NOT work on this machine (Java proxy tunnelling fails);
