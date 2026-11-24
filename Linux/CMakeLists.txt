@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
-project(CrossPlatformGameEngine LANGUAGES CXX)
+# C is enabled as well as C++: the Android build compiles the NDK's
+# android_native_app_glue.c (a plain C file) into the shared library.
+project(CrossPlatformGameEngine LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -36,6 +38,12 @@ endif()
 # Source root is the parent directory (Linux/ is a sub-folder of the project root)
 set(SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/..")
 set(EXE_OUTPUT_NAME "${RENDERER_PREFIX}${GAME_NAME}")
+# Android: one fixed library name for every renderer so the manifest's
+# android.app.lib_name never depends on which renderer was built
+# (each renderer build lands in its own build-android/<Renderer>/ dir).
+if(ANDROID)
+    set(EXE_OUTPUT_NAME "CPGE")
+endif()
 
 message(STATUS "Platform   : ${PLATFORM_LABEL}")
 message(STATUS "Game name  : ${GAME_NAME}")
@@ -116,6 +124,13 @@ if(RENDERER STREQUAL "OpenGL")
         ${SRC_DIR}/OpenGLRenderFrame.cpp
         ${SRC_DIR}/OpenGLRenderer.cpp
     )
+    # Per-platform OpenGL implementation (platform split, 24 Nov 2026): only the
+    # file for the target platform is compiled; the file itself is the platform.
+    if(ANDROID)
+        list(APPEND SOURCES ${SRC_DIR}/android-opengl-render.cpp)
+    else()
+        list(APPEND SOURCES ${SRC_DIR}/linux-opengl-render.cpp)
+    endif()
 elseif(RENDERER STREQUAL "Vulkan")
     list(APPEND SOURCES
         ${SRC_DIR}/VulkanCamera.cpp
@@ -123,6 +138,13 @@ elseif(RENDERER STREQUAL "Vulkan")
         ${SRC_DIR}/VULKAN_RenderFrame.cpp
         ${SRC_DIR}/VULKAN_Renderer.cpp
     )
+    # Per-platform Vulkan implementation (platform split, 24 Nov 2026): only the
+    # file for the target platform is compiled; the file itself is the platform.
+    if(ANDROID)
+        list(APPEND SOURCES ${SRC_DIR}/android-vulkan-render.cpp)
+    else()
+        list(APPEND SOURCES ${SRC_DIR}/linux-vulkan-render.cpp)
+    endif()
 endif()
 
 # Linux-only window-system implementation (SystemUtils for X11; WinSystem.cpp
@@ -131,10 +153,50 @@ if(NOT ANDROID)
     list(APPEND SOURCES ${SRC_DIR}/WinSystemLinux.cpp)
 endif()
 
+# Android-only: SystemUtils implementation (ANativeWindow / internal storage)
+# and the shared android_app accessor used by main.cpp, FileIO and Debug.
+# The MediaCodec backends (Phase D step 4) are Android-only too: the
+# MoviePlayer decode backend and the ScreenRecorder encode backend.
+if(ANDROID)
+    list(APPEND SOURCES
+        ${SRC_DIR}/AndroidApp.cpp
+        ${SRC_DIR}/WinSystemAndroid.cpp
+        ${SRC_DIR}/android-movieplayer.cpp
+        ${SRC_DIR}/android-screenrecorder.cpp
+    )
+endif()
+
 # ── Target ────────────────────────────────────────────────────────────────────
 # Android produces a shared library loaded by NativeActivity / GameActivity.
 # Linux produces a standard ELF executable.
 if(ANDROID)
+    # The NDK toolchain file locates the NDK itself, but it does not export
+    # ANDROID_NDK as a CMake variable in every version, so resolve it here
+    # (env vars first, then the Phase D install location) for the glue source
+    # and include directory below.
+    if(NOT ANDROID_NDK)
+        if(DEFINED ENV{ANDROID_NDK} AND NOT "$ENV{ANDROID_NDK}" STREQUAL "")
+            set(ANDROID_NDK "$ENV{ANDROID_NDK}")
+        elseif(DEFINED ENV{ANDROID_NDK_HOME} AND NOT "$ENV{ANDROID_NDK_HOME}" STREQUAL "")
+            set(ANDROID_NDK "$ENV{ANDROID_NDK_HOME}")
+        elseif(DEFINED ENV{ANDROID_HOME} AND NOT "$ENV{ANDROID_HOME}" STREQUAL "")
+            file(GLOB _ndk_candidates "$ENV{ANDROID_HOME}/ndk/*")
+            list(SORT _ndk_candidates)
+            list(GET _ndk_candidates -1 ANDROID_NDK)
+        endif()
+    endif()
+    if(NOT ANDROID_NDK OR NOT EXISTS "${ANDROID_NDK}/sources/android/native_app_glue/android_native_app_glue.c")
+        message(FATAL_ERROR
+            "Android NDK native_app_glue not found (ANDROID_NDK=${ANDROID_NDK}).\n"
+            "  The NDK is required for the NativeActivity app entry (android_main).")
+    endif()
+    message(STATUS "NDK (glue) : ${ANDROID_NDK}")
+
+    # NativeActivity entry: the NDK ships android_native_app_glue as source;
+    # compile it into the library so ANativeActivity_onCreate is exported and
+    # the app's android_main() (main.cpp) is called on its own thread.
+    list(APPEND SOURCES "${ANDROID_NDK}/sources/android/native_app_glue/android_native_app_glue.c")
+
     add_library(CrossPlatformGameEngine SHARED ${SOURCES})
 else()
     add_executable(CrossPlatformGameEngine ${SOURCES})
@@ -218,10 +280,40 @@ if(NOT ANDROID)
 endif()
 
 # ── OpenGL ES / EGL (Android) ─────────────────────────────────────────────────
+# mediandk is the NDK media library (AMediaExtractor / AMediaCodec /
+# AMediaMuxer) used by the Android MediaCodec backends (Phase D step 4).
 if(ANDROID)
     target_link_libraries(CrossPlatformGameEngine PRIVATE
-        EGL GLESv3 android log
+        EGL GLESv3 android log mediandk
     )
+
+    # NativeActivity glue headers (android_native_app_glue.h for main.cpp).
+    target_include_directories(CrossPlatformGameEngine PRIVATE
+        "${ANDROID_NDK}/sources/android/native_app_glue")
+
+    # ── GLM for Android ──────────────────────────────────────────────────────
+    # GLM is header-only and the engine includes <glm/glm.hpp> unconditionally,
+    # but the host /usr/include must NEVER be added to the NDK compile: host
+    # glibc headers would shadow the Bionic sysroot (proven by the step-1
+    # probe — <features.h> resolved to the host copy and bits/wordsize.h went
+    # missing). Stage a copy of the glm headers into the build directory
+    # instead and include that. The copy is per build tree, so -clean wipes it
+    # and the next configure re-stages it. find_package(glm) is not used here:
+    # under the NDK toolchain CMAKE_FIND_ROOT_PATH_MODE_PACKAGE is ONLY, so
+    # the host /usr/share/cmake/glm config is invisible, and its glm::glm
+    # target would carry /usr/include into the compile anyway.
+    find_path(GLM_INCLUDE_DIR glm/glm.hpp
+        HINTS /usr/include /usr/local/include
+        NO_CMAKE_FIND_ROOT_PATH
+        NO_DEFAULT_PATH)
+    if(NOT GLM_INCLUDE_DIR)
+        message(FATAL_ERROR
+            "GLM headers not found on the host (need libglm-dev for the Android build).\n"
+            "  sudo apt install libglm-dev")
+    endif()
+    file(COPY "${GLM_INCLUDE_DIR}/glm" DESTINATION "${CMAKE_BINARY_DIR}/android-deps")
+    target_include_directories(CrossPlatformGameEngine PRIVATE "${CMAKE_BINARY_DIR}/android-deps")
+    message(STATUS "GLM (Android): staged from ${GLM_INCLUDE_DIR}")
 endif()
 
 # ── Vulkan ────────────────────────────────────────────────────────────────────

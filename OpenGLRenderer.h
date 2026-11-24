@@ -42,6 +42,7 @@
 // __linux__, so the Linux branch would otherwise swallow the Android one.
 #elif defined(PLATFORM_ANDROID)
 #include <GLES3/gl3.h>
+#include <GLES3/gl31.h>      // GL_TEXTURE_WIDTH / GL_TEXTURE_HEIGHT (ES 3.1; not in gl3.h)
 #include <GLES3/gl3ext.h>
 #include <EGL/egl.h>
 #include <android/native_window.h>
@@ -186,6 +187,7 @@ struct OpenGLContext {
     EGLDisplay eglDisplay;                                                  // EGL Display
     EGLContext eglContext;                                                  // EGL Context
     EGLSurface eglSurface;                                                  // EGL Surface
+    EGLSurface eglLoaderSurface;                                            // 1x1 pbuffer surface for the shared loader context (uploads need a drawable; a pbuffer works on every device, unlike a surfaceless current context which needs EGL_KHR_surfaceless_context)
     ANativeWindow* nativeWindow;                                            // Android Native Window
 };
 #elif defined(PLATFORM_LINUX)
@@ -586,6 +588,28 @@ private:
     void SetupPlatformSpecificContext();                                        // Setup platform-specific OpenGL context
     void CleanupPlatformSpecificContext();                                      // Cleanup platform-specific OpenGL context
 
+    // Platform helpers — implemented per-platform in windows/linux/android-opengl-render.cpp
+    // (platform split, 24 Nov 2026). The shared code calls these; each platform file defines
+    // its own version. No platform guards are needed inside the per-platform files.
+    void InitPlatformTextBackend();                                             // GDI+ startup (Windows); no-op elsewhere
+    void DetectPlatformGPUCaps();                                               // DXGI VRAM detection (Windows); no-op elsewhere
+    void ShutdownPlatformTextBackend();                                         // GDI+ shutdown (Windows); no-op elsewhere
+    void RestorePlatformDisplayMode();                                          // Exclusive-fullscreen display restore (Windows); no-op elsewhere
+    void ReleasePlatformContext();                                              // Unbind the GL context from the calling thread
+    bool LoadTextureFromFilePlatform(const std::wstring& filename, bool is2D, OpenGLTexture& slot); // Decode + upload one texture (per-platform backend)
+    bool HasPlatformGLContext() const;                                          // True when this platform's GL context exists
+    bool MakePlatformContextCurrent();                                          // Make the GL context current on this thread
+    void RebindPlatformContext();                                               // Unbind + rebind the GL context (render thread)
+    void PresentPlatformFrame();                                                // Present the frame (SwapBuffers / glXSwapBuffers / eglSwapBuffers)
+    void DrawIntroMovieFrame();                                                 // Intro-movie frame upload + display (Windows); no-op elsewhere
+    // Small GL helpers factored out of shared functions (platform split, 24 Nov 2026; Phase D EGL work):
+    // the desktop enums they use (GL_LINE_SMOOTH, GL_MULTISAMPLE, GL_CLAMP_TO_BORDER, glDrawBuffer) do not
+    // exist in OpenGL ES, so the shared code calls these instead of the GL calls directly.
+    void SetPlatformLineSmoothing(bool enable);                                 // GL_LINE_SMOOTH on/off (desktop); no-op on Android (ES has no line smoothing — lines are aliased)
+    void SetPlatformMultisampling(bool enable);                                 // GL_MULTISAMPLE on/off (desktop); no-op on Android (MSAA is an EGL config property, chosen at context creation)
+    void SetupPlatformShadowTextureParams(GLenum target, const float border[4]); // Shadow-map wrap + border colour (desktop: CLAMP_TO_BORDER so out-of-range lookups read as lit; Android: CLAMP_TO_EDGE — border clamp is ES 3.2 only, and the context is ES 3.1)
+    void SetPlatformDrawBufferNone();                                           // Depth-only FBO: glDrawBuffer(GL_NONE) (desktop); glDrawBuffers(1, {GL_NONE}) on Android (no glDrawBuffer in ES)
+
     // 2D rendering helpers
     void Render2DQuad(GLuint textureID, int x, int y, int w, int h,
                       int srcX, int srcY, int srcW, int srcH,
@@ -617,7 +641,9 @@ private:
 #if defined(PLATFORM_WINDOWS)
     HGLRC m_loaderGLContext = nullptr;                                          // Shared WGL context for loader-thread texture uploads
 #elif defined(PLATFORM_LINUX)
-    GLXContext m_loaderGLContext = nullptr;                                     // Shared GLX context for loader-thread texture uploads (Linux mirror of the WGL loader context; Android has no loader context until Phase D wires EGL)
+    GLXContext m_loaderGLContext = nullptr;                                     // Shared GLX context for loader-thread texture uploads (Linux mirror of the WGL loader context)
+#elif defined(PLATFORM_ANDROID)
+    EGLContext m_loaderGLContext = EGL_NO_CONTEXT;                              // Shared EGL context for loader-thread texture uploads (Android mirror of the WGL/GLX loader context; created in android-opengl-render.cpp::CreateOpenGLContext, current on the 1x1 pbuffer surface)
 #endif
 
     // Mutexes for thread safety

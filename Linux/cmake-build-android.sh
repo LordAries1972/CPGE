@@ -77,7 +77,7 @@ Environment:
   ANDROID_NDK        Android NDK root (checked first)
   ANDROID_NDK_HOME   Android NDK root (checked second)
   ANDROID_HOME       Android SDK root; uses ndk-bundle/ or the newest ndk/<ver>
-  ANDROID_PLATFORM   Android API level (default: android-24)
+  ANDROID_PLATFORM   Android API level (default: android-26)
   CMAKE_EXE          Path to the cmake binary (default: cmake on PATH)
 
 Examples:
@@ -117,7 +117,7 @@ if [[ -z "${ARG1}" ]]; then
     echo ""
     echo "Environment variables:"
     echo "  ANDROID_NDK        Path to the Android NDK root"
-    echo "  ANDROID_PLATFORM   Android API level (default: android-24)"
+    echo "  ANDROID_PLATFORM   Android API level (default: android-26)"
     echo "  CMAKE_EXE          Path to cmake binary (default: cmake)"
     echo ""
     echo "Examples:"
@@ -130,12 +130,16 @@ if [[ -z "${ARG1}" ]]; then
 fi
 
 # --- Locate Android NDK ---
+# Last candidate is the Phase D install location (~/workspace/android-sdk,
+# NDK r27c) so the script works on the build machine without any env vars;
+# source ~/workspace/android-sdk/env.sh for the explicit ANDROID_HOME form.
 NDK_ROOT=""
 for _candidate in \
         "${ANDROID_NDK:-}" \
         "${ANDROID_NDK_HOME:-}" \
         "${ANDROID_HOME:-}/ndk-bundle" \
-        "${ANDROID_HOME:-}/ndk/$(ls "${ANDROID_HOME:-/nonexistent}/ndk" 2>/dev/null | sort -V | tail -1)"; do
+        "${ANDROID_HOME:-}/ndk/$(ls "${ANDROID_HOME:-/nonexistent}/ndk" 2>/dev/null | sort -V | tail -1)" \
+        "${HOME}/workspace/android-sdk/ndk/$(ls "${HOME}/workspace/android-sdk/ndk" 2>/dev/null | sort -V | tail -1)"; do
     if [[ -n "${_candidate}" && -d "${_candidate}" && -f "${_candidate}/build/cmake/android.toolchain.cmake" ]]; then
         NDK_ROOT="${_candidate}"
         break
@@ -197,7 +201,10 @@ case "${ABI}" in
 esac
 
 # --- Android API level ---
-ANDROID_PLATFORM="${ANDROID_PLATFORM:-android-24}"
+# Default android-26: the manifest's minSdkVersion is 26 (AAudio, used by the
+# miniaudio backend, needs API 26), so the NDK build targets the same level.
+# Override with ANDROID_PLATFORM=android-34 for a newer target.
+ANDROID_PLATFORM="${ANDROID_PLATFORM:-android-26}"
 
 # --- Validate cmake ---
 if ! command -v "${CMAKE_EXE}" &>/dev/null; then

@@ -407,8 +407,34 @@ public:
 
 On Linux and Android this player renders through miniaudio (vendored v0.11.26, `include/miniaudio.h`) instead of DirectSound: 44100 Hz stereo 16-bit PCM through a lock-free ring into a miniaudio device. No caller changes — the same load / play / shutdown calls work on every platform; the backend is selected by the platform guards at compile time. Covered by the Phase B sound test: 37 checks across all five tracker players, 0 failures (PCM observed at the callback; null backend — no audio device on the build machine, so nothing was actually heard).
 
-**Known finding — mixer gain (platform-independent, out of scope for the port):** the S3M mixer renders `test1.s3m` ~200x quieter than the libopenmpt reference (MOD ~21x, IT ~7x, XM ~22x quieter). This is engine mixer-gain code, not a Linux issue, and is left for a separate decision.
+**Known finding — mixer gain (platform-independent):** the S3M mixer rendered `test1.s3m` ~200x quieter than the libopenmpt reference (MOD ~21x, IT ~7x, XM ~22x quieter). Fixed 24 November 2026 — see "AdLib channel fix" below: the gap is now ~9–19x, in line with the other tracker players. The remaining ~10–20x gap vs libopenmpt is shared by all five players (the engine's own gain staging) and is a separate decision, not an S3M bug.
 
 ## Platform-directive re-guard (24 November 2026)
 
 The miniaudio backend in `Shutdown()` / `CreateAudioDevice()` / `FillAudioBuffer()` was in a bare `#else` (the unguarded default branch), which would not compile on macOS/iOS. Each is now explicitly `#elif defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)`, with the Windows DirectSound backend under `#if defined(PLATFORM_WINDOWS)` and the disabled-stub fallback kept as `#else`. No behaviour change on any platform.
+
+## AdLib channel fix (24 November 2026)
+
+**The bug.** `LoadS3MFile()` decided whether a channel was usable with `channelSettings[channel] < 16`. In the S3M format the channel-settings byte means: 0–15 = sample channel, 16–31 = AdLib (OPL) channel, 255 = channel not used. The `< 16` test therefore disabled every AdLib channel. In `Assets/test1.s3m` (8 sampled instruments, 10 AdLib instruments) all 3,060 AdLib notes sit on channels 4–12 — exactly the channels the player muted — so only the short sample hits played and the mix came out ~200x quieter than the libopenmpt reference (peak 17 in the first 2.5 s, 186 over 10 s). The AdLib synthesis itself was fine the whole time: envelopes reach 1.0, the FM value reaches the carrier total level (0.27 for the loudest voice), and the OPL register decoding is correct.
+
+**The fix (`S3MPlayer.cpp`, platform-independent — the same bug exists on Windows).** A channel is now enabled unless its setting is 255:
+
+```cpp
+const uint8_t setting = s3mHeader.channelSettings[channel];
+channelEnabled[channel] = setting != 255;
+```
+
+The default panning was fixed in the same two places (`LoadS3MFile()` and `DefaultPanningForChannel()`): bit 3 of the setting selects the side in both ranges, so 0–7 / 16–23 = left (48) and 8–15 / 24–31 = right (208). The old code panned AdLib channels by channel parity instead, which put half of them on the wrong side.
+
+**How to verify.** Play `Assets/test1.s3m` through the player and measure the mixed PCM (the Phase B sound harness, `~/workspace/cpge-linux-android/scope/test-sound.cpp`, does this at the miniaudio callback):
+
+| | Before | After |
+|---|---|---|
+| Peak, first 2.5 s | 17 | 162 |
+| Peak, 10 s | 186 | 923 |
+| RMS, 10 s | 72.0 | 155.5 |
+| Non-zero samples | 88.9% | 97.1% |
+
+The other four players are unchanged by the fix (MOD 1575, IT 3817, MPTM 2313, XM 155 — identical before and after), and the full harness still passes 37 checks, 0 failures. Against the independently reproduced libopenmpt reference (peak 3092 / RMS 991 in 2.5 s, 8154 / 1541 over 10 s — render with the installed `libopenmpt.so.0`, see `~/workspace/cpge-linux-android/scope/S3M_FIX_VERIFICATION.md`), S3M is now ~9–19x below the reference, the same band as MOD (~21x), IT (~7x) and XM (~20x). The remaining gap is the engine's own gain staging, shared by all five players — not an S3M defect.
+
+**Debugging note.** If you ever need to trace the mixer, do not use a narrow `fprintf(stderr, ...)` in this engine: `Debug` writes with `fwprintf`, which puts `stderr` into wide orientation, and glibc then silently drops narrow `fprintf` output on the same stream. Use `fwprintf(stderr, L"...")` like `Debug` does.

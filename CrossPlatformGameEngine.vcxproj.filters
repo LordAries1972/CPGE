@@ -108,6 +108,9 @@
     <ClCompile Include="OpenGLRenderer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="windows-opengl-render.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="DX12Renderer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -187,6 +190,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="VULKAN_Renderer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="windows-vulkan-render.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="VULKAN_RenderFrame.cpp">
@@ -296,6 +302,9 @@
     <ClInclude Include="OpenGLRenderer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="windows-opengl-render.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="Lights.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -387,6 +396,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="VULKAN_Renderer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="windows-vulkan-render.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="VULKAN_IOStreamThread.h">

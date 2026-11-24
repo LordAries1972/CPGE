@@ -959,63 +959,7 @@ inline void OpenGLRenderer::RenderIntroMovie()
     // Advance the movie to the current frame (mirrors DX11 UpdateFrame call)
     moviePlayer.UpdateFrame();
 
-#if defined(_WIN32) || defined(_WIN64)
-    // Retrieve current RGBA frame from MoviePlayer and upload / update a GL texture
-    uint32_t fw = 0, fh = 0;
-    const uint8_t* frameData = moviePlayer.GetCurrentFrameRGBA(fw, fh);
-    if (frameData && fw > 0 && fh > 0) {
-        static GLuint movieTexID = 0;
-        static uint32_t lastW = 0, lastH = 0;
-
-        if (!movieTexID) glGenTextures(1, &movieTexID);
-        glBindTexture(GL_TEXTURE_2D, movieTexID);
-        // CPU buffer is RGBA (MoviePlayer::UpdateVideoTextureCPU swaps BGRA→RGBA for OpenGL)
-        if (fw != lastW || fh != lastH) {
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, fw, fh, 0, GL_RGBA, GL_UNSIGNED_BYTE, frameData);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-            lastW = fw; lastH = fh;
-        } else {
-            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, fw, fh, GL_RGBA, GL_UNSIGNED_BYTE, frameData);
-        }
-        glBindTexture(GL_TEXTURE_2D, 0);
-
-        // Blit movie to fill entire screen
-        DrawVideoFrame(
-            Vector2(0.0f, 0.0f),
-            Vector2(static_cast<float>(iOrigWidth), static_cast<float>(iOrigHeight)),
-            MyColor(255, 255, 255, 255),
-            movieTexID);
-    }
-
-    // Company logo overlay: half size, bottom-left corner
-    {
-        int logoIdx = int(BlitObj2DIndexType::IMG_COMPANYLOGO);
-        if (logoIdx >= 0 && logoIdx < MAX_TEXTURE_BUFFERS && m_2dTextures[logoIdx].isLoaded) {
-            int halfW = m_2dTextures[logoIdx].width  / 2;
-            int halfH = m_2dTextures[logoIdx].height / 2;
-            if (fxManager.IsImageZoomActive(logoIdx))
-                fxManager.RenderZoomedImage(logoIdx, 0, iOrigHeight - halfH, halfW, halfH);
-            else
-                Blit2DObjectToSize(BlitObj2DIndexType::IMG_COMPANYLOGO, 0, iOrigHeight - halfH, halfW, halfH);
-        }
-    }
-
-    // Spacebar skip — identical across all four renderers: the movie keeps playing
-    // through the fade (no jarring freeze-frame cut) and is only stopped once
-    // FadeOutThenCallback's own completion callback fires, so the fade duration
-    // (1.0s) is the single source of truth instead of an immediate hard cut.
-    // Only active in SCENE_INTRO_MOVIE, not the splash SCENE_INTRO.
-    if (scene.stSceneType == SceneType::SCENE_INTRO_MOVIE && KeyboardHandler::GetInstance().IsPlatformKeyPressed(' ') && !scene.bSceneSwitching)
-    {
-        scene.bSceneSwitching = true;
-        fxManager.FadeOutThenCallback(XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f), 1.0f, 0.06f, []() {
-            moviePlayer.Stop();
-        });
-    }
-#endif
+    DrawIntroMovieFrame();
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1027,36 +971,13 @@ void OpenGLRenderer::RenderFrame()
     // ---- Safety guards ----
     // The "context exists" check is per-platform: Windows keeps the HGLRC in
     // renderingContext, Linux in glxContext, Android in eglContext.
-#if defined(_WIN32) || defined(_WIN64)
-    if (bHasCleanedUp || m_glContext.renderingContext == nullptr)
+    if (bHasCleanedUp || !HasPlatformGLContext())
         return;
-#elif defined(PLATFORM_LINUX)
-    if (bHasCleanedUp || m_glContext.glxContext == nullptr)
-        return;
-#elif defined(PLATFORM_ANDROID)
-    if (bHasCleanedUp || m_glContext.eglContext == EGL_NO_CONTEXT)
-        return;
-#endif
 
 #if defined(RENDERER_IS_THREAD)
     // Make the OpenGL context current in THIS render thread.
     // Initialize() released it from the main thread so we own it here.
-    #if defined(_WIN32) || defined(_WIN64)
-    if (!wglMakeCurrent(m_glContext.deviceContext, m_glContext.renderingContext)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] wglMakeCurrent failed — render thread cannot acquire GL context");
-        return;
-    }
-    #elif defined(PLATFORM_LINUX)
-    if (!glXMakeCurrent(m_glContext.display, m_glContext.window, m_glContext.glxContext)) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] glXMakeCurrent failed — render thread cannot acquire GL context");
-        return;
-    }
-    #elif defined(PLATFORM_ANDROID)
-    if (eglMakeCurrent(m_glContext.eglDisplay, m_glContext.eglSurface, m_glContext.eglSurface, m_glContext.eglContext) == EGL_FALSE) {
-        debug.logLevelMessage(LogLevel::LOG_ERROR, L"[RENDERFRAME] eglMakeCurrent failed — render thread cannot acquire GL context");
-        return;
-    }
-    #endif
+    if (!MakePlatformContextCurrent()) return;
 #endif
 
     if (threadManager.threadVars.bIsShuttingDown.load() ||
@@ -1149,16 +1070,8 @@ void OpenGLRenderer::RenderFrame()
             // the window surface dimensions changed.  WGL requires the context to be unbound
             // and rebound on the render thread for the drawable size to update on some drivers.
             // This MUST be done on the render thread (the only thread that owns the context).
-            #if defined(RENDERER_IS_THREAD) && (defined(_WIN32) || defined(_WIN64))
-            if (m_pendingContextRebind.exchange(false)) {
-                wglMakeCurrent(nullptr, nullptr);
-                wglMakeCurrent(m_glContext.deviceContext, m_glContext.renderingContext);
-            }
-            #elif defined(RENDERER_IS_THREAD) && defined(PLATFORM_LINUX)
-            if (m_pendingContextRebind.exchange(false)) {
-                glXMakeCurrent(m_glContext.display, None, nullptr);
-                glXMakeCurrent(m_glContext.display, m_glContext.window, m_glContext.glxContext);
-            }
+            #if defined(RENDERER_IS_THREAD)
+                RebindPlatformContext();
             #endif
 
             // ---- Determine render dimensions from the renderer's actual back-buffer size. ----
@@ -1478,23 +1391,7 @@ void OpenGLRenderer::RenderFrame()
                 screenRecorder.CaptureFrame(static_cast<UINT>(renderW), static_cast<UINT>(renderH));
             if (gameplayRecorder.IsRecording()) gameplayRecorder.CaptureFrame(static_cast<UINT>(renderW), static_cast<UINT>(renderH));
 
-            #if defined(_WIN32) || defined(_WIN64)
-                // Apply per-frame VSync setting — update swap interval if config changed
-                static bool lastVSync = true;
-                bool vsyncNow = config.myConfig.enableVSync;
-                if (vsyncNow != lastVSync) {
-                    if (WGLEW_EXT_swap_control)
-                        wglSwapIntervalEXT(vsyncNow ? 1 : 0);
-                    lastVSync = vsyncNow;
-                }
-
-                SwapBuffers(m_glContext.deviceContext);
-
-            #elif defined(__linux__)
-                glXSwapBuffers(m_glContext.display, m_glContext.window);
-            #elif defined(__ANDROID__)
-                eglSwapBuffers(m_glContext.eglDisplay, m_glContext.eglSurface);
-            #endif
+            PresentPlatformFrame();
 
             #if defined(_DEBUG)
                 if (bCollectTiming)

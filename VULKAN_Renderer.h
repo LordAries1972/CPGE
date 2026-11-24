@@ -722,6 +722,33 @@ private:
     void RecreateSwapChain(uint32_t width, uint32_t height);
     void RecreateSurface();
 
+    // Platform helpers — implemented per-platform in windows/linux/android-vulkan-render.cpp
+    // (platform split, 24 Nov 2026). The shared code calls these; each platform file defines
+    // its own version. No platform guards are needed inside the per-platform files.
+    void InitPlatformDetails();                                             // osDetails flags + D2D texture zeroing (Windows)
+    void InitPlatformWindow(NativeWindowHandle hwnd, NativeInstanceHandle hInstance); // Window/surface handle setup
+    void AppendPlatformSurfaceExtension(std::vector<const char*>& extensions); // Platform VkSurface extension name
+    void ProbePlatformInstanceExtensions(std::vector<const char*>& extensions); // VK_KHR_get_surface_capabilities2 probe (Windows)
+    void AppendPlatformDeviceExtensions(std::vector<const char*>& enabledExtensions); // VK_EXT_full_screen_exclusive probe (Windows)
+    bool GetPlatformVSyncEnabled() const;                                  // VSync config (Windows) / true elsewhere
+    void HidePlatformMouseCursor();                                        // sysUtils.DisableMouseCursor (Windows); no-op elsewhere
+    void RestorePlatformDisplayMode();                                     // Exclusive-fullscreen display restore (Windows); no-op elsewhere
+    void ReleasePlatformOverlayResources();                                // Overlay staging + D2D/WIC resets (Windows); no-op elsewhere
+    void ReleasePlatformD2DTextures();                                     // D2D texture + video bitmap reset (Windows); no-op elsewhere
+    void ReleasePlatformD2DTexture(int textureId);                         // One D2D texture reset (Windows); no-op elsewhere
+    void ResetPlatformOverlayTargets();                                    // D2D overlay target reset on resize (Windows); no-op elsewhere
+    bool CreatePlatformOverlayTargets(uint32_t width, uint32_t height);    // WIC/D2D/DWrite setup; returns overlayOk
+    void CreatePlatformBackgroundTarget(uint32_t width, uint32_t height, bool overlayOk); // Background WIC bitmap + render target
+    void CreatePlatformBackgroundOverlay(uint32_t width, uint32_t height, VkDeviceSize bufSize); // Background overlay texture/staging
+    void CopyPlatformOverlayToStaging();                                   // WIC bitmap -> staging buffer (Windows); no-op elsewhere
+    void CopyPlatformBgOverlayToStaging();                                 // Background WIC bitmap -> staging buffer (Windows); no-op elsewhere
+    bool LoadTextureFromFilePlatform(const std::wstring& filename, bool is2D, int textureId, const std::filesystem::path& fullPath); // Decode + upload one texture
+    bool HasPlatformOverlayTarget() const;                                 // True when the platform overlay target exists
+    void BeginPlatformOverlayDraw();                                       // Begin D2D drawing for the frame (Windows); no-op elsewhere
+    void RenderPlatformOverlay(VkCommandBuffer cmd);                      // Scene 2D overlay + GUI (per-platform)
+    void UploadPlatformOverlays(VkCommandBuffer cmd);                     // Upload overlay textures to GPU (Windows); no-op elsewhere
+    void CompositePlatformBackgroundOverlay(VkCommandBuffer cmd, VulkanFrameData& fd); // Background overlay composite (Windows); no-op elsewhere
+
     // ------------------------------------------
     // Display mode transition helpers
     // ------------------------------------------

@@ -229,9 +229,18 @@ bool S3MPlayer::LoadS3MFile(const std::wstring& filename) {
     channelEnabled.assign(32, false);
     defaultPanning.resize(32);
     for (size_t channel = 0; channel < 32; ++channel) {
-        channelEnabled[channel] = s3mHeader.channelSettings[channel] < 16;
-        if (s3mHeader.channelSettings[channel] < 16) {
-            defaultPanning[channel] = s3mHeader.channelSettings[channel] < 8 ? 48 : 208;
+        // S3M channel settings: 0-15 = sample channel, 16-31 = AdLib
+        // channel, 255 = channel not used. The old test ("< 16") treated
+        // every AdLib channel as disabled, so in test1.s3m all 3060 AdLib
+        // notes (channels 4-12) were dropped and only the samples played
+        // — the ~200x-quiet S3M mix. A channel is enabled unless its
+        // setting is 255.
+        const uint8_t setting = s3mHeader.channelSettings[channel];
+        channelEnabled[channel] = setting != 255;
+        if (setting != 255) {
+            // Bit 3 selects the side in both ranges: 0-7 / 16-23 = left
+            // (48), 8-15 / 24-31 = right (208).
+            defaultPanning[channel] = (setting & 0x08) != 0 ? 208 : 48;
         }
         else {
             defaultPanning[channel] = (channel & 1) == 0 ? 48 : 208;
@@ -1694,8 +1703,14 @@ uint8_t S3MPlayer::DefaultPanningForChannel(size_t channel) const {
         return defaultPanning[channel];
     }
 
-    if (channel < 32 && s3mHeader.channelSettings[channel] < 16) {
-        return (s3mHeader.channelSettings[channel] < 8) ? 48 : 208;
+    // Same rule as the channel setup in LoadS3MFile: 0-15 = sample
+    // channel, 16-31 = AdLib channel, 255 = not used. Bit 3 selects the
+    // side in both ranges (0-7 / 16-23 = left, 8-15 / 24-31 = right).
+    if (channel < 32) {
+        const uint8_t setting = s3mHeader.channelSettings[channel];
+        if (setting != 255) {
+            return (setting & 0x08) != 0 ? 208 : 48;
+        }
     }
 
     return (channel & 1) == 0 ? 48 : 208;

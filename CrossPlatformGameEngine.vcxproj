@@ -179,10 +179,12 @@
     <ClCompile Include="OpenGLModels.cpp" />
     <ClCompile Include="OpenGLRenderer.cpp" />
     <ClCompile Include="OpenGLRenderFrame.cpp" />
+    <ClCompile Include="windows-opengl-render.cpp" />
     <ClCompile Include="VulkanCamera.cpp" />
     <ClCompile Include="VulkanModels.cpp" />
     <ClCompile Include="VULKAN_Renderer.cpp" />
     <ClCompile Include="VULKAN_RenderFrame.cpp" />
+    <ClCompile Include="windows-vulkan-render.cpp" />
     <ClCompile Include="Physics.cpp" />
     <ClCompile Include="PUNPack.cpp" />
     <ClCompile Include="RendererFactory.cpp" />
@@ -244,6 +246,7 @@
     <ClInclude Include="OpenGLCamera.h" />
     <ClInclude Include="OpenGLModels.h" />
     <ClInclude Include="OpenGLRenderer.h" />
+    <ClInclude Include="windows-opengl-render.h" />
     <ClInclude Include="Physics.h" />
     <ClInclude Include="FramePacer.h" />
     <ClInclude Include="AdaptiveQuality.h" />
@@ -270,6 +273,7 @@
     <ClInclude Include="VulkanCamera.h" />
     <ClInclude Include="VulkanModels.h" />
     <ClInclude Include="VULKAN_Renderer.h" />
+    <ClInclude Include="windows-vulkan-render.h" />
     <ClInclude Include="WinMediaPlayer.h" />
     <ClInclude Include="WinSystem.h" />
     <ClInclude Include="XMMODPlayer.h" />
