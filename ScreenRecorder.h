@@ -286,6 +286,13 @@ private:
     // nullptr when FFmpeg is unavailable or not recording.
     void* m_ffmpeg = nullptr;
 
+    // Android MediaCodec encoder state (Phase D step 4). Opaque void* so
+    // the NDK media headers stay out of this header -- the real struct
+    // (RecorderMediaCodec) lives in android-screenrecorder.h and is only
+    // allocated when HAS_MEDIACODEC is true (Android). nullptr when not
+    // recording.
+    void* m_mediacodec = nullptr;
+
     // Renderer capture resources (Linux/Android, per renderer).
 #if defined(__USE_OPENGL__)
     // glReadPixels pixel buffer -- resized lazily inside CaptureFrame
@@ -322,6 +329,16 @@ private:
     void WriteVideoFrameFFmpeg(const uint8_t* bgra, uint32_t width, uint32_t height, uint32_t rowPitch, LONGLONG ts100ns);
     void WriteAudioFramesFFmpeg(bool flush = false);
     void CleanupFFmpegLocked();
+
+#if defined(PLATFORM_ANDROID)
+    // Android MediaCodec backend helpers (android-screenrecorder.cpp).
+    // The caller must hold m_mutex. fpsVal is the validated frame rate
+    // (StartRecording's shared setup runs before the dispatch).
+    bool StartRecordingMediaCodecLocked(UINT32 fpsVal, const std::wstring& outputPath, bool captureAudio);
+    void StopRecordingMediaCodecLocked();
+    void WriteVideoFrameMediaCodec(const uint8_t* bgra, uint32_t width, uint32_t height, uint32_t rowPitch, LONGLONG ts100ns);
+    void WriteAudioFramesMediaCodec(bool flush = false);
+#endif
 #endif
 };
 

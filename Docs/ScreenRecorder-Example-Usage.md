@@ -417,3 +417,99 @@ leaves those objects in an invalid state. Always follow the order:
 ## Linux backend — FFmpeg (23 November 2026)
 
 On Linux the recorder muxes H.264 (libx264) + AAC into MP4 with FFmpeg 8.1.2, instead of Media Foundation. Media test: 55 checks, 0 failures (shared with the movie player). Limits: the recorder captures tracker music but not SFX (the miniaudio engine has no output tap); microphone recording is not implemented on Linux — it warns once and records without a mic.
+
+## Android backend — MediaCodec (24 November 2026)
+
+On Android there is no FFmpeg (Daniel chose a native backend over vendoring
+one — see the FFmpeg options analysis in
+`scope/PHASE_D_STEP3_FFMPEG_ANALYSIS.md`), so the recorder encodes with the
+NDK MediaCodec APIs (`mediandk`, minSdk 26) and muxes with `AMediaMuxer`.
+The public API is unchanged — `StartRecording` / `StopRecording` /
+`CaptureFrame` / `SetCaptureEnabled` work exactly as on Windows/Linux; only
+the encode backend differs. The recorder captures tracker music but not SFX,
+matching the Linux recorder — no scope was added.
+
+### How it is wired
+
+`ScreenRecorder.cpp` selects the backend the same way as the movie player:
+
+```cpp
+#if defined(PLATFORM_ANDROID)
+    #define HAS_FFMPEG 0        // no FFmpeg on Android
+    #define HAS_MEDIACODEC 1    // MediaCodec is always present (minSdk 26)
+#else
+    #define HAS_FFMPEG <FFmpeg found at build time>
+    #define HAS_MEDIACODEC 0
+#endif
+```
+
+Every FFmpeg-only call site is now guarded `#if !HAS_FFMPEG && !HAS_MEDIACODEC`
+(the "no backend at all" case), with an `#elif HAS_MEDIACODEC` arm calling the
+`…MediaCodecLocked` method. The Android backend itself lives in its own
+per-platform files, `android-screenrecorder.h` /
+`android-screenrecorder.cpp` (the renderer-restructure file style), plus the
+platform-neutral converter `android-mediacodec-convert.h`. One structural
+change: the shared tail of `StopRecording` (`CleanupVulkanCapture()` and the
+audio-tap queue reset) was hoisted out of the FFmpeg arm so both backends
+share it. Windows and Linux behaviour is unchanged — on Linux
+`HAS_MEDIACODEC` is 0, so the FFmpeg path is selected exactly as before
+(verified: Linux builds `PASSED: opengl vulkan`, 0 errors).
+
+### What the backend does
+
+* **Video encode:** `AMediaCodec` H.264 (`video/avc`), bitrate 10,000,000,
+  frame rate from the `StartRecording` argument, I-frame interval 1 s.
+  Colour format NV12 (21) is tried first with I420 (19) as the fallback;
+  the encoder's output format (including `csd-0`) is read right after
+  `start`, before the muxer starts. Each captured frame is converted with
+  `BgraToYuv420` (`android-mediacodec-convert.h`) directly into the
+  encoder's input buffer — encoder input buffers are tightly packed
+  (stride == width), capacity-checked, and a frame is dropped if no input
+  buffer is available (keeps the recording real-time).
+* **Audio encode:** `AMediaCodec` AAC (`audio/mp4a-latm`), 48,000 Hz stereo,
+  AAC profile 2 (LC). The miniaudio tap is installed the same way as the
+  FFmpeg path; a streaming resampler (`AudioResampler`) converts the
+  44,100 Hz stereo s16 tap output to 48,000 Hz s16, and whole 1024-sample
+  AAC frames are emitted locked to the video clock. On flush the final
+  partial frame is padded with silence, matching the FFmpeg path.
+* **Muxing:** `AMediaMuxer_new(fd, MPEG_4)` on the recording file's fd
+  (opened with `fopen`, falling back to `GetInternalDataPath()` when the
+  given path is relative — the file is created under internal storage, and
+  `mkdir -p` creates the parent directory). Video track is added first,
+  then audio; the muxer starts only after both tracks are added. Encoder
+  output is written with `AMediaMuxer_writeSampleData` using the original
+  buffer offset/size. `StopRecording` removes the tap, flushes the audio
+  frames, signals end-of-stream on both encoders and drains them
+  (~2 s of output attempts), then stops and deletes the muxer.
+* **How to use it** (same as Linux — no Android-specific call is needed):
+
+```cpp
+#include "ScreenRecorder.h"
+
+// In main.cpp, after the renderer and sound are up:
+ScreenRecorder recorder;
+recorder.StartRecording(60, L"Assets/recording.mp4", true);  // fps, path, capture audio
+
+// Inside the render loop (OpenGL or Vulkan):
+recorder.CaptureFrame(width, height);  // or CaptureFrame(width, height, timestamp)
+
+// On shutdown (or the HOME key toggle):
+recorder.StopRecording();
+```
+
+On Android the relative path resolves under internal storage (the same
+`GetInternalDataPath()` the engine uses for `GameConfig.cfg`), so the
+recording lands where the app can read it back without storage permissions.
+
+### Limits (24 November 2026)
+
+* Compile/link verified only — both Android builds exit 0 with 0 errors
+  (OpenGL `libCPGE.so` 80,476,328 B, Vulkan 82,201,008 B, `libmediandk.so`
+  linked). **No device or emulator exists here, so no recording has ever
+  been produced or played back** — first install + first frame on a real
+  device is still outstanding.
+* Microphone recording is not implemented on Android (same as Linux) — the
+  recorder captures tracker music only.
+* The encoder input buffers are assumed tightly packed (stride == width);
+  if a device's encoder reports a different stride the frame will be
+  mis-aligned (capacity-checked, so it cannot overrun).

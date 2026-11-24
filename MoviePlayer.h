@@ -264,6 +264,13 @@ private:
     // nullptr when FFmpeg is unavailable or no movie is open.
     void* m_ffmpeg = nullptr;
 
+    // Android MediaCodec decoder state (Phase D step 4). Opaque void* so
+    // the NDK media headers stay out of this header — the real struct
+    // (MovieMediaCodec) lives in android-movieplayer.h and is only
+    // allocated when HAS_MEDIACODEC is true (Android). nullptr when no
+    // movie is open.
+    void* m_mediacodec = nullptr;
+
     // FFmpeg backend helpers (MoviePlayer.cpp, Linux/Android only). The
     // FFmpeg state is passed as the opaque void* m_ffmpeg, and decoded
     // frames as void* too, because the real MovieFFmpeg / AVFrame types
@@ -273,6 +280,25 @@ private:
     void DrainAudioBacklogLocked(void* ff);
     void ResampleAndQueueAudioLocked(void* ff, void* frame);
     bool DecodeUntilLocked(double mediaTime);
+
+#if defined(PLATFORM_ANDROID)
+    // Android MediaCodec backend helpers (android-movieplayer.cpp).
+    // The MediaCodec state is the opaque void* m_mediacodec. Caller must
+    // hold m_mutex (UpdateFrameMediaCodecLocked takes the try-lock itself,
+    // like UpdateFrame).
+    void CloseMediaCodecLocked();
+    bool OpenMovieMediaCodecLocked(const std::wstring& filePath);
+    bool PlayMediaCodecLocked();
+    bool PauseMediaCodecLocked();
+    bool StopMediaCodecLocked();
+    bool ResetMediaCodecLocked();
+    bool SeekToMediaCodecLocked(double timeInSeconds);
+    bool UpdateFrameMediaCodecLocked();
+    bool DecodeUntilMediaCodecLocked(double mediaTimeRel);
+    void PresentVideoFrameMediaCodecLocked(void* mc, const uint8_t* buf, size_t bufSize, double ptsAbsSeconds);
+    void DrainAudioBacklogMediaCodecLocked(void* mc);
+    void ResampleAndQueueAudioMediaCodecLocked(void* mc, const uint8_t* pcm, size_t byteCount);
+#endif
 
     static constexpr const char* MOVIE_MUTEX_LOCK = "movie_mutex";
     static constexpr const char* MOVIE_UPDATE_LOCK = "movie_update_lock";

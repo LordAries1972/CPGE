@@ -1782,6 +1782,20 @@ void ScreenRecorder::CleanupMic()
     #define HAS_FFMPEG 0
 #endif
 
+// Android MediaCodec backend (Phase D step 4, 24 Nov 2026): the platform
+// media APIs (mediandk) are always present on Android (minSdk 26), so
+// there are no headers to probe for -- unlike FFmpeg, which is optional
+// on Linux. HAS_MEDIACODEC is 1 on Android, 0 everywhere else, and the
+// backend itself lives in android-screenrecorder.cpp. The two backends
+// are independent: a build can have FFmpeg, MediaCodec, both, or neither.
+// (On Android, HAS_FFMPEG is 0 -- the FFmpeg headers are not in the NDK
+// sysroot -- so MediaCodec is the only recording path there.)
+#if defined(PLATFORM_ANDROID)
+    #define HAS_MEDIACODEC 1
+#else
+    #define HAS_MEDIACODEC 0
+#endif
+
 // GL headers for the OpenGL CaptureFrame (glReadPixels). The Windows GL
 // headers arrive via Includes.h; on Linux they do not, and
 // ScreenRecorder.cpp does not include OpenGLRenderer.h (which is where
@@ -1971,9 +1985,13 @@ bool ScreenRecorder::StartRecording(UINT width, UINT height,
     if (micMode != MicMode::Off)
         LogRecorderMicUnavailableOnce();
 
-#if !HAS_FFMPEG
+#if !HAS_FFMPEG && !HAS_MEDIACODEC
     LogScreenRecorderUnavailableOnce();
     return false;
+#elif HAS_MEDIACODEC
+    // Android MediaCodec backend (android-screenrecorder.cpp). The shared
+    // setup above (dimensions, frame period, mic mode) already ran.
+    return StartRecordingMediaCodecLocked(fpsVal, outputPath, captureAudio);
 #else
     RecorderFFmpeg* r = new RecorderFFmpeg();
     r->outPath = NarrowPathForFstream(outputPath);
@@ -2190,10 +2208,13 @@ void ScreenRecorder::StopRecording()
 {
     if (!m_isRecording.exchange(false)) return;
     std::lock_guard<std::mutex> lock(m_mutex);
-#if !HAS_FFMPEG
+#if !HAS_FFMPEG && !HAS_MEDIACODEC
     LogScreenRecorderUnavailableOnce();
     m_isRecording.store(false);
     return;
+#elif HAS_MEDIACODEC
+    // Android MediaCodec backend (android-screenrecorder.cpp).
+    StopRecordingMediaCodecLocked();
 #else
     // Remove the audio tap first so no new audio arrives while flushing.
     Miniaudio::SetTapOnAllStreams(nullptr);
@@ -2242,11 +2263,14 @@ void ScreenRecorder::StopRecording()
         debug.logLevelMessage(LogLevel::LOG_INFO,
             L"ScreenRecorder: Stopped (" + std::to_wstring(frames) + L" video frames).");
     }
+#endif
+    // Shared tail: the Vulkan staging capture and the audio tap queue are
+    // backend-independent, so both backends release them here (moved out
+    // of the FFmpeg arm when the MediaCodec arm was added, 24 Nov 2026).
 #if defined(__USE_VULKAN__)
     CleanupVulkanCapture();
 #endif
     m_audioTapQueue.reset();
-#endif
 }
 
 #if HAS_FFMPEG
@@ -2399,7 +2423,7 @@ void ScreenRecorder::WriteVideoFrameFFmpeg(const uint8_t* bgra, uint32_t width, 
 void ScreenRecorder::CaptureFrame(UINT width, UINT height)
 {
     if (!m_captureEnabled.load() || !m_isRecording.load()) return;
-#if !HAS_FFMPEG
+#if !HAS_FFMPEG && !HAS_MEDIACODEC
     LogScreenRecorderUnavailableOnce();
     return;
 #else
@@ -2466,7 +2490,11 @@ void ScreenRecorder::CaptureFrame(UINT width, UINT height)
     return;
 #endif
 
+#if HAS_MEDIACODEC
+    WriteVideoFrameMediaCodec(flipped.data(), w, h, rowBytes, ts100ns);
+#else
     WriteVideoFrameFFmpeg(flipped.data(), w, h, rowBytes, ts100ns);
+#endif
 #endif
 }
 #endif // __USE_OPENGL__
@@ -2497,7 +2525,7 @@ void ScreenRecorder::CaptureFrame(VkDevice         device,
                                    std::mutex*      queueMutex)
 {
     if (!m_captureEnabled.load() || !m_isRecording.load() || !device || !swapchainImage) return;
-#if !HAS_FFMPEG
+#if !HAS_FFMPEG && !HAS_MEDIACODEC
     LogScreenRecorderUnavailableOnce();
     return;
 #else
@@ -2654,8 +2682,11 @@ void ScreenRecorder::CaptureFrame(VkDevice         device,
         for (size_t i = 0; i < pixCount; ++i)
             std::swap(px[i * 4 + 0], px[i * 4 + 2]);
     }
-
+#if HAS_MEDIACODEC
+    WriteVideoFrameMediaCodec(static_cast<const uint8_t*>(m_vkStagingMapped), width, height, width * 4, ts100ns);
+#else
     WriteVideoFrameFFmpeg(static_cast<const uint8_t*>(m_vkStagingMapped), width, height, width * 4, ts100ns);
+#endif
 #endif
 }
 

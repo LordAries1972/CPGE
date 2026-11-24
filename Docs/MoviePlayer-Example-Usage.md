@@ -111,3 +111,103 @@ forces a quit before the main loop has started.
 On Linux the movie player decodes with FFmpeg 8.1.2 (headers taken from the upstream tarball — apt only ships 6.1.1 dev files) instead of Media Foundation. Frames decode to BGRA and are uploaded into the Vulkan overlay path. Media test: 55 checks, 0 failures (shared with the screen recorder). Bugs fixed while porting: a pending-frame stall that froze the video, and a clock double-count that played movies at ~2x speed. The intro movie now initialises under Xvfb (`[SCENE] Movie initialized successfully`).
 
 Limit: movie *display* on Linux is Vulkan-only — the OpenGL display path is still Windows-guarded. Decoding itself works on both renderers.
+
+## Android backend — MediaCodec (24 November 2026)
+
+On Android there is no FFmpeg (Daniel chose a native backend over vendoring
+one — see the FFmpeg options analysis in `scope/PHASE_D_STEP3_FFMPEG_ANALYSIS.md`),
+so the movie player decodes with the NDK MediaCodec APIs (`mediandk`,
+minSdk 26). The public API is unchanged — `OpenMovie` / `Play` / `Pause` /
+`Stop` / `SeekTo` / `UpdateFrame` / `GetCurrentFrameRGBA` all work exactly as
+on Windows/Linux; only the decode backend differs.
+
+### How it is wired
+
+`MoviePlayer.cpp` selects the backend with two defines, evaluated in the
+non-Windows section:
+
+```cpp
+#if defined(PLATFORM_ANDROID)
+    #define HAS_FFMPEG 0        // no FFmpeg on Android
+    #define HAS_MEDIACODEC 1    // MediaCodec is always present (minSdk 26)
+#else
+    #define HAS_FFMPEG <FFmpeg found at build time>
+    #define HAS_MEDIACODEC 0
+#endif
+```
+
+Every FFmpeg-only call site is now guarded `#if !HAS_FFMPEG && !HAS_MEDIACODEC`
+(the "no backend at all" case), with an `#elif HAS_MEDIACODEC` arm calling the
+`…MediaCodecLocked` method. The Android backend itself lives in its own
+per-platform files, `android-movieplayer.h` / `android-movieplayer.cpp`
+(the renderer-restructure file style), plus the platform-neutral converter
+`android-mediacodec-convert.h`. Windows and Linux behaviour is unchanged —
+on Linux `HAS_MEDIACODEC` is 0, so the FFmpeg path is selected exactly as
+before (verified: the Linux OpenGL run under Xvfb still shows
+`[SCENE] Movie initialized successfully`).
+
+### What the backend does
+
+* **Demux** with `AMediaExtractor`: the video track (H.264) and the audio
+  track (AAC) are found by mime type; width, height and duration come from
+  the video track format (`AMEDIAFORMAT_KEY_DURATION`, microseconds — there
+  is no `AMediaExtractor_getDuration` in the NDK).
+* **Opening the movie file:** the path `OpenMovie` receives
+  (`<internal>/Assets/cpge.mp4`) is not a regular file — the assets live
+  inside the APK, deflated, so the open tries (1) the path as a regular file
+  (works for a copy in internal storage), then (2) streaming the asset into
+  a cache file under `<internal>/cpge-movie-cache/` and opening that (the
+  copy is validated by size, so the 23 MB `cpge.mp4` is copied once, not on
+  every open). There is no `AAssetManager_openFd` in the NDK C API
+  (openFd is Java-only), so a cached copy is the only asset route.
+* **Video decode:** `AMediaCodec` decodes H.264 into output buffers. The NDK
+  has no `AMediaCodec_getOutputImage` / `AMediaImage` API, so frames come out
+  as raw YUV420 buffers and are converted with `Yuv420ToBgra`
+  (`android-mediacodec-convert.h`) into the BGRA format the existing overlay
+  path expects. The output format's stride, slice height and colour format
+  are read on `INFO_OUTPUT_FORMAT_CHANGED`; planar I420, semi-planar NV12
+  and the flexible format (assumed NV12) are handled. A frame decoded ahead
+  of the media time is held (its buffer index is kept, not released) and
+  presented on the next call — the same hold-one-frame behaviour as the
+  FFmpeg path.
+* **Audio decode:** AAC is decoded with a second `AMediaCodec` into PCM and
+  fed to the miniaudio ring (`Miniaudio::Stream`) exactly as the Linux
+  FFmpeg path does. The output format's sample rate, channel count and PCM
+  encoding are read on format change (the `slice-height` and `pcm-encoding`
+  keys are used as literal strings — the symbols are API 28, so they are
+  not in the minSdk 26 headers). A streaming resampler
+  (`AudioResampler`, `android-mediacodec-convert.h`) converts to the
+  44,100 Hz stereo s16 the ring expects. Audio input is gated on the ring
+  level (target 8,192 samples): when the ring is full the sample is
+  *dropped* (the extractor advances past it) so a video sample behind it
+  is not blocked — the same backpressure tradeoff as the FFmpeg path.
+* **Playback control:** `Play` / `Pause` / `Stop` / `Reset` / `SeekTo` /
+  `UpdateFrame` mirror the FFmpeg versions, including the resume-anchor
+  logic (wall clock vs media time) and the `AMediaExtractor_seekTo`
+  `PREVIOUS_SYNC` + `AMediaCodec_flush` reset on seek/stop. One deliberate
+  difference: MediaCodec keeps draining decoder output until both decoders
+  report end-of-stream, so the tail of a movie plays out; the FFmpeg path
+  stops at file exhaustion and drops the tail.
+
+### Converter tests (host, 24 November 2026)
+
+`android-mediacodec-convert.h` is plain C++17 with no Android includes, so
+it is validated on the host against libswscale / libswresample
+(`scope/test-mediacodec-convert.cpp`): **37 checks, 0 failures**.
+YUV→BGRA 1:1 mean error 0.51–0.54 (max 3–4); BGRA→YUV 1:1 mean 0.08–0.20
+(max 1); the resampler is bit-identical between one-shot and chunked
+feeding. Downscale max errors are hard-edge filter-phase artefacts (a
+smooth-pattern downscale scores mean 0.504, max 4).
+
+### Limits (24 November 2026)
+
+* Compile/link verified only — both Android builds exit 0 with 0 errors
+  (OpenGL `libCPGE.so` 80,476,328 B, Vulkan 82,201,008 B, `libmediandk.so`
+  linked). **No device or emulator exists here, so playback has never
+  been seen or heard** — first frame on a real device is still outstanding.
+* The output format's colour format is assumed NV12 for the flexible
+  format; if a device reports a different flexible layout the frame will
+  be wrong (it will still be a valid YUV420 frame, just mis-coloured).
+* The `MaxOutputFrames` resampler contract: the caller must size its
+  buffer to `ceil(inFrames / ratio) + 2`; if the buffer fills first, the
+  tail of that chunk is dropped (a caller sizing bug, never a crash).

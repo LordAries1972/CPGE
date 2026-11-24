@@ -3107,6 +3107,20 @@ const uint8_t* MoviePlayer::GetCurrentFrameRGBA(uint32_t& outWidth, uint32_t& ou
     #define HAS_FFMPEG 0
 #endif
 
+// Android MediaCodec backend (Phase D step 4, 24 Nov 2026): the platform
+// media APIs (mediandk) are always present on Android (minSdk 26), so
+// there are no headers to probe for — unlike FFmpeg, which is optional
+// on Linux. HAS_MEDIACODEC is 1 on Android, 0 everywhere else, and the
+// backend itself lives in android-movieplayer.cpp. The two backends are
+// independent: a build can have FFmpeg, MediaCodec, both, or neither.
+// (On Android, HAS_FFMPEG is 0 — the FFmpeg headers are not in the NDK
+// sysroot — so MediaCodec is the only playback path there.)
+#if defined(PLATFORM_ANDROID)
+    #define HAS_MEDIACODEC 1
+#else
+    #define HAS_MEDIACODEC 0
+#endif
+
 namespace {
     // One warning per process, however often the subsystem is used
     // (UpdateFrame() and ProcessMovieRequest() are called every frame
@@ -3266,7 +3280,7 @@ bool MoviePlayer::Initialize(std::shared_ptr<Renderer> rendererPtr, ThreadManage
     m_renderer = rendererPtr;
     m_threadManager = threadManager;
     m_isInitialized.store(true);
-#if !HAS_FFMPEG
+#if !HAS_FFMPEG && !HAS_MEDIACODEC
     LogMoviePlayerUnavailableOnce();
     return false;
 #else
@@ -3276,7 +3290,7 @@ bool MoviePlayer::Initialize(std::shared_ptr<Renderer> rendererPtr, ThreadManage
 
 void MoviePlayer::RequestMovie(const std::wstring& path, bool holdOpeningFrame)
 {
-#if !HAS_FFMPEG
+#if !HAS_FFMPEG && !HAS_MEDIACODEC
     LogMoviePlayerUnavailableOnce();
 #endif
     std::lock_guard<std::mutex> lock(m_requestMutex);
@@ -3286,7 +3300,7 @@ void MoviePlayer::RequestMovie(const std::wstring& path, bool holdOpeningFrame)
 
 void MoviePlayer::ProcessMovieRequest()
 {
-#if !HAS_FFMPEG
+#if !HAS_FFMPEG && !HAS_MEDIACODEC
     LogMoviePlayerUnavailableOnce();
 #endif
     if (m_resumeRequested.exchange(false)) { SeekTo(0.0); Play(); }
@@ -3523,9 +3537,12 @@ bool MoviePlayer::OpenMovie(const std::wstring& filePath)
         Debug::logDiagLevelMessage(LogLevel::LOG_WARNING, L"[MoviePlayer] OpenMovie called before Initialize; ignoring.");
         return false;
     }
-#if !HAS_FFMPEG
+#if !HAS_FFMPEG && !HAS_MEDIACODEC
     LogMoviePlayerUnavailableOnce();
     return false;
+#elif HAS_MEDIACODEC
+    // Android MediaCodec backend (android-movieplayer.cpp).
+    return OpenMovieMediaCodecLocked(filePath);
 #else
     // Close any movie already open.
     CloseFFmpegLocked();
@@ -3701,9 +3718,12 @@ bool MoviePlayer::OpenMovie(const std::wstring& filePath)
 bool MoviePlayer::Play()
 {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
-#if !HAS_FFMPEG
+#if !HAS_FFMPEG && !HAS_MEDIACODEC
     LogMoviePlayerUnavailableOnce();
     return false;
+#elif HAS_MEDIACODEC
+    // Android MediaCodec backend (android-movieplayer.cpp).
+    return PlayMediaCodecLocked();
 #else
     if (!m_ffmpeg)
     {
@@ -3732,9 +3752,12 @@ bool MoviePlayer::Play()
 bool MoviePlayer::Pause()
 {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
-#if !HAS_FFMPEG
+#if !HAS_FFMPEG && !HAS_MEDIACODEC
     LogMoviePlayerUnavailableOnce();
     return false;
+#elif HAS_MEDIACODEC
+    // Android MediaCodec backend (android-movieplayer.cpp).
+    return PauseMediaCodecLocked();
 #else
     if (!m_isPlaying.load() || m_isPaused.load())
         return false;
@@ -3751,9 +3774,12 @@ bool MoviePlayer::Pause()
 bool MoviePlayer::Stop()
 {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
-#if !HAS_FFMPEG
+#if !HAS_FFMPEG && !HAS_MEDIACODEC
     LogMoviePlayerUnavailableOnce();
     return false;
+#elif HAS_MEDIACODEC
+    // Android MediaCodec backend (android-movieplayer.cpp).
+    return StopMediaCodecLocked();
 #else
     MovieFFmpeg* ff = static_cast<MovieFFmpeg*>(m_ffmpeg);
     if (!ff)
@@ -3787,9 +3813,12 @@ bool MoviePlayer::Stop()
 bool MoviePlayer::Reset()
 {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
-#if !HAS_FFMPEG
+#if !HAS_FFMPEG && !HAS_MEDIACODEC
     LogMoviePlayerUnavailableOnce();
     return false;
+#elif HAS_MEDIACODEC
+    // Android MediaCodec backend (android-movieplayer.cpp).
+    return ResetMediaCodecLocked();
 #else
     CloseFFmpegLocked();
     return true;
@@ -3799,9 +3828,12 @@ bool MoviePlayer::Reset()
 bool MoviePlayer::SeekTo(double timeInSeconds)
 {
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
-#if !HAS_FFMPEG
+#if !HAS_FFMPEG && !HAS_MEDIACODEC
     LogMoviePlayerUnavailableOnce();
     return false;
+#elif HAS_MEDIACODEC
+    // Android MediaCodec backend (android-movieplayer.cpp).
+    return SeekToMediaCodecLocked(timeInSeconds);
 #else
     MovieFFmpeg* ff = static_cast<MovieFFmpeg*>(m_ffmpeg);
     if (!ff || !ff->fmt)
@@ -3853,9 +3885,13 @@ bool MoviePlayer::UpdateFrame()
 {
     if (!m_isPlaying.load() || m_isPaused.load())
         return false;
-#if !HAS_FFMPEG
+#if !HAS_FFMPEG && !HAS_MEDIACODEC
     LogMoviePlayerUnavailableOnce();
     return false;
+#elif HAS_MEDIACODEC
+    // Android MediaCodec backend (android-movieplayer.cpp). It takes the
+    // try-lock itself, like the FFmpeg path below.
+    return UpdateFrameMediaCodecLocked();
 #else
     MovieFFmpeg* ff = static_cast<MovieFFmpeg*>(m_ffmpeg);
     if (!ff)
@@ -3922,6 +3958,8 @@ void MoviePlayer::Cleanup()
     std::lock_guard<std::recursive_mutex> lock(m_mutex);
 #if HAS_FFMPEG
     CloseFFmpegLocked();
+#elif HAS_MEDIACODEC
+    CloseMediaCodecLocked();
 #else
     LogMoviePlayerUnavailableOnce();
     m_isInitialized.store(false);
