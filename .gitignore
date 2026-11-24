@@ -26,3 +26,15 @@
 /Assets/recording.mp4
 *.obj
 Except-CallStack.log
+
+# Installed build outputs (25 Nov 2026): the Linux/Android build scripts
+# copy the built binaries to the project root so they run where Assets/
+# lives, and the Android script also stages the .so and Assets/ for the
+# Gradle project. All of it is regenerated on every successful build.
+# (The *.glsl / *.spv shader copies at the root are tracked files — the
+# install only refreshes them, see Linux/cmake-build.sh.)
+/OpenGLCPGE
+/VulkanCPGE
+/libCPGE.so
+/Android/app/src/main/jniLibs/
+/Android/app/src/main/assets/

@@ -68,6 +68,33 @@ it links before packaging):
 cd ../Linux && ./cmake-build-android.sh vulkan debug
 ```
 
+`Linux/cmake-build-android.sh` also takes the options `-clean` and
+`-warnings` (any position; run `./cmake-build-android.sh help` for the
+full usage). Warnings are suppressed by default (quiet build); pass
+`-warnings` to see them.
+
+On a successful build the script automates the whole post-build flow
+(25 November 2026), in order:
+1. `libCPGE.so` is installed to the project root and to
+   `app/src/main/jniLibs/<abi>/`.
+2. `Assets/` is synced to `app/src/main/assets/` (`AIHistory` excluded).
+3. The `AndroidManifest.xml` NativeActivity entry is verified (and
+   repaired if missing or wrong). In plain words: NativeActivity is
+   Android's built-in activity that starts the native `.so` directly,
+   with no Java activity code of our own — the manifest names
+   `android.app.NativeActivity` and the `android.app.lib_name`
+   meta-data tells it which library to load (`CPGE`, i.e.
+   `libCPGE.so`); the MAIN/LAUNCHER intent-filter puts the app in the
+   launcher. GameActivity is the newer Jetpack alternative; this
+   project uses NativeActivity.
+4. The debug APK is built with aapt2 (`../scope/apk/package-apk.sh`),
+   AFTER the install, so the APK packages the root `.so` and
+   `Assets/`. Debug/arm64-v8a only; skipped with a clear note
+   otherwise (the packaging script lives in the workspace `scope/`
+   folder, not in this repo — on a plain checkout, package with
+   Gradle instead). `package-apk.sh` takes the `.so` from the project
+   root, falling back to the build-dir copy.
+
 ## Status (24 Nov 2026, Phase D step 3)
 
 - Both Android `libCPGE.so` files link clean: OpenGL 79,712,272 B
@@ -86,10 +113,12 @@ cd ../Linux && ./cmake-build-android.sh vulkan debug
   is intercepted by the sandbox network policy). Daniel decided
   24 November 2026 that manual aapt2 packaging is the primary path and
   Gradle is the fallback only — do not wait on the `other_tcp` setting.
-- Assets: the APKs already carry the repo's `Assets/` tree (Gradle
-  `src/main/assets/` — not wired yet; the engine reads APK assets
-  through `AAssetManager` in `FileIO.cpp`, and `GameConfig.cfg` /
-  saves / `DebugLog.txt` live in internal storage, not assets).
+- Assets: the APKs already carry the repo's `Assets/` tree, and
+  `Linux/cmake-build-android.sh` now syncs `Assets/` to Gradle's
+  `src/main/assets/` on every successful build (25 November 2026;
+  `AIHistory` excluded). The engine reads APK assets through
+  `AAssetManager` in `FileIO.cpp`, and `GameConfig.cfg` / saves /
+  `DebugLog.txt` live in internal storage, not assets.
 - TTS-via-JNI landed in step 3 (see `CpgeTts.java` above); the FFmpeg
   decision is still open — see
   `../scope/PHASE_D_STEP3_FFMPEG_ANALYSIS.md` (options + recommendation

@@ -4,14 +4,25 @@
 #   config   : debug | release  (default: debug)
 #   abi      : arm64-v8a | x86_64 | armeabi-v7a | x86  (default: arm64-v8a)
 #
+# Options (any position):
+#   -clean      fresh compile (wipe the pipeline's build tree first)
+#   -warnings  show compiler warnings (off by default — builds are quiet)
+#
 # Requires ANDROID_NDK (or ANDROID_NDK_HOME / ANDROID_HOME) environment variable
 # pointing to the root of the Android NDK.
 #
 # Examples:
 #   ./cmake-build-android.sh opengl
 #   ./cmake-build-android.sh vulkan release arm64-v8a
+#   ./cmake-build-android.sh vulkan debug -warnings   # show compiler warnings
 #   ./cmake-build-android.sh clean
-#   ./cmake-build-android.sh help       # lists every directive (also -h, --help)
+#   ./cmake-build-android.sh help       # lists every directive (also -h, --help, -help)
+#
+# On success the built libCPGE.so is installed to the project root, to the
+# Gradle project's jniLibs/<abi>/, and Assets/ is synced to the Gradle
+# project's assets/; the AndroidManifest.xml NativeActivity entry is
+# verified; then the debug APK is built with aapt2 (see "What a build
+# does" in the help).
 
 set -euo pipefail
 
@@ -19,12 +30,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CMAKE_EXE="${CMAKE_EXE:-cmake}"
 
-# Split the command line into the positional arguments and the optional -clean switch (any position).
+# Split the command line into the positional arguments and the optional
+# switches -clean / -warnings (any position).
 # Without -clean the existing build tree (objects, CMake cache, binaries) is reused, so only changed sources recompile.
+# Without -warnings compiler warnings are suppressed (quiet build, -w); with
+# it they are shown (the behaviour before -warnings existed).
 CLEAN_BUILD=""
+SHOW_WARNINGS=""
 POSARGS=()
 for a in "$@"; do
-    if [[ "${a,,}" == "-clean" ]]; then CLEAN_BUILD=1; else POSARGS+=("$a"); fi
+    case "${a,,}" in
+        -clean) CLEAN_BUILD=1 ;;
+        -warnings) SHOW_WARNINGS=1 ;;
+        *) POSARGS+=("$a") ;;
+    esac
 done
 ARG1="${POSARGS[0]:-}"
 ARG2="${POSARGS[1]:-}"
@@ -39,21 +58,27 @@ show_help() {
 ${me} - cross-compile the engine for Android with CMake + the Android NDK
 
 Usage:
-  ${me} <directive> [config] [abi] [-clean]
+  ${me} <directive> [config] [abi] [-clean] [-warnings]
 
 Build directives (one render pipeline):
   opengl    OpenGL ES renderer
   vulkan    Vulkan renderer
             (DirectX 11/12 are Windows-only - use cmake-build.bat)
 
-Option (any position, used by every build directive and by all):
+Options (any position, used by every build directive):
   -clean    Deletes the build tree of the pipeline being built (objects, CMake
             cache, binaries) first for a fresh compile. Without it the existing
             binaries are reused (incremental build).
+  -warnings
+            Shows compiler warnings. Builds are quiet by default: warnings
+            are suppressed (the compiler is passed -w), so only errors and
+            the build summary are shown. Pass -warnings to see every
+            warning, as on Windows (which has no such flag — warnings
+            are always shown there).
 
 Maintenance directives:
   clean     Deletes the Android build directory (Linux/build-android).
-  help      Shows this list. Aliases: -h  --help
+  help      Shows this list. Aliases: -h  --help  -help
 
 Config (second argument, used by opengl / vulkan):
   debug     Debug build   (default when omitted)
@@ -67,11 +92,30 @@ ABI (third argument, used by opengl / vulkan):
 
 What a build does:
   1. Locates the Android NDK (see Environment below).
-  2. Patches Includes.h (via python3) so only the chosen renderer #define
-     is active. Skipped if python3 is missing.
-  3. Configures with the NDK toolchain (c++_shared STL) and builds into
+  2. Configures with the NDK toolchain (c++_shared STL) and builds into
      Linux/build-android/<abi>/<Renderer>/<Config> using all CPU cores.
-  4. Lists the produced lib*.so and the next packaging steps.
+     (Includes.h is NOT patched: the renderer define is passed by CMake,
+     which is the single source of truth.)
+  3. On success, installs libCPGE.so to the project root (the executable
+     placed in the root folder — the same principle as the Windows
+     install step) and to Android/app/src/main/jniLibs/<abi>/, syncs
+     Assets/ to Android/app/src/main/assets/ (AIHistory excluded), and
+     verifies the AndroidManifest.xml NativeActivity entry (see below).
+  4. Builds the debug APK with aapt2 (scope/apk/package-apk.sh),
+     AFTER the install, so the APK packages the root .so and Assets/.
+     Debug/arm64-v8a only; skipped with a clear note otherwise
+     (missing packaging script, release build, or another ABI).
+
+NativeActivity — what it is (in plain words):
+  Android apps normally start in a Java activity. NativeActivity is
+  Android's built-in activity that starts the native .so directly,
+  with no Java activity code of our own: the manifest names
+  android.app.NativeActivity and the meta-data android.app.lib_name
+  tells it which library to load (CPGE, i.e. libCPGE.so). The
+  MAIN/LAUNCHER intent-filter makes the app appear in the launcher.
+  GameActivity is the newer Jetpack alternative — this project uses
+  NativeActivity. The build checks this entry and repairs it if it
+  is missing or wrong; a correct manifest is left byte-identical.
 
 Environment:
   ANDROID_NDK        Android NDK root (checked first)
@@ -90,18 +134,174 @@ Examples:
   ${me} vulkan release arm64-v8a
   ${me} opengl debug x86_64
   ${me} vulkan release -clean   # fresh full compile
+  ${me} vulkan debug -warnings  # show compiler warnings
   ${me} clean
   ${me} help
 
 EOF
 }
 
-case "${ARG1,,}" in
-    help|-h|--help)
-        show_help
-        exit 0
-        ;;
-esac
+# Help is checked first (any argument position), so it works even when
+# cmake / the NDK is not installed — same as cmake-build.bat.
+for _a in "$@"; do
+    case "${_a,,}" in
+        help|-h|--help|-help)
+            show_help
+            exit 0
+            ;;
+    esac
+done
+
+# --- NativeActivity manifest entry -----------------------------------------
+# Checks the AndroidManifest.xml NativeActivity entry and repairs it
+# (idempotently) if it is missing or wrong; a correct manifest is left
+# byte-identical. See the help text for what NativeActivity means.
+manifest_has_native_activity() {
+    local _mf="$1"
+    grep -q 'android:name="android.app.NativeActivity"' "${_mf}" \
+        && grep -q 'android:name="android.app.lib_name" android:value="CPGE"' "${_mf}" \
+        && grep -q 'android.intent.action.MAIN' "${_mf}" \
+        && grep -q 'android.intent.category.LAUNCHER' "${_mf}"
+}
+
+ensure_native_activity() {
+    local _mf="${PROJECT_ROOT}/Android/app/src/main/AndroidManifest.xml"
+    if [[ ! -f "${_mf}" ]]; then
+        echo "ERROR: AndroidManifest.xml not found: ${_mf}"
+        return 1
+    fi
+    if manifest_has_native_activity "${_mf}"; then
+        echo "AndroidManifest.xml: NativeActivity entry OK (android.app.NativeActivity, lib_name=CPGE, MAIN/LAUNCHER)."
+        return 0
+    fi
+    echo "AndroidManifest.xml: NativeActivity entry missing or wrong — repairing..."
+    if ! command -v python3 &>/dev/null; then
+        echo "ERROR: python3 is required to repair the manifest and was not found."
+        echo "Add the android.app.NativeActivity entry by hand (lib_name CPGE, MAIN/LAUNCHER intent-filter)."
+        return 1
+    fi
+    python3 - "${_mf}" <<'PYEOF'
+import re, sys
+path = sys.argv[1]
+text = open(path, encoding='utf-8').read()
+orig = text
+activity_re = re.compile(r'<activity\b[^>]*android:name="android\.app\.NativeActivity"[^>]*>(.*?)</activity>', re.S)
+m = activity_re.search(text)
+if m is None:
+    block = ('        <activity\n'
+             '            android:name="android.app.NativeActivity"\n'
+             '            android:label="CPGE"\n'
+             '            android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|smallestScreenSize|uiMode"\n'
+             '            android:launchMode="singleTask"\n'
+             '            android:screenOrientation="landscape">\n'
+             '            <meta-data android:name="android.app.lib_name" android:value="CPGE" />\n'
+             '            <intent-filter>\n'
+             '                <action android:name="android.intent.action.MAIN" />\n'
+             '                <category android:name="android.intent.category.LAUNCHER" />\n'
+             '            </intent-filter>\n'
+             '        </activity>\n')
+    if '</application>' not in text:
+        print('ERROR: no </application> tag in manifest', file=sys.stderr)
+        sys.exit(1)
+    text = text.replace('</application>', block + '    </application>', 1)
+else:
+    body = m.group(1)
+    if 'android.app.lib_name' in body:
+        body = re.sub(r'(android:name="android\.app\.lib_name"\s+android:value=")[^"]*(")', r'\1CPGE\2', body)
+    else:
+        body = '            <meta-data android:name="android.app.lib_name" android:value="CPGE" />\n' + body
+    if 'android.intent.action.MAIN' not in body or 'android.intent.category.LAUNCHER' not in body:
+        body += ('            <intent-filter>\n'
+                 '                <action android:name="android.intent.action.MAIN" />\n'
+                 '                <category android:name="android.intent.category.LAUNCHER" />\n'
+                 '            </intent-filter>\n')
+    text = text[:m.start(1)] + body + text[m.end(1):]
+if text != orig:
+    open(path, 'w', encoding='utf-8').write(text)
+    print('manifest repaired')
+else:
+    print('manifest already correct')
+PYEOF
+    if manifest_has_native_activity "${_mf}"; then
+        echo "AndroidManifest.xml: NativeActivity entry repaired and verified."
+        return 0
+    fi
+    echo "ERROR: AndroidManifest.xml repair did not produce a valid NativeActivity entry."
+    return 1
+}
+
+# --- Install to root + Gradle project, then package the APK -----------------
+# Runs on success only. Automates the three "Next steps" this script used
+# to print, in order, and then builds the APK AFTER the install so the APK
+# packages the root .so and Assets/:
+#   1. libCPGE.so to the project root and to jniLibs/<abi>/.
+#   2. Assets/ to the Gradle project's assets/ (AIHistory excluded).
+#   3. NativeActivity entry in AndroidManifest.xml (verified, repaired
+#      if missing or wrong — see ensure_native_activity above).
+#   4. Debug APK via scope/apk/package-apk.sh (aapt2), debug/arm64-v8a
+#      only; skipped with a clear note otherwise.
+install_and_package_android() {
+    local _so="${BUILD_DIR}/libCPGE.so"
+    if [[ ! -f "${_so}" ]]; then
+        echo "ERROR: expected library not found after a successful build: ${_so}"
+        return 1
+    fi
+
+    # 1. Project root (the executable placed in the root folder — same
+    #    principle as the Windows install step) and the Gradle jniLibs.
+    cp -f "${_so}" "${PROJECT_ROOT}/libCPGE.so" || { echo "ERROR: could not install libCPGE.so to the project root"; return 1; }
+    echo "Installed: ${PROJECT_ROOT}/libCPGE.so"
+    local _jni="${PROJECT_ROOT}/Android/app/src/main/jniLibs/${ABI}"
+    mkdir -p "${_jni}"
+    cp -f "${_so}" "${_jni}/libCPGE.so" || { echo "ERROR: could not install libCPGE.so to ${_jni}"; return 1; }
+    echo "Installed: ${_jni}/libCPGE.so"
+
+    # 2. Assets/ to the Gradle project's assets/ (AIHistory excluded,
+    #    exactly as scope/apk/package-apk.sh does for the APK).
+    local _assets="${PROJECT_ROOT}/Android/app/src/main/assets"
+    mkdir -p "${_assets}"
+    if command -v rsync &>/dev/null; then
+        rsync -a --delete --exclude 'AIHistory' "${PROJECT_ROOT}/Assets/" "${_assets}/" || { echo "ERROR: could not sync Assets/ to ${_assets}"; return 1; }
+    else
+        echo "NOTE: rsync not found — falling back to cp -r for Assets/."
+        rm -rf "${_assets}"
+        mkdir -p "${_assets}"
+        cp -r "${PROJECT_ROOT}/Assets/." "${_assets}/" || { echo "ERROR: could not copy Assets/ to ${_assets}"; return 1; }
+        rm -rf "${_assets}/AIHistory"
+    fi
+    echo "Assets synced: ${_assets}/ (AIHistory excluded)"
+
+    # 3. NativeActivity entry in the manifest.
+    ensure_native_activity || return 1
+
+    # 4. APK, built AFTER the install so it packages the root .so and
+    #    Assets/. aapt2 packaging is debug/arm64-v8a only
+    #    (package-apk.sh hardcodes that pair).
+    local _apk_script="${PROJECT_ROOT}/../scope/apk/package-apk.sh"
+    if [[ "${CONFIG}" == "Debug" && "${ABI}" == "arm64-v8a" ]]; then
+        if [[ -x "${_apk_script}" ]]; then
+            echo "Packaging APK with aapt2: ${_apk_script} ${ARG1,,}"
+            if "${_apk_script}" "${ARG1,,}"; then
+                echo "APK packaged: scope/apk/cpge-${ARG1,,}-debug.apk"
+            else
+                echo "ERROR: APK packaging failed."
+                echo "  Library build: SUCCEEDED (libCPGE.so installed to the project root and jniLibs/${ABI}/)."
+                echo "  APK packaging: FAILED (no new APK produced)."
+                return 1
+            fi
+        else
+            echo "NOTE: APK packaging skipped — ${_apk_script} not found."
+            echo "  That script lives in the workspace scope/ folder, not in this repo;"
+            echo "  on a plain checkout, package with Gradle instead:"
+            echo "    cd Android && ./gradlew assembleDebug"
+            echo "  Library build: SUCCEEDED (libCPGE.so installed to the project root and jniLibs/${ABI}/)."
+        fi
+    else
+        echo "NOTE: APK packaging skipped — aapt2 packaging is debug/arm64-v8a only (this build: ${CONFIG}/${ABI})."
+        echo "  Library build: SUCCEEDED (libCPGE.so installed to the project root and jniLibs/${ABI}/)."
+    fi
+    return 0
+}
 
 # --- Clean ---
 if [[ "${ARG1,,}" == "clean" ]]; then
@@ -114,10 +314,11 @@ fi
 # --- Usage ---
 if [[ -z "${ARG1}" ]]; then
     echo ""
-    echo "Usage: $(basename "$0") <renderer> [debug|release] [abi] [-clean]"
+    echo "Usage: $(basename "$0") <renderer> [debug|release] [abi] [-clean] [-warnings]"
     echo "  Renderers : opengl  vulkan"
     echo "  Config    : debug  release        (default: debug)"
     echo "  ABI       : arm64-v8a  x86_64  armeabi-v7a  x86  (default: arm64-v8a)"
+    echo "  -warnings : show compiler warnings (off by default — builds are quiet)"
     echo ""
     echo "Environment variables:"
     echo "  ANDROID_NDK        Path to the Android NDK root"
@@ -130,6 +331,7 @@ if [[ -z "${ARG1}" ]]; then
     echo "Examples:"
     echo "  $(basename "$0") opengl"
     echo "  $(basename "$0") vulkan release arm64-v8a"
+    echo "  $(basename "$0") vulkan debug -warnings"
     echo "  $(basename "$0") clean"
     echo ""
     echo "Run '$(basename "$0") help' for the full list of directives."
@@ -137,6 +339,15 @@ if [[ -z "${ARG1}" ]]; then
 fi
 
 # --- Locate Android NDK ---
+# Newest NDK install below a given SDK ndk/ directory. Directories only:
+# a stray file (e.g. a downloaded NDK .zip) must not be picked up as the
+# "newest NDK" — that is what happened when android-ndk-r30-linux.zip sat
+# next to the NDK installs and sort -V picked the .zip over the dirs.
+newest_ndk_dir() {
+    local _base="$1"
+    ls -d "${_base}"/*/ 2>/dev/null | sort -V | tail -1
+}
+
 # Last candidate is the Phase D install location (~/workspace/android-sdk,
 # NDK r27c) so the script works on the build machine without any env vars;
 # source ~/workspace/android-sdk/env.sh for the explicit ANDROID_HOME form.
@@ -145,8 +356,8 @@ for _candidate in \
         "${ANDROID_NDK:-}" \
         "${ANDROID_NDK_HOME:-}" \
         "${ANDROID_HOME:-}/ndk-bundle" \
-        "${ANDROID_HOME:-}/ndk/$(ls "${ANDROID_HOME:-/nonexistent}/ndk" 2>/dev/null | sort -V | tail -1)" \
-        "${HOME}/workspace/android-sdk/ndk/$(ls "${HOME}/workspace/android-sdk/ndk" 2>/dev/null | sort -V | tail -1)"; do
+        "$(newest_ndk_dir "${ANDROID_HOME:-/nonexistent}/ndk")" \
+        "$(newest_ndk_dir "${HOME}/workspace/android-sdk/ndk")"; do
     if [[ -n "${_candidate}" && -d "${_candidate}" && -f "${_candidate}/build/cmake/android.toolchain.cmake" ]]; then
         NDK_ROOT="${_candidate}"
         break
@@ -221,6 +432,20 @@ if ! command -v "${CMAKE_EXE}" &>/dev/null; then
     exit 1
 fi
 
+# --- Warnings ---
+# Default: quiet build. Linux/CMakeLists.txt adds -Wall, so pass -w through
+# CMAKE_CXX_FLAGS to suppress every compiler warning (verified on this
+# toolchain: -w placed before -Wall still suppresses, on GCC and on the
+# NDK Clang). With -warnings the flag is omitted and warnings are shown
+# as before. The -D is passed on every configure so switching between
+# quiet and -warnings on the same build tree takes effect
+# (CMAKE_CXX_FLAGS is cached by CMake).
+if [[ -n "${SHOW_WARNINGS}" ]]; then
+    CMAKE_CXX_FLAGS_ARG="-DCMAKE_CXX_FLAGS=${CXXFLAGS:-}"
+else
+    CMAKE_CXX_FLAGS_ARG="-DCMAKE_CXX_FLAGS=${CXXFLAGS:+$CXXFLAGS }-w"
+fi
+
 # --- Renderer define -------------------------------------------------------
 # NOTE: Includes.h is NOT patched here. The renderer define (__USE_OPENGL__ /
 # __USE_VULKAN__) is passed to CMake via -DRENDERER by Linux/CMakeLists.txt.
@@ -251,17 +476,14 @@ echo ""
     -DANDROID_PLATFORM="${ANDROID_PLATFORM}" \
     -DANDROID_STL="c++_shared" \
     -DRENDERER:STRING="${RENDERER}" \
-    -DCMAKE_BUILD_TYPE="${CONFIG}"
+    -DCMAKE_BUILD_TYPE="${CONFIG}" \
+    "${CMAKE_CXX_FLAGS_ARG}"
 
 "${CMAKE_EXE}" --build "${BUILD_DIR}" --parallel "$(nproc 2>/dev/null || echo 4)"
 
 echo ""
 echo "Build succeeded: Android/${ABI} ${RENDERER} ${CONFIG} -- $(date)"
 echo ""
-echo "Output shared library:"
-find "${BUILD_DIR}" -name "lib*.so" -not -path "*/CMakeFiles/*" 2>/dev/null || true
-echo ""
-echo "Next steps:"
-echo "  1. Copy the .so to your Android project's jniLibs/${ABI}/"
-echo "  2. Copy Assets/ to your APK's assets/ folder"
-echo "  3. Set up NativeActivity or GameActivity in your AndroidManifest.xml"
+
+# --- Install to root + Gradle project, then package the APK ---
+install_and_package_android || exit 1
