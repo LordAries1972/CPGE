@@ -21,6 +21,7 @@
     #include <unwind.h>
     #include <dlfcn.h>
     #include <signal.h>
+    #include <unistd.h>    // getpid() — used by GetCurrentProcessId() (ExceptionHandler.cpp); NDK r30 no longer declares it transitively
     #include <android/log.h>
     #include <cxxabi.h>
 #elif defined(PLATFORM_LINUX)

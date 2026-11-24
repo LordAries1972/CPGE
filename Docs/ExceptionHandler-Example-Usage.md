@@ -1443,3 +1443,54 @@ build links clean (`android-vulkan-build-8.log`, exit 0). The final Linux
 re-verify (`./cmake-build.sh all debug -clean`) ran after the EGL work and
 passed — `PASSED: opengl vulkan`, 0 errors (log
 `scope/linux-reverify-step2-egl.log`; see `scope/PHASE_D_STEP2_VERIFICATION.md`).
+
+## 25 November 2026 — Android `<unistd.h>` include (NDK r30 fix)
+
+Daniel's Windows Android build (NDK r30, Clang 21.0.0) failed at
+`ExceptionHandler.cpp:1578` with a single hard error:
+
+```
+error: use of undeclared identifier 'getpid'; did you mean 'getpt'?
+        return (uint32_t)getpid();
+```
+
+`GetCurrentProcessId()` calls `getpid()` in the shared non-Windows `#else`
+branch, but `ExceptionHandler.h` only included `<unistd.h>` on the
+`PLATFORM_LINUX` and `PLATFORM_MACOS || PLATFORM_IOS` arms — the
+`PLATFORM_ANDROID` arm (unwind.h, dlfcn.h, signal.h, android/log.h,
+cxxabi.h) had no `<unistd.h>`. The VM's NDK r27c builds passed only because
+some header in the chain declared `getpid()` transitively; NDK r30's newer
+libc++ dropped that transitive declaration, so the missing include became a
+hard error. The GLM vendoring was not the cause — the same build log shows
+GLM staging fine from the vendored `include/` folder.
+
+**Fix (one line, Android-only):** `#include <unistd.h>` added to the
+`PLATFORM_ANDROID` arm of `ExceptionHandler.h`, after `<signal.h>`
+(mirroring the Linux arm's ordering), with a comment noting it declares
+`getpid()` for `GetCurrentProcessId()`. The Windows, Linux and macOS/iOS
+arms are untouched, and the header already tests `PLATFORM_ANDROID` before
+`PLATFORM_LINUX`, so the fix follows the mandatory platform rule. This
+matches the per-platform `<unistd.h>` convention already used in
+`FileIO.h`.
+
+**Verification:** NDK r30 was reproduced on the build machine (downloaded
+with curl to `~/workspace/android-sdk/ndk/android-ndk-r30`, Clang 21.0.0 —
+the same version Daniel uses; the r27c default was left in place and the
+r30 builds were run with `ANDROID_NDK` set explicitly). Full Android
+builds with NDK r30: Vulkan `libCPGE.so` 63,325,864 B and OpenGL
+61,930,752 B, both exit 0, 0 errors (logs
+`scope/android-r30-vulkan-build.log`,
+`scope/android-r30-opengl-build.log`). Re-verification with the default
+r27c toolchain: Vulkan 82,205,408 B and OpenGL 80,480,896 B, both exit 0,
+0 errors; Linux `./cmake-build.sh all debug -clean` printed `PASSED:
+opengl vulkan`, 0 errors. Note: the r30 `.so` files are ~19 MB smaller
+than the r27c ones from identical code (same 60 compile steps,
+`android_main` present in both) — a toolchain debug-info difference, not
+missing code. The `%llu` format warnings in `ExceptionHandler.cpp`
+(pre-existing, warnings only: `uint64_t` is `unsigned long` on LP64) are in
+shared Windows-compiled lines and were deliberately left alone.
+
+**How to reproduce Daniel's toolchain:** set `ANDROID_NDK` to an NDK r30
+install and run `./cmake-build-android.sh vulkan debug -clean` (or
+`opengl debug -clean`) from `Linux/`; the script picks up `ANDROID_NDK`
+directly.

@@ -4455,6 +4455,10 @@ Linux port (Phase A) and Phase B backends. The engine now builds and links on Li
 
 **Documentation updated in the same task:** `Docs/NetworkManager-Example-Usage.md`, `Docs/Joystick-Example-Usage.md`, `Docs/SoundManager-Example-Usage.md`, `Docs/ITPlayer-Example-Usage.md`, `Docs/MODPlayer-Example-Usage.md`, `Docs/MPTMPlayer-Example-Usage.md`, `Docs/S3MPlayer-Example-Usage.md`, `Docs/XMMODPlayer-Example-Usage.md`, `Docs/MoviePlayer-Example-Usage.md`, `Docs/ScreenRecorder-Example-Usage.md`, `Docs/TTSManager-Example-Usage.md` (dated 23 November 2026 sections).
 
+#### November 25, 2026
+
+- **ExceptionHandler — Android `<unistd.h>` include (25 November 2026):** Daniel's Windows Android build (NDK r30, Clang 21) failed at `ExceptionHandler.cpp:1578` — `getpid()` undeclared in `GetCurrentProcessId()`. `ExceptionHandler.h` included `<unistd.h>` for Linux and macOS/iOS but not Android; NDK r27c hid the omission via a transitive include, NDK r30 does not. One-line fix: `#include <unistd.h>` in the `PLATFORM_ANDROID` arm only; Windows, Linux, macOS/iOS untouched. Verified with NDK r30 reproduced on the build machine (Clang 21.0.0): Android Vulkan + OpenGL builds exit 0, 0 errors; Linux re-verify `PASSED: opengl vulkan`; r27c builds also clean. Docs: `Docs/ExceptionHandler-Example-Usage.md`.
+
 #### November 24, 2026
 
 Linux Xvfb crash fixes (diagnosed with gdb, 24 November 2026 - the engine segfaulted ~7 s after launch on Linux and then crashed in a loop, 16,544 identical segfault entries in one run). All fixes are Linux/Android-specific behind `PLATFORM_LINUX` / `PLATFORM_ANDROID` condition directives; the Windows paths are wrapped in `PLATFORM_WINDOWS` and behaviour-unchanged. Full write-up: `~/workspace/cpge-linux-android/scope/CRASH_DIAGNOSIS.md`.
