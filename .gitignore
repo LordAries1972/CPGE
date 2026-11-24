@@ -55,7 +55,8 @@ Except-CallStack.log
 # cache at runtime). Tracked vendor binaries (lib/, steam/lib/,
 # D3D12/*.dll, the root shaderc DLLs) stay tracked by design —
 # .gitignore does not untrack files, so these patterns only stop NEW
-# binaries being committed. Deliberately NOT ignored: *.bin (Assets/
+# binaries being committed. Deliberately NOT ignored: *.dll (required
+# Windows binaries — Daniel, 25 Nov 2026), *.bin (Assets/
 # splash-hover1.bin and test2.bin are game data) and *.dat (help.dat).
 build/
 build-android/
@@ -64,7 +65,6 @@ Release/
 *.so
 *.o
 *.a
-*.dll
 *.lib
 *.spv
 *.cso
