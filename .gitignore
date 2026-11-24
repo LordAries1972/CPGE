@@ -47,3 +47,36 @@ Except-CallStack.log
 /Android/debug.keystore
 /Android/stage-*/
 /Android/dex-classes/
+
+# Build directories and compiled binaries (25 Nov 2026): no build output
+# belongs on GitHub. Every build regenerates all of this from source
+# (cmake configure + build + install; shaders via fxc/glslangValidator,
+# the shaderc DLLs via a POST_BUILD copy from the Vulkan SDK, the model
+# cache at runtime). Tracked vendor binaries (lib/, steam/lib/,
+# D3D12/*.dll, the root shaderc DLLs) stay tracked by design —
+# .gitignore does not untrack files, so these patterns only stop NEW
+# binaries being committed. Deliberately NOT ignored: *.bin (Assets/
+# splash-hover1.bin and test2.bin are game data) and *.dat (help.dat).
+build/
+build-android/
+Debug/
+Release/
+*.so
+*.o
+*.a
+*.dll
+*.lib
+*.spv
+*.cso
+*.apk
+*.dex
+*.res
+*.iobj
+*.ipdb
+*.keystore
+*.idsig
+*.dylib
+cache.dat
+build_output.txt
+buildlog.txt
+Assets/AIHistory/

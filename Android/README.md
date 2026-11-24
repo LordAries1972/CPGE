@@ -101,7 +101,23 @@ On a successful build the script automates the whole post-build flow
    `ANDROID_BUILD_TOOLS_VERSION` (default 34.0.0, newest installed as
    fallback), and the JDK from `JAVA_HOME` (falling back to the SDK
    tree's JDK 17, then `java` on PATH); when a tool is genuinely
-   missing they fail with what to install.
+   missing they fail with what to install. On Windows/Git Bash,
+   `ANDROID_HOME` and `JAVA_HOME` may hold Windows-style paths
+   (`D:\...`); the scripts normalise them to POSIX paths with
+   `cygpath` and resolve tools with their Windows extensions
+   (`apksigner.bat`, `d8.bat`, `aapt2.exe`, `zipalign.exe`) — 25
+   November 2026.
+
+Build outputs do not belong on GitHub (25 November 2026): `.gitignore`
+covers `build/` and `build-android/` at any depth, `Debug/` /
+`Release/`, and the binary extensions (`*.so`, `*.dll`, `*.spv`,
+`*.cso`, `*.apk`, `*.dex`, …) plus `cache.dat` and `Assets/AIHistory/`,
+so the `.so`, APKs, dex, keystore and staged copies above are never
+committed. Tracked build binaries are being deleted from Phase2 in the
+same cleanup (see `ReleaseInfo.md` and
+`../scope/BINARY_DELETION_BATCH.md` for the list); vendored
+third-party dependencies (`lib/`, `steam/lib/`, `D3D12/*.dll`) stay
+tracked by design.
 
 ## Status (24 Nov 2026, Phase D step 3)
 

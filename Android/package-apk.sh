@@ -25,6 +25,16 @@
 # (jdk-17.0.21.1+2), then to java on PATH. When a tool is genuinely
 # missing the script fails with what to install — never a bare
 # "not found".
+#
+# Windows/Git Bash (25 Nov 2026): ANDROID_HOME and JAVA_HOME often hold
+# Windows-style roots (D:\AndroidSDK) there, and Windows build-tools
+# ship apksigner and d8 as .bat files (aapt2/zipalign as .exe), so the
+# SDK block below normalises every root to a POSIX path with cygpath
+# when it exists and resolves every tool through find_tool (plain name,
+# then .exe, then .bat, then .cmd) instead of assuming an extensionless
+# executable. Without that, the apksigner check failed on Daniel's
+# machine with a mixed path (D:\AndroidSDK/build-tools/36.0.0/apksigner)
+# for a file that is really apksigner.bat.
 set -euo pipefail
 
 RENDERER="${1:-}"
@@ -40,7 +50,26 @@ REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 # SDK root: ANDROID_HOME first, then ANDROID_SDK_ROOT, then the build
 # machine's install. (The same resolution block lives in build-dex.sh —
 # keep the two in sync.)
-SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/workspace/android-sdk}}"
+posix_path() {  # posix_path <path> -> POSIX form (no-op without cygpath)
+    if command -v cygpath &>/dev/null; then
+        cygpath -u "$1"
+    else
+        printf '%s' "$1"
+    fi
+}
+
+find_tool() {  # find_tool <dir> <name> -> prints the resolved path or nothing
+    local _dir="$1" _name="$2" _suffix
+    for _suffix in "" ".exe" ".bat" ".cmd"; do
+        if [[ -f "$_dir/$_name$_suffix" ]]; then
+            printf '%s' "$_dir/$_name$_suffix"
+            return 0
+        fi
+    done
+    return 1
+}
+
+SDK_ROOT="$(posix_path "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/workspace/android-sdk}}")"
 if [[ ! -d "$SDK_ROOT" ]]; then
     echo "ERROR: Android SDK not found at $SDK_ROOT." >&2
     echo "  Set ANDROID_HOME (or ANDROID_SDK_ROOT) to your SDK root, e.g.:" >&2
@@ -59,6 +88,7 @@ else
     if [[ -n "$_newest_bt" && -d "$SDK_ROOT/build-tools/$_newest_bt" ]]; then
         echo "NOTE: build-tools $BT_VER not installed — using $_newest_bt instead."
         BT="$SDK_ROOT/build-tools/$_newest_bt"
+        BT_VER="$_newest_bt"  # so later messages name the version in use
     else
         echo "ERROR: no Android build-tools installed under $SDK_ROOT/build-tools." >&2
         echo "  Install them with: sdkmanager \"build-tools;34.0.0\"" >&2
@@ -83,30 +113,45 @@ fi
 
 # JDK: JAVA_HOME first, then the SDK tree's Temurin JDK 17, then java on
 # PATH. (javac + keytool are needed: the dex and the debug keystore.)
-JDK=""
-if [[ -n "${JAVA_HOME:-}" && -x "$JAVA_HOME/bin/javac" ]]; then
-    JDK="$JAVA_HOME"
-elif [[ -x "$SDK_ROOT/jdk-17.0.21.1+2/bin/javac" ]]; then
-    JDK="$SDK_ROOT/jdk-17.0.21.1+2"
-elif command -v javac &>/dev/null; then
+# JAVA_HOME is normalised the same way as the SDK root — it is a
+# Windows-style path on Git Bash too.
+JDK=""; JAVAC=""; KEYTOOL=""
+if [[ -n "${JAVA_HOME:-}" ]]; then
+    _jh="$(posix_path "$JAVA_HOME")"
+    _javac="$(find_tool "$_jh/bin" javac || true)"
+    if [[ -n "$_javac" ]]; then JDK="$_jh"; JAVAC="$_javac"; fi
+fi
+if [[ -z "$JDK" ]]; then
+    _sdk_jdk="$SDK_ROOT/jdk-17.0.21.1+2"
+    _javac="$(find_tool "$_sdk_jdk/bin" javac || true)"
+    if [[ -n "$_javac" ]]; then JDK="$_sdk_jdk"; JAVAC="$_javac"; fi
+fi
+if [[ -z "$JDK" ]] && command -v javac &>/dev/null; then
     JDK="$(dirname "$(dirname "$(command -v javac)")")"
-else
+    JAVAC="$(command -v javac)"
+fi
+if [[ -z "$JDK" ]]; then
     echo "ERROR: no JDK found (need javac + keytool for the dex and the debug keystore)." >&2
     echo "  Set JAVA_HOME to a JDK 17 install, e.g.:" >&2
     echo "    export JAVA_HOME=/path/to/jdk-17" >&2
     echo "  Or install one via Android Studio (it bundles a JDK) or Temurin 17." >&2
     exit 1
 fi
+KEYTOOL="$(find_tool "$JDK/bin" keytool || true)"
+if [[ -z "$KEYTOOL" ]] && command -v keytool &>/dev/null; then KEYTOOL="$(command -v keytool)"; fi
 export PATH="$JDK/bin:$PATH"
 
 # Tool checks with actionable errors (aapt2/zipalign/apksigner live in
-# build-tools; keytool/javac in the JDK).
-for _tool in aapt2 zipalign apksigner; do
-    [[ -x "$BT/$_tool" ]] || { echo "ERROR: $BT/$_tool missing — reinstall build-tools (sdkmanager \"build-tools;${BT_VER}\")." >&2; exit 1; }
-done
-for _tool in keytool javac; do
-    command -v "$_tool" &>/dev/null || { echo "ERROR: $_tool not found — set JAVA_HOME to a JDK 17 install." >&2; exit 1; }
-done
+# build-tools; keytool/javac in the JDK; zip stages the APK contents).
+AAPT2="$(find_tool "$BT" aapt2 || true)"
+ZIPALIGN="$(find_tool "$BT" zipalign || true)"
+APKSIGNER="$(find_tool "$BT" apksigner || true)"
+[[ -n "$AAPT2" ]] || { echo "ERROR: aapt2 missing in $BT — reinstall build-tools (sdkmanager \"build-tools;${BT_VER}\")." >&2; exit 1; }
+[[ -n "$ZIPALIGN" ]] || { echo "ERROR: zipalign missing in $BT — reinstall build-tools (sdkmanager \"build-tools;${BT_VER}\")." >&2; exit 1; }
+[[ -n "$APKSIGNER" ]] || { echo "ERROR: apksigner missing in $BT — reinstall build-tools (sdkmanager \"build-tools;${BT_VER}\")." >&2; exit 1; }
+[[ -n "$JAVAC" ]] || { echo "ERROR: javac not found — set JAVA_HOME to a JDK 17 install." >&2; exit 1; }
+[[ -n "$KEYTOOL" ]] || { echo "ERROR: keytool not found — set JAVA_HOME to a JDK 17 install." >&2; exit 1; }
+command -v zip &>/dev/null || { echo "ERROR: zip not found — needed to stage the APK contents (on Git Bash: pacman -S zip, or install 7-Zip and put it on PATH)." >&2; exit 1; }
 
 RENDERER_DIR=OpenGL
 [ "$RENDERER" = "vulkan" ] && RENDERER_DIR=Vulkan
@@ -127,7 +172,7 @@ STAGE="$SCRIPT_DIR/stage-$RENDERER"
 
 # 1. Debug keystore (created once; standard Android debug-keystore values).
 if [ ! -f "$KEYSTORE" ]; then
-    keytool -genkeypair -v \
+    "$KEYTOOL" -genkeypair -v \
         -keystore "$KEYSTORE" -storepass android -alias androiddebugkey -keypass android \
         -keyalg RSA -keysize 2048 -validity 10000 \
         -dname "CN=Android Debug, O=Android, C=US" >/dev/null 2>&1
@@ -138,7 +183,7 @@ fi
 # explicitly: without them aapt2 assumes a low targetSdk and the APK gains
 # implied legacy permissions (WRITE_EXTERNAL_STORAGE, READ_PHONE_STATE).
 rm -f "$OUT"
-"$BT/aapt2" link -o "$OUT" \
+"$AAPT2" link -o "$OUT" \
     --manifest "$MANIFEST" \
     -I "$PLATFORM_JAR" \
     --min-sdk-version 26 --target-sdk-version 34 --debug-mode
@@ -167,11 +212,11 @@ rm -rf "$STAGE"
 
 # 5. Align then sign. zipalign must run before apksigner (signing covers
 # the aligned bytes).
-"$BT/zipalign" -f 4 "$OUT" "$OUT.aligned"
+"$ZIPALIGN" -f 4 "$OUT" "$OUT.aligned"
 mv "$OUT.aligned" "$OUT"
-"$BT/apksigner" sign --ks "$KEYSTORE" --ks-pass pass:android --key-pass pass:android "$OUT"
+"$APKSIGNER" sign --ks "$KEYSTORE" --ks-pass pass:android --key-pass pass:android "$OUT"
 
 echo "=== $OUT ==="
 ls -la "$OUT"
-"$BT/apksigner" verify --verbose --print-certs "$OUT"
-"$BT/aapt2" dump badging "$OUT" | head -8
+"$APKSIGNER" verify --verbose --print-certs "$OUT"
+"$AAPT2" dump badging "$OUT" | head -8
