@@ -101,7 +101,7 @@ What a build does:
      install step) and to Android/app/src/main/jniLibs/<abi>/, syncs
      Assets/ to Android/app/src/main/assets/ (AIHistory excluded), and
      verifies the AndroidManifest.xml NativeActivity entry (see below).
-  4. Builds the debug APK with aapt2 (scope/apk/package-apk.sh),
+  4. Builds the debug APK with aapt2 (Android/package-apk.sh),
      AFTER the install, so the APK packages the root .so and Assets/.
      Debug/arm64-v8a only; skipped with a clear note otherwise
      (missing packaging script, release build, or another ABI).
@@ -238,7 +238,7 @@ PYEOF
 #   2. Assets/ to the Gradle project's assets/ (AIHistory excluded).
 #   3. NativeActivity entry in AndroidManifest.xml (verified, repaired
 #      if missing or wrong — see ensure_native_activity above).
-#   4. Debug APK via scope/apk/package-apk.sh (aapt2), debug/arm64-v8a
+#   4. Debug APK via Android/package-apk.sh (aapt2), debug/arm64-v8a
 #      only; skipped with a clear note otherwise.
 install_and_package_android() {
     local _so="${BUILD_DIR}/libCPGE.so"
@@ -257,7 +257,7 @@ install_and_package_android() {
     echo "Installed: ${_jni}/libCPGE.so"
 
     # 2. Assets/ to the Gradle project's assets/ (AIHistory excluded,
-    #    exactly as scope/apk/package-apk.sh does for the APK).
+    #    exactly as Android/package-apk.sh does for the APK).
     local _assets="${PROJECT_ROOT}/Android/app/src/main/assets"
     mkdir -p "${_assets}"
     if command -v rsync &>/dev/null; then
@@ -277,12 +277,12 @@ install_and_package_android() {
     # 4. APK, built AFTER the install so it packages the root .so and
     #    Assets/. aapt2 packaging is debug/arm64-v8a only
     #    (package-apk.sh hardcodes that pair).
-    local _apk_script="${PROJECT_ROOT}/../scope/apk/package-apk.sh"
+    local _apk_script="${PROJECT_ROOT}/Android/package-apk.sh"
     if [[ "${CONFIG}" == "Debug" && "${ABI}" == "arm64-v8a" ]]; then
         if [[ -x "${_apk_script}" ]]; then
             echo "Packaging APK with aapt2: ${_apk_script} ${ARG1,,}"
             if "${_apk_script}" "${ARG1,,}"; then
-                echo "APK packaged: scope/apk/cpge-${ARG1,,}-debug.apk"
+                echo "APK packaged: Android/cpge-${ARG1,,}-debug.apk"
             else
                 echo "ERROR: APK packaging failed."
                 echo "  Library build: SUCCEEDED (libCPGE.so installed to the project root and jniLibs/${ABI}/)."
@@ -290,11 +290,12 @@ install_and_package_android() {
                 return 1
             fi
         else
-            echo "NOTE: APK packaging skipped — ${_apk_script} not found."
-            echo "  That script lives in the workspace scope/ folder, not in this repo;"
-            echo "  on a plain checkout, package with Gradle instead:"
-            echo "    cd Android && ./gradlew assembleDebug"
+            # The packaging script ships in the repo — its absence means a
+            # broken checkout, not a missing optional tool, so fail loudly.
+            echo "ERROR: APK packaging script missing: ${_apk_script}"
+            echo "  It ships in the repo at Android/package-apk.sh — your checkout is incomplete."
             echo "  Library build: SUCCEEDED (libCPGE.so installed to the project root and jniLibs/${ABI}/)."
+            return 1
         fi
     else
         echo "NOTE: APK packaging skipped — aapt2 packaging is debug/arm64-v8a only (this build: ${CONFIG}/${ABI})."

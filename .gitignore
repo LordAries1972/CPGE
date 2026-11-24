@@ -38,3 +38,12 @@ Except-CallStack.log
 /libCPGE.so
 /Android/app/src/main/jniLibs/
 /Android/app/src/main/assets/
+
+# APK packaging outputs (25 Nov 2026): package-apk.sh / build-dex.sh live
+# in Android/ now; their outputs are regenerated on every packaging run.
+/Android/cpge-*-debug.apk
+/Android/cpge-*-debug.apk.idsig
+/Android/classes.dex
+/Android/debug.keystore
+/Android/stage-*/
+/Android/dex-classes/

@@ -17,12 +17,16 @@ NativeActivity app that packages the engine (`libCPGE.so`) as an APK. Created
 - `build.gradle` / `settings.gradle` — root project, Android Gradle Plugin 8.5.2.
 - `gradle.properties` — pins the Temurin JDK 17 (see below) and the NDK version.
 - `gradle/wrapper/` — Gradle 8.7 wrapper.
+- `package-apk.sh` — manual aapt2 APK packaging (25 Nov 2026: moved into
+  the repo from the workspace `scope/apk/` folder; the primary APK path).
+- `build-dex.sh` — compiles the Java helpers to `classes.dex` (same
+  folder; `package-apk.sh` adds it to the APK automatically).
 - `app/src/main/java/com/ultimanium/cpge/CpgeTts.java` — the Java helper
   for Android TTS (Phase D step 3): a thin wrapper over
   `android.speech.tts.TextToSpeech`, driven through JNI from the native
   `TTSManager`. The manifest no longer declares `hasCode="false"`, so
   the APK carries `classes.dex` for it (built by
-  `../scope/apk/build-dex.sh`; Gradle picks the sources up from the
+  `build-dex.sh` in this folder; Gradle picks the sources up from the
   standard `src/main/java` location automatically).
 
 ## Prerequisites
@@ -87,13 +91,17 @@ On a successful build the script automates the whole post-build flow
    `libCPGE.so`); the MAIN/LAUNCHER intent-filter puts the app in the
    launcher. GameActivity is the newer Jetpack alternative; this
    project uses NativeActivity.
-4. The debug APK is built with aapt2 (`../scope/apk/package-apk.sh`),
+4. The debug APK is built with aapt2 (`Android/package-apk.sh`),
    AFTER the install, so the APK packages the root `.so` and
    `Assets/`. Debug/arm64-v8a only; skipped with a clear note
-   otherwise (the packaging script lives in the workspace `scope/`
-   folder, not in this repo — on a plain checkout, package with
-   Gradle instead). `package-apk.sh` takes the `.so` from the project
-   root, falling back to the build-dir copy.
+   otherwise (release build or another ABI). `package-apk.sh` takes
+   the `.so` from the project root, falling back to the build-dir copy.
+   The packaging scripts find the SDK from `ANDROID_HOME` (or
+   `ANDROID_SDK_ROOT`), build-tools from
+   `ANDROID_BUILD_TOOLS_VERSION` (default 34.0.0, newest installed as
+   fallback), and the JDK from `JAVA_HOME` (falling back to the SDK
+   tree's JDK 17, then `java` on PATH); when a tool is genuinely
+   missing they fail with what to install.
 
 ## Status (24 Nov 2026, Phase D step 3)
 
@@ -107,8 +115,11 @@ On a successful build the script automates the whole post-build flow
   `lib/arm64-v8a/libCPGE.so` (stored uncompressed), the full `Assets/`
   tree minus `AIHistory`, and `classes.dex` (the TTS helper). Packaged
   by `../scope/apk/package-apk.sh` (manifest via `aapt2 link`, align,
-  sign with a local debug keystore). See the step-3 verification record
-  for the full breakdown. They have never been installed — no device.
+  sign with a local debug keystore). The packaging scripts moved into
+  the repo as `Android/package-apk.sh` / `Android/build-dex.sh` on
+  25 November 2026; new APKs land in `Android/`. See the step-3
+  verification record for the full breakdown. They have never been
+  installed — no device.
 - Gradle still cannot run in this VM (its client↔daemon loopback TCP
   is intercepted by the sandbox network policy). Daniel decided
   24 November 2026 that manual aapt2 packaging is the primary path and
