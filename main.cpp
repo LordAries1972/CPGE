@@ -81,6 +81,13 @@
     #include "TTSManager.h"
 #endif
 
+#if defined(PLATFORM_ANDROID)
+    #include "AndroidApp.h"                        // Shared android_app accessor (SetApp/GetApp/...)
+    #include <android_native_app_glue.h>           // struct android_app, android_main entry
+    #include <android/input.h>                     // AInputEvent, ALooper_pollAll
+    #include <android/keycodes.h>                  // AKEYCODE_*
+#endif
+
 #include "Renderer.h"
 #if defined(PLATFORM_WINDOWS)
     #if defined(__USE_DIRECTX_11__)
@@ -859,13 +866,180 @@ static bool CreateLinuxWindow()
     return true;
 }
 
-#else // neither PLATFORM_WINDOWS nor PLATFORM_LINUX (Android has no desktop
-      // entry point in this phase)
+#elif defined(PLATFORM_ANDROID)
+
+// Android entry-point helpers (NativeActivity via android_native_app_glue).
+// The glue owns the activity lifecycle on its own thread and calls
+// android_main() (below); these helpers bridge the glue event loop into the
+// engine's RunEngine() main loop, which calls PumpPlatformMessages() once per
+// iteration exactly like the Windows/Linux message pumps.
+static void CloseEngineWindow(HINSTANCE /*hInstance*/)
+{
+    // No-op: the ANativeWindow is owned by the activity and is destroyed by
+    // the system (APP_CMD_TERM_WINDOW), not by the engine.
+}
+
+// Set once android_main() has handed control to RunEngine(); a second
+// APP_CMD_INIT_WINDOW after that means the window was recreated, which the
+// renderers cannot rebind to (they bind their surface once at startup).
+static bool s_androidEngineStarted = false;
+
+static void HandleAndroidAppCmd(struct android_app* app, int32_t cmd)
+{
+    switch (cmd)
+    {
+        case APP_CMD_INIT_WINDOW:
+            // The window arrived. If the engine is already running, the window
+            // was recreated (e.g. after the app was backgrounded): request a
+            // clean shutdown instead of rendering into a dead surface.
+            if (s_androidEngineStarted)
+            {
+                debug.logLevelMessage(LogLevel::LOG_WARNING,
+                    L"[Android] Window recreated while the engine is running — requesting shutdown.");
+                g_cpgeQuitRequested.store(true);
+            }
+            break;
+
+        case APP_CMD_TERM_WINDOW:
+            // The window is going away (the EGL/Vulkan surface is dead with
+            // it): shut the engine down cleanly. Relaunching the app starts it
+            // again from scratch.
+            debug.logLevelMessage(LogLevel::LOG_INFO, L"[Android] Window terminated — requesting shutdown.");
+            g_cpgeQuitRequested.store(true);
+            break;
+
+        case APP_CMD_DESTROY:
+            g_cpgeQuitRequested.store(true);
+            break;
+
+        case APP_CMD_PAUSE:
+        case APP_CMD_RESUME:
+        case APP_CMD_START:
+        case APP_CMD_STOP:
+        case APP_CMD_GAINED_FOCUS:
+        case APP_CMD_LOST_FOCUS:
+        case APP_CMD_WINDOW_RESIZED:
+        case APP_CMD_CONTENT_RECT_CHANGED:
+            // Lifecycle/focus/resize notifications have no engine hook yet:
+            // the main loop keeps running (the OS throttles a backgrounded
+            // app) and the renderers do not handle resize on Android yet.
+            // Known Phase D limitation, logged at debug level only.
+            (void)app;
+            break;
+
+        default:
+            break;
+    }
+}
+
+static int32_t HandleAndroidInputEvent(struct android_app* app, AInputEvent* event)
+{
+    (void)app;
+    const int32_t type = AInputEvent_getType(event);
+
+    if (type == AINPUT_EVENT_TYPE_KEY)
+    {
+        // Keyboard / gamepad button: the keyboard handler owns key events,
+        // the joystick backend owns gamepad buttons (same split as Linux,
+        // where KeyboardHandler owns the keyboard and evdev owns the pad).
+        if (KeyboardHandler::GetInstance().HandleAndroidInputEvent(event))
+            return 1;
+        if (js.HandleAndroidInputEvent(event))
+            return 1;
+        return 0;
+    }
+
+    if (type == AINPUT_EVENT_TYPE_MOTION)
+    {
+        const int32_t source = AInputEvent_getSource(event);
+        if ((source & AINPUT_SOURCE_JOYSTICK) != 0 || (source & AINPUT_SOURCE_GAMEPAD) != 0)
+        {
+            // Gamepad stick/trigger motion -> joystick backend.
+            return js.HandleAndroidInputEvent(event) ? 1 : 0;
+        }
+        if ((source & AINPUT_SOURCE_TOUCHSCREEN) != 0)
+        {
+            // Touchscreen -> pointer (mouse) for the GUI, mirroring the X11
+            // MotionNotify/ButtonPress handling in HandleLinuxEvent. Only
+            // pointer 0 drives the GUI cursor; extra fingers are ignored.
+            const float x = AMotionEvent_getX(event, 0);
+            const float y = AMotionEvent_getY(event, 0);
+            const int32_t action = AMotionEvent_getAction(event) & AMOTION_EVENT_ACTION_MASK;
+            switch (action)
+            {
+                case AMOTION_EVENT_ACTION_DOWN:
+                    cursorPos.x = static_cast<LONG>(x);
+                    cursorPos.y = static_cast<LONG>(y);
+                    myMouseCoords.x = x;
+                    myMouseCoords.y = y;
+                    isLeftClicked = true;
+                    guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
+                    break;
+                case AMOTION_EVENT_ACTION_UP:
+                case AMOTION_EVENT_ACTION_CANCEL:
+                    cursorPos.x = static_cast<LONG>(x);
+                    cursorPos.y = static_cast<LONG>(y);
+                    myMouseCoords.x = x;
+                    myMouseCoords.y = y;
+                    isLeftClicked = false;
+                    guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
+                    break;
+                case AMOTION_EVENT_ACTION_MOVE:
+                    cursorPos.x = static_cast<LONG>(x);
+                    cursorPos.y = static_cast<LONG>(y);
+                    myMouseCoords.x = x;
+                    myMouseCoords.y = y;
+                    if (cursorPos.x >= winMetrics.width)
+                        myMouseCoords.x = static_cast<float>(winMetrics.width - 1);
+                    if (cursorPos.y >= winMetrics.height)
+                        myMouseCoords.y = static_cast<float>(winMetrics.height - 1);
+                    guiManager.HandleAllInput(myMouseCoords, isLeftClicked);
+                    break;
+                default:
+                    break;
+            }
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static bool PumpPlatformMessages()
+{
+    struct android_app* app = AndroidApp::GetApp();
+    if (!app)
+        return false;
+
+    // Drain the glue looper without blocking: each pending source is
+    // processed (app commands + input events) and the call reports whether
+    // anything was handled, mirroring the PeekMessage cadence.
+    // (ALooper_pollAll is marked unavailable by the NDK — it may ignore
+    // wakes — so the loop polls once per event instead.)
+    int ident;
+    int events;
+    struct android_poll_source* source = nullptr;
+    bool handled = false;
+    while ((ident = ALooper_pollOnce(0, nullptr, &events, reinterpret_cast<void**>(&source))) >= 0)
+    {
+        if (source)
+            source->process(app, source);
+        handled = true;
+        if (app->destroyRequested)
+        {
+            g_cpgeQuitRequested.store(true);
+            break;
+        }
+    }
+    return handled;
+}
+
+#else // neither PLATFORM_WINDOWS, PLATFORM_LINUX nor PLATFORM_ANDROID
 
 static void CloseEngineWindow(HINSTANCE /*hInstance*/) {}
 static bool PumpPlatformMessages() { return false; }
 
-#endif // PLATFORM_WINDOWS / PLATFORM_LINUX
+#endif // PLATFORM_WINDOWS / PLATFORM_LINUX / PLATFORM_ANDROID
 
 
 // *----------------------------------------------------------------------------------------------
@@ -1012,7 +1186,77 @@ int main(int argc, char* argv[])
         return RunEngine(nullptr, 0);
     #endif
 }
-#endif // PLATFORM_WINDOWS / PLATFORM_LINUX
+
+#elif defined(PLATFORM_ANDROID)
+// ----------------------------------------------------------------------------------------------
+// Android entry point: NativeActivity via android_native_app_glue.
+// The glue (compiled into the .so by Linux/CMakeLists.txt) exports
+// ANativeActivity_onCreate, spawns this thread and calls android_main() with
+// the android_app. The preamble mirrors WinMain / Linux main() (base directory,
+// config, renderer instance) and then hands control to the shared RunEngine()
+// body. The ANativeWindow arrives asynchronously through APP_CMD_INIT_WINDOW,
+// so android_main blocks on the looper until the window exists.
+// ----------------------------------------------------------------------------------------------
+void android_main(struct android_app* app)
+{
+    // The glue's android_app is the single source of truth for the activity
+    // (asset manager, internal-storage path, window, input queue); every other
+    // subsystem reads it through AndroidApp.
+    AndroidApp::SetApp(app);
+    app->onAppCmd = HandleAndroidAppCmd;
+    app->onInputEvent = HandleAndroidInputEvent;
+
+    // Wait for the window (blocking poll): the renderers bind their surface
+    // once at startup, so there is nothing to do before APP_CMD_INIT_WINDOW.
+    // (ALooper_pollAll is marked unavailable by the NDK — see
+    // PumpPlatformMessages — so each iteration polls once.)
+    int ident;
+    int events;
+    struct android_poll_source* source = nullptr;
+    while (!app->window)
+    {
+        ident = ALooper_pollOnce(-1, nullptr, &events, reinterpret_cast<void**>(&source));
+        if (ident >= 0 && source)
+            source->process(app, source);
+        if (app->destroyRequested)
+            return;
+    }
+
+    // Initialize local Buffers.
+    SecureZeroMemory(&winMetrics, sizeof(WindowMetrics));
+    SecureZeroMemory(&errorMsg, sizeof(errorMsg));
+
+    // Writable home: the activity's internal-storage directory (see
+    // WinSystemAndroid::Get_Current_Directory). Read-only game data comes
+    // from the APK asset manager (FileIO), never from here.
+    baseDir = sysUtils.Get_Current_Directory();
+
+    // GameConfig.cfg lives in internal storage (writable); a missing file
+    // falls back to defaults and is saved there by loadConfig().
+    if (!AndroidApp::GetInternalDataPath().empty())
+        config.setConfigFile(sysUtils.widen(AndroidApp::GetInternalDataPath() + "/GameConfig.cfg"));
+
+    // Load in our Configuration file.
+    config.loadConfig();
+
+    // Create appropriate Renderer Interface
+    if (CreateRendererInstance() != EXIT_SUCCESS)
+    {
+        debug.logLevelMessage(LogLevel::LOG_CRITICAL, L"[SYSTEM]: Failed to Renderer Instance.\n");
+        return;
+    }
+
+    // The ANativeWindow is the engine's window handle (HWND is void* on
+    // Android and carries the ANativeWindow* — see Platform.h). Both
+    // renderers take it from hwnd: OpenGLRenderer::CreateOpenGLContext and
+    // VulkanRenderer::Initialize (which stores it as m_nativeWindow).
+    hwnd = reinterpret_cast<HWND>(app->window);
+
+    s_androidEngineStarted = true;
+    RunEngine(nullptr, 0);
+    s_androidEngineStarted = false;
+}
+#endif // PLATFORM_WINDOWS / PLATFORM_LINUX / PLATFORM_ANDROID
 
 // ----------------------------------------------------------------------------------------------
 // RunEngine() — the shared engine body used by every platform entry point.
@@ -2238,6 +2482,17 @@ static int RunEngine(HINSTANCE hInstance, int nCmdShow)
         gamingAI.Cleanup();
     #endif
     threadManager.Cleanup();
+#elif defined(PLATFORM_MACOS) || defined(PLATFORM_IOS)
+    // Apple shutdown order: the same join-before-teardown as Linux/Android
+    // — the render thread must not outlive the renderer. No Apple entry
+    // point calls RunEngine() yet, so this arm is latent today; it exists
+    // so the final Windows-only threadManager.Cleanup() below is not the
+    // only join and Apple does not silently skip joining the workers.
+    #if defined(__USE_GAMINGAI__)
+        gamingAI.EndMonitoring();
+        gamingAI.Cleanup();
+    #endif
+    threadManager.Cleanup();
 #endif
 
     // Release the Renderer System.
@@ -2335,9 +2590,10 @@ static int RunEngine(HINSTANCE hInstance, int nCmdShow)
 
 #if defined(PLATFORM_WINDOWS)
     // IMPORTANT: DO THIS LAST!!!
-    // Now clean up the Thread Manager. (Windows only: on Linux/Android the
-    // worker threads are already joined before renderer->Cleanup() above,
-    // so they cannot touch freed renderer resources.)
+    // Now clean up the Thread Manager. (Windows only: on Linux/Android/
+    // macOS/iOS the worker threads are already joined before
+    // renderer->Cleanup() above, so they cannot touch freed renderer
+    // resources.)
     threadManager.Cleanup();
 #endif
 

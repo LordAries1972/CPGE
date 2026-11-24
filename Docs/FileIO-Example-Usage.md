@@ -1190,6 +1190,61 @@ struct FileIOErrorStatus {
 
 ---
 
+## Android — APK assets via AAssetManager (24 November 2026)
+
+On Android, read-only game data (textures, models, audio, movies) ships
+inside the APK, not as files on disk, so `std::ifstream` cannot open it.
+`ExecuteStreamReadFile` now tries the asset manager first for relative
+paths, and falls back to the filesystem for everything else:
+
+```cpp
+// FileIO.cpp (Android only) — whole-file read from the APK assets.
+static bool ReadAndroidAsset(const std::string& filename,
+                             std::vector<uint8_t>& out);
+// Only relative asset paths are tried: a leading '/' or a ".." segment is
+// an internal-storage / absolute path, not an asset name. Returns false
+// when there is no asset manager yet (before android_main calls
+// AndroidApp::SetApp) or the asset does not exist, so the caller falls
+// back to the filesystem read below it.
+```
+
+The read then continues exactly as before (PUNPack decompression,
+`readBuffer`, empty-file handling), so callers do not change:
+
+```cpp
+// One call, both sources — assets first, internal storage second:
+fileIO.ReadFile("textures/logo.dds");   // APK asset on Android
+fileIO.ReadFile("GameConfig.cfg");      // internal storage (writable)
+```
+
+What goes where on Android:
+
+- **APK assets** (read-only): textures, models, audio, movies — anything
+  the game only reads. Copy the repo's `Assets/` tree into the APK's
+  `assets/` folder (Gradle `src/main/assets/` — not wired yet).
+- **Internal storage** (writable, `AndroidApp::GetInternalDataPath()`):
+  `GameConfig.cfg`, saves, `DebugLog.txt`. `android_main` points the config
+  at `<internal>/GameConfig.cfg`.
+
+The text readers (`IsASCIIFile`, the line reader) still use `ifstream` —
+they read writable/internal-storage files (config, saves), not assets. A
+failed `tellg()` (seek error) is now treated as an open failure instead of
+resizing to a huge size (previously `size_t fileSize = inFile.tellg()` could
+wrap `-1` and throw `bad_alloc`).
+
+The 8 raw `__ANDROID__` guard sites (`__linux__ || __APPLE__ ||
+__ANDROID__ || TARGET_OS_IPHONE ...` chains in the delete / size / exists /
+current-directory / rename / copy / move dispatch and the Unix
+implementations block) are now `PLATFORM_LINUX || PLATFORM_MACOS ||
+PLATFORM_ANDROID || PLATFORM_IOS`, and `FileIO.h`'s platform include chain
+is `PLATFORM_*` with Android tested before Linux (Android also defines
+`__linux__`, so the old order took the Linux arm on Android — same headers
+today, but the wrong branch). No behaviour change on any platform.
+
+Verification: Vulkan Android build links clean with the asset path
+(`android-vulkan-build-8.log`, exit 0). Asset reads are untested on a
+device (no device/emulator was available) — step 3 work.
+
 ## Conclusion
 
 The FileIO class provides a comprehensive, thread-safe, and efficient solution for file operations in C++ applications. By following the patterns and examples in this documentation, you can effectively integrate robust file I/O capabilities into your applications while maintaining optimal performance and reliability.

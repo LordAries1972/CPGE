@@ -2390,3 +2390,37 @@ The low-level hook is the fast path, but Windows silently drops hook events, and
 ## Platform-directive fix — Android before Linux (24 November 2026)
 
 The platform branches in `KeyboardHandler.h` tested `__linux__` before `__ANDROID__`. Android also defines `__linux__`, so an Android build would have taken the Linux branch. The Android branch now comes first and the Linux branch is `#elif defined(__linux__) && !defined(__ANDROID__)`. No behaviour change on Linux or Windows; Android now takes the correct branch.
+
+## Android input — HandleAndroidInputEvent (24 November 2026)
+
+On Android, keyboard input arrives as `AInputEvent`s from the app-glue
+input queue (called by `main.cpp`'s glue `onInputEvent` callback, on the
+engine thread — no extra threading is needed). `HandleAndroidInputEvent`
+maps each key event to the engine's `KeyCode` enum and feeds it to the
+existing `HandleKeyDown` / `HandleKeyUp` path, so hotkeys, the key log and
+edge detection (`IsKeyJustPressed` / `UpdateKeyStates`) all work unchanged.
+
+```cpp
+// KeyboardHandler.h (Android only)
+bool HandleAndroidInputEvent(AInputEvent* event);
+// Returns true when the event was a key event this handler consumed.
+// Gamepad buttons and motion events are NOT consumed here — the Joystick
+// backend owns them (events with a gamepad source return false).
+```
+
+Mapped keys: letters A–Z, digits 0–9, F1–F12 (the NDK defines no F13–F15
+keycodes, so the engine's `KEY_F13`–`KEY_F15` are never produced on
+Android), modifiers, arrows, Home/End, Page
+Up/Down, Space, Enter, Backspace (`DEL`), Delete (`FORWARD_DEL`), Tab,
+Escape, Caps/Num/Scroll Lock, the numpad block, punctuation, and the
+Android keys `BACK` → `KEY_ANDROID_BACK`, `MENU` → `KEY_ANDROID_MENU`,
+`SEARCH` → `KEY_ANDROID_SEARCH`, `VOLUME_UP/DOWN/MUTE`, `POWER`. Letters,
+digits, F-keys and numpad digits map arithmetically (both enums are
+contiguous ranges); everything else is an explicit case. Unmapped codes
+return `KEY_UNKNOWN` and the event is dropped. Key repeats arrive as
+separate `DOWN` events (`ACTION_MULTIPLE` is not generated for physical
+keys on Android).
+
+Verification: Vulkan Android build links clean with the handler
+(`android-vulkan-build-8.log`, exit 0). Real keyboard input is untested
+(no device/emulator was available) — step 3 work.

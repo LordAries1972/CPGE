@@ -35,7 +35,7 @@
     using namespace DirectX;
 
 #elif defined(__USE_OPENGL__)
-    #if defined(_WIN32) || defined(_WIN64)
+    #if defined(PLATFORM_WINDOWS)
         #ifndef GLEW_STATIC
         #define GLEW_STATIC
         #endif
@@ -43,8 +43,19 @@
         #pragma warning(disable: 4005)
         #include <GL/glew.h>
         #pragma warning(pop)
-    #elif defined(__linux__) || defined(__ANDROID__)
+    #elif defined(PLATFORM_LINUX)
         #include <GL/glew.h>
+        #include <glm/glm.hpp>
+        #include <glm/gtc/matrix_transform.hpp>
+        // NOTE: do NOT re-alias XMFLOAT3/XMFLOAT4/XMMATRIX to glm types here —
+        // Includes.h already defines them (Vector3/Vector4/Matrix4x4) and a
+        // second definition is a compile error in every TU that includes this
+        // header. glm:: types are used directly where GLM math is needed.
+    #elif defined(PLATFORM_ANDROID)
+        // Android: no GLEW in the NDK — GLES3 provides the GL types. GLM is
+        // staged into the build dir by Linux/CMakeLists.txt (never -I /usr/include,
+        // which would let host glibc headers shadow the Bionic sysroot).
+        #include <GLES3/gl3.h>
         #include <glm/glm.hpp>
         #include <glm/gtc/matrix_transform.hpp>
         // NOTE: do NOT re-alias XMFLOAT3/XMFLOAT4/XMMATRIX to glm types here —

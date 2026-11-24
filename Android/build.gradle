@@ -1,0 +1,6 @@
+// CPGE Android Gradle project (Phase D step 2, 24 Nov 2026).
+// Android Gradle Plugin 8.5.2 + Gradle 8.7 + JDK 17 (Temurin, installed
+// under ~/workspace/android-sdk — see gradle.properties).
+plugins {
+    id 'com.android.application' version '8.5.2' apply false
+}

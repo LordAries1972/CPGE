@@ -15,6 +15,10 @@
 #include <set>
 #include <string>
 
+#if defined(PLATFORM_ANDROID)
+#include <android/input.h>          // AInputEvent (Android gamepad input, Phase D)
+#endif
+
 // ---- Joystick error policy -------------------------------------------------------------------------------------------------------------------------------
 // A joystick is an optional input device.  Losing one must never end the game.
 //
@@ -161,6 +165,15 @@ public:
     static const wchar_t* PadTypeName(PadType t);
     bool ReadRawPad(int joystickID, JOYINFOEX& ji);                                  // locked joyGetPosEx for one slot (false = missing / unplugged); fills dwSize and dwFlags itself
 
+#if defined(PLATFORM_ANDROID)
+    // Android: feed one AInputEvent from the app-glue input queue into the
+    // backend (called by main.cpp's glue onInputEvent callback on the engine
+    // thread). Returns true when the event was a gamepad event this backend
+    // consumed (key or motion); keyboard keys are NOT consumed here — the
+    // KeyboardHandler backend owns them.
+    bool HandleAndroidInputEvent(AInputEvent* event);
+#endif
+
     // Status snapshot for DebugLog.txt.  Writes one line through the diagnostics
     // path (never a dialog, never quits): active count, each slot's pad type /
     // vendor / product / buttons / axes / triggersOnZ, the last winmm result and
@@ -235,6 +248,30 @@ private:
     // Paths that already produced a one-time open warning (permission /
     // other error), so a re-scan does not repeat the same warning.
     std::set<std::string> m_evdevWarnedPaths;
+#endif
+#if defined(PLATFORM_ANDROID)
+    // ---------------------------------------------------------------------
+    // Per-slot Android state (Android only).  The NDK exposes no gamepad
+    // enumeration API, so the first gamepad event from a device claims a
+    // free slot (HandleAndroidInputEvent matches later events to the slot
+    // by the event's device id — Phase D step 3); detectJoysticks()
+    // reports a slot while any gamepad event has been seen for it.  The
+    // cache mirrors EvdevSlot: HandleAndroidInputEvent writes it,
+    // AndroidFillJoyInfo translates it into the winmm JOYINFOEX the game
+    // code already understands.
+    // ---------------------------------------------------------------------
+    struct AndroidSlot {
+        bool seen = false;                          // any gamepad event received
+        int32_t deviceId = -1;                      // AInputEvent device id that owns this slot
+        float axisX = 0.0f, axisY = 0.0f;           // left stick, -1..1
+        float axisZ = 0.0f, axisRz = 0.0f;          // right stick, -1..1
+        float triggerL = 0.0f, triggerR = 0.0f;     // 0..1
+        float hatX = 0.0f, hatY = 0.0f;             // d-pad hat axes, -1/0/1
+        uint32_t buttonMask = 0;                    // logical PadButtons bits
+        uint32_t dpadMask = 0;                      // DPAD keys: bit0 up, bit1 right, bit2 down, bit3 left
+    };
+    std::array<AndroidSlot, MAX_JOYSTICKS> m_android;
+    void AndroidFillJoyInfo(int slot, JOYINFOEX& ji) const;
 #endif
     // Central warning path.  Every joystick failure in this file goes through
     // one of these two helpers, which use the diagnostics path only, so a

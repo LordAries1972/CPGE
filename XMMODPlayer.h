@@ -4,7 +4,12 @@
 
 #define BUFFER_SIZE (44100 * 2 * 2)
 
+// Winmm.lib is Windows-only (winmm timer APIs): the NDK clang records an
+// unguarded #pragma comment(lib) as a dependent library and its linker then
+// fails to find Winmm.lib, so this pragma must stay inside the Windows arm.
+#if defined(PLATFORM_WINDOWS)
 #pragma comment(lib, "Winmm.lib")
+#endif
 
 // DirectSound types needed for the member declarations below.
 // Guard on PLATFORM_WINDOWS so the header remains portable on Linux/Android.

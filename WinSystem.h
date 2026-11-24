@@ -124,10 +124,12 @@ private:
 // the exact same WindowMetrics / SystemUtils interface so those files compile
 // unchanged; the methods are implemented in WinSystemLinux.cpp (X11 where a
 // real answer exists, std::filesystem/chrono elsewhere, silent no-op where
-// the concept does not exist on Linux, e.g. the Win32 message pump).
+// the concept does not exist on Linux, e.g. the Win32 message pump) and in
+// WinSystemAndroid.cpp for Android (ANativeWindow / internal storage).
 //
 // HWND here is the portable void* alias from Platform.h: on Linux it carries
-// an X11 Window cast through uintptr_t; hInstance is unused (always null).
+// an X11 Window cast through uintptr_t; on Android it carries an
+// ANativeWindow*; hInstance is unused (always null).
 // ----------------------------------------------------------------------------------------------
 enum WindowsVersion
 {

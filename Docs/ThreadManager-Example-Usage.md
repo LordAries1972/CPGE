@@ -39,6 +39,7 @@
 15. [Advanced Usage](#advanced-usage)
 16. [API Reference](#api-reference)
 17. [Linux/Android Shutdown Order (24 November 2026)](#linuxandroid-shutdown-order-24-november-2026)
+18. [macOS/iOS Early-Join Arm (24 November 2026)](#macosios-early-join-arm-24-november-2026)
 
 ---
 
@@ -1914,3 +1915,29 @@ its loop exit on `threadVars.bIsShuttingDown` (and on its own
 `GetThreadStatus() == ThreadStatus::Running` check, like the FileIO
 thread). If the thread has its own shutdown flag, stop it explicitly
 before `threadManager.Cleanup()` runs, or the join will hang the shutdown.
+
+## macOS/iOS Early-Join Arm (24 November 2026)
+
+**The gap:** after the shutdown-order fix above, the early join lived
+behind `#if defined(PLATFORM_LINUX) || defined(PLATFORM_ANDROID)` while
+the final `threadManager.Cleanup()` at the end of `RunEngine()` was
+`#if defined(PLATFORM_WINDOWS)` only — so on macOS/iOS **no join ran at
+all**. No Apple entry point calls `RunEngine()` yet, so this was latent,
+not a live bug; but the first Apple entry point would have shipped a
+shutdown that never joined its workers.
+
+**The fix (`main.cpp`):** the early shutdown block gained an
+`#elif defined(PLATFORM_MACOS) || defined(PLATFORM_IOS)` arm that does
+exactly what the Linux/Android arm does — stop the AI thread first
+(`gamingAI.EndMonitoring()` / `Cleanup()`, idempotent, so the later
+shared calls are safe no-ops), then `threadManager.Cleanup()` before
+`renderer->Cleanup()`. The final Windows-only call is untouched, and its
+comment now reads Linux/Android/macOS/iOS. Windows behaviour is
+unchanged: the new code sits inside a non-Windows `#elif` and the only
+other change is that comment.
+
+**How to use it:** when a new platform entry point is added, check that
+it lands in one of the early-join arms — the rule is that *every*
+platform joins its workers before the renderer is torn down, and the
+Windows-only call at the end of `RunEngine()` must never be the only
+join on a platform.

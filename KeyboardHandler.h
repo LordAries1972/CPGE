@@ -460,6 +460,16 @@ public:
     // Convert platform-specific key code to our KeyCode enum
     KeyCode PlatformKeyToKeyCode(uint32_t platformKey) const;
 
+#if defined(PLATFORM_ANDROID)
+    // Android: feed one AInputEvent from the app-glue input queue into the
+    // handler (called by main.cpp's glue onInputEvent callback on the engine
+    // thread). Returns true when the event was a key event this handler
+    // consumed (key down/up -> HandleKeyDown/HandleKeyUp, including the
+    // BACK key, which maps to KEY_ANDROID_BACK). Gamepad buttons and motion
+    // events are NOT consumed here — the Joystick backend owns them.
+    bool HandleAndroidInputEvent(AInputEvent* event);
+#endif
+
     // Get current modifier flags (Ctrl, Shift, Alt combinations)
     uint32_t GetCurrentModifierFlags() const;
 

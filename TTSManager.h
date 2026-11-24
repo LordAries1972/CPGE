@@ -153,6 +153,15 @@ public:
     TTSConfiguration LoadConfiguration();                                   // Load TTS configuration
     void ResetToDefaults();                                                 // Reset all settings to defaults
 
+#if defined(PLATFORM_ANDROID)
+    // JNI callback entry point (Phase D step 3): called by
+    // CpgeTts.nativeOnUtteranceDone when an utterance finishes, fails or
+    // is stopped. Not part of the engine API — it wakes a waiting Play()
+    // and clears the speaking state. Public only because the free JNI
+    // function in TTSManager.cpp must be able to call it.
+    void OnAndroidUtteranceDone(const std::string& utteranceId);
+#endif
+
 private:
     // Private member variables
     bool m_bIsInitialized;                                                  // Flag indicating if TTS is initialized
@@ -195,12 +204,20 @@ private:
     void LogTTSError(HRESULT hr, const std::wstring& operation) const;      // Log TTS-specific errors
     std::wstring HResultToString(HRESULT hr) const;                         // Convert HRESULT to readable string
 #else
-    // Linux (Phase B): eSpeak-ng backend. Android (Phase D) will use the
-    // platform TextToSpeech via JNI; until then TTS is disabled there.
-    // The helpers above are Windows-only. The eSpeak state lives in
-    // TTSManager.cpp behind the opaque void* m_espeak, and the two
-    // callbacks below are invoked from eSpeak's synthesis thread.
+    // Linux (Phase B): eSpeak-ng backend. Android (Phase D step 3) uses
+    // the platform TextToSpeech via JNI (see TTSManager.cpp, Android
+    // section, and CpgeTts.java); the helpers above are Windows-only.
+    // The eSpeak state lives in TTSManager.cpp behind the opaque void*
+    // m_espeak, and the two callbacks below are invoked from eSpeak's
+    // synthesis thread.
     void* m_espeak = nullptr;
+#if defined(PLATFORM_ANDROID)
+    // Android JNI backend state (opaque; the TTSAndroid struct lives in
+    // TTSManager.cpp behind this pointer, like m_espeak on Linux) and
+    // the speak helper shared by Play and PlayAsync.
+    void* m_android = nullptr;
+    bool AndroidSpeak(const std::string& utf8Text);
+#endif
     #if HAS_ESPEAK
     void OnEspeakAudio(const short* wav, int numsamples);
     void OnEspeakUtteranceDone();

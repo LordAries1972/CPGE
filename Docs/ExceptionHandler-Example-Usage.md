@@ -1420,3 +1420,26 @@ dies with the original signal (`SIGSEGV`, `SIGABRT`, ...), which is what
 crash reporters, `systemd`, and debuggers expect. Do not add locks, heap
 allocation, or logging calls that take locks inside a signal handler - only
 async-signal-safe operations belong there.
+## 24 November 2026 — Android stack-walk guards (Phase D step 2)
+
+Two Android build fixes in `ExceptionHandler.h` / `ExceptionHandler.cpp`:
+
+1. **Guard order.** `PLATFORM_ANDROID` is now tested before
+   `PLATFORM_LINUX` in the include chain and in `GetCurrentStackTrace`,
+   `CaptureStackTrace` and `GetBasicStackTrace`. Android also defines
+   `__linux__`, so the old order took the Linux branch on Android.
+
+2. **`backtrace()` is unavailable below API 33.** Bionic's `backtrace()`
+   is `__INTRODUCED_IN(33)` — the NDK ships `execinfo.h`, but the symbol
+   is hidden at the `android-24` / `android-26` API level the build
+   targets — so the `backtrace()` arms are excluded on Android and stack
+   walking is disabled there (callers already handle a zero frame count).
+   The `dladdr` arms were deliberately left on the `__linux__` branch:
+   they work on Android, and excluding Android would regress symbol
+   resolution. That is guard-spelling debt only, not a behaviour change.
+
+No behaviour change on Linux or Windows. Verification: Vulkan Android
+build links clean (`android-vulkan-build-8.log`, exit 0). The final Linux
+re-verify (`./cmake-build.sh all debug -clean`) ran after the EGL work and
+passed — `PASSED: opengl vulkan`, 0 errors (log
+`scope/linux-reverify-step2-egl.log`; see `scope/PHASE_D_STEP2_VERIFICATION.md`).

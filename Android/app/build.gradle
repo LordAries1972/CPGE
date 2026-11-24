@@ -1,0 +1,66 @@
+// CPGE Android app module (Phase D step 2, 24 Nov 2026).
+// NativeActivity app: the whole engine is the native libCPGE.so built from
+// Linux/CMakeLists.txt (externalNativeBuild below). The one Java file in
+// this module is the CpgeTts helper for Android TTS (Phase D step 3,
+// src/main/java/com/ultimanium/cpge/CpgeTts.java) — reached only through
+// JNI from the native TTSManager; the activity is still NativeActivity.
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.ultimanium.cpge'
+    compileSdk 34
+
+    // NDK r27c — the version installed under ~/workspace/android-sdk (see
+    // Android/README.md). Keep in sync with Linux/cmake-build-android.sh.
+    ndkVersion '27.2.12479018'
+
+    defaultConfig {
+        applicationId 'com.ultimanium.cpge'
+        // minSdk 26: AAudio, used by the miniaudio sound backend, needs
+        // API 26. Keep in sync with Linux/cmake-build-android.sh
+        // (ANDROID_PLATFORM default android-26).
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        // Engine build version (Phase2 v0.1.1958).
+        versionName '0.1.1958'
+
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+
+        externalNativeBuild {
+            cmake {
+                // Renderer for this APK: vulkan is the furthest along on
+                // Android (the OpenGL ES path still needs the EGL context
+                // work in android-opengl-render.cpp). Switch to opengl
+                // once that lands.
+                arguments '-DRENDERER=vulkan'
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            // The engine's own CMakeLists (driven standalone by
+            // Linux/cmake-build-android.sh). Gradle passes its own
+            // ANDROID_ABI / ANDROID_PLATFORM / toolchain file, as the
+            // script does; RENDERER comes from the arguments above.
+            path '../../Linux/CMakeLists.txt'
+            version '3.28.3'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

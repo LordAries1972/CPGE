@@ -4,6 +4,11 @@
 #include <cstdio>      // std::fwprintf (POSIX EmitMessage path)
 #include <cstdlib>     // std::exit / EXIT_FAILURE (POSIX fatal path)
 #include <cstdarg>     // va_start / va_copy / va_end (came via windows.h on Windows)
+
+#if defined(PLATFORM_ANDROID)
+#include "AndroidApp.h"                 // GetInternalDataPath (log file location, Phase D)
+#include <android/log.h>                // __android_log_print (logcat mirror)
+#endif
 extern ConsoleWindow consoleWindow;
 
 // -----------------------------------------
@@ -62,6 +67,41 @@ void Debug::DebugLog(const std::string& message)
     std::wstring w(message.begin(), message.end());
     logLevelMessage(LogLevel::LOG_DEBUG, w);
 }
+
+#if defined(PLATFORM_ANDROID)
+// Android log file + logcat mirror (Phase D).  The Debug global is
+// constructed during static initialisation, before android_main() runs, so
+// the internal-storage path cannot be resolved at construction time: it is
+// resolved per write from AndroidApp (empty until SetApp).  The first
+// successful write of a session truncates, preserving the "clean slate per
+// session" behaviour ClearLogFile provides on the other platforms (on
+// Android the constructor-time truncate targets cwd "/", which is not
+// writable, so it is a silent no-op).
+static std::string AndroidLogFilePath()
+{
+    const std::string dir = AndroidApp::GetInternalDataPath();
+    if (dir.empty())
+        return std::string();
+    return dir + "/DebugLog.txt";
+}
+
+// Mirror one log line to logcat (visible via `adb logcat -s CPGE`).  The
+// tag prefix of the tagged line ("[DEBUG]: ", "[WARNING]: ", ...) selects
+// the Android priority, so logcat shows the same severities as DebugLog.txt.
+static void AndroidMirrorToLogcat(const std::wstring& taggedLine, const std::wstring& fullOutput)
+{
+    int prio = ANDROID_LOG_INFO;
+    if (taggedLine.rfind(L"[DEBUG]", 0) == 0) prio = ANDROID_LOG_DEBUG;
+    else if (taggedLine.rfind(L"[WARNING]", 0) == 0) prio = ANDROID_LOG_WARN;
+    else if (taggedLine.rfind(L"[ERROR]", 0) == 0 || taggedLine.rfind(L"[CRITICAL]", 0) == 0 ||
+             taggedLine.rfind(L"[TERMINATION]", 0) == 0) prio = ANDROID_LOG_ERROR;
+    std::string narrow;
+    narrow.reserve(fullOutput.size());
+    for (wchar_t wc : fullOutput)
+        narrow.push_back(static_cast<char>(wc));
+    __android_log_print(prio, "CPGE", "%s", narrow.c_str());
+}
+#endif // PLATFORM_ANDROID
 
 void Debug::Insert_Into_Log_File(const std::wstring& filename, const std::wstring& lineMsg)
 {
@@ -138,10 +178,28 @@ void Debug::Insert_Into_Log_File(const std::wstring& filename, const std::wstrin
     for (wchar_t wc : output)
         narrow.push_back(static_cast<char>(wc));
 
+#if defined(PLATFORM_ANDROID)
+    // Android: mirror every line to logcat and write the file to internal
+    // storage — the relative DebugLog.txt path resolves to cwd "/", which is
+    // not writable on Android, so the plain ofstream below would silently
+    // drop every line.  When no activity is attached yet (before SetApp),
+    // the file write is skipped; logcat already has the line.
+    AndroidMirrorToLogcat(lineMsg, output);
+    const std::string androidPath = AndroidLogFilePath();
+    if (androidPath.empty())
+        return;
+    static bool s_androidLogTruncated = false;
+    std::ofstream ofs(androidPath,
+                      std::ios::out | (s_androidLogTruncated ? std::ios::app : std::ios::trunc) | std::ios::binary);
+    s_androidLogTruncated = true;
+    if (ofs)
+        ofs.write(narrow.c_str(), static_cast<std::streamsize>(narrow.size()));
+#else
     std::ofstream ofs(std::string(filename.begin(), filename.end()),
                       std::ios::out | std::ios::app | std::ios::binary);
     if (ofs)
         ofs.write(narrow.c_str(), static_cast<std::streamsize>(narrow.size()));
+#endif
 #endif
 }
 

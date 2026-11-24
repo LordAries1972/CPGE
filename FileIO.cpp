@@ -10,6 +10,11 @@
 #include "FileIO.h"
 #include "ThreadLockHelper.h"
 
+#if defined(PLATFORM_ANDROID)
+#include "AndroidApp.h"                 // GetAssetManager (APK assets, Phase D)
+#include <android/asset_manager.h>      // AAssetManager_open / AAsset_read
+#endif
+
 // External reference declarations
 extern ThreadManager threadManager;
 
@@ -747,7 +752,7 @@ bool FileIO::ExecuteDeleteFile(std::shared_ptr<FileIOTaskData> taskData) {
         // Use platform-specific delete implementation
         #if defined(_WIN64) || defined(_WIN32)
             result = DeleteFileWindows(taskData->primaryFilename);
-        #elif defined(__linux__) || defined(__APPLE__) || defined(__ANDROID__) || defined(TARGET_OS_IPHONE) || defined(TARGET_IPHONE_SIMULATOR)
+        #elif defined(PLATFORM_LINUX) || defined(PLATFORM_MACOS) || defined(PLATFORM_ANDROID) || defined(PLATFORM_IOS)
             result = DeleteFileUnix(taskData->primaryFilename);
         #else
             SetTaskError(taskData, FileIOErrorType::ERROR_PLATFORM_SPECIFIC, "Platform not supported");
@@ -781,7 +786,7 @@ bool FileIO::ExecuteGetFileSize(std::shared_ptr<FileIOTaskData> taskData) {
         // Use platform-specific file size implementation
         #if defined(_WIN64) || defined(_WIN32)
             fileSize = GetFileSizeWindows(taskData->primaryFilename);
-        #elif defined(__linux__) || defined(__APPLE__) || defined(__ANDROID__) || defined(TARGET_OS_IPHONE) || defined(TARGET_IPHONE_SIMULATOR)
+        #elif defined(PLATFORM_LINUX) || defined(PLATFORM_MACOS) || defined(PLATFORM_ANDROID) || defined(PLATFORM_IOS)
             fileSize = GetFileSizeUnix(taskData->primaryFilename);
         #else
             SetTaskError(taskData, FileIOErrorType::ERROR_PLATFORM_SPECIFIC, "Platform not supported");
@@ -821,7 +826,7 @@ bool FileIO::ExecuteFileExists(std::shared_ptr<FileIOTaskData> taskData) {
         // Use platform-specific file exists implementation
         #if defined(_WIN64) || defined(_WIN32)
             exists = FileExistsWindows(taskData->primaryFilename);
-        #elif defined(__linux__) || defined(__APPLE__) || defined(__ANDROID__) || defined(TARGET_OS_IPHONE) || defined(TARGET_IPHONE_SIMULATOR)
+        #elif defined(PLATFORM_LINUX) || defined(PLATFORM_MACOS) || defined(PLATFORM_ANDROID) || defined(PLATFORM_IOS)
             exists = FileExistsUnix(taskData->primaryFilename);
         #else
             SetTaskError(taskData, FileIOErrorType::ERROR_PLATFORM_SPECIFIC, "Platform not supported");
@@ -964,6 +969,41 @@ bool FileIO::ExecuteStreamWriteFile(std::shared_ptr<FileIOTaskData> taskData) {
     return result;
 }
 
+#if defined(PLATFORM_ANDROID)
+// Read a whole file from the APK assets (AAssetManager) into `out`.
+// Only relative asset paths are tried: a path with a leading '/' or a ".."
+// segment is an internal-storage / absolute path, not an asset name.
+// Returns false when there is no asset manager yet (before android_main
+// calls AndroidApp::SetApp) or the asset does not exist, so the caller
+// falls back to the filesystem read (internal storage: GameConfig.cfg,
+// saves, downloaded content).  (No Debug logging here: Debug depends on
+// FileIO, so logging from this file would recurse — see the file header.)
+static bool ReadAndroidAsset(const std::string& filename, std::vector<uint8_t>& out)
+{
+    if (filename.empty() || filename.front() == '/' || filename.find("..") != std::string::npos)
+        return false;
+    AAssetManager* mgr = AndroidApp::GetAssetManager();
+    if (!mgr)
+        return false;
+    AAsset* asset = AAssetManager_open(mgr, filename.c_str(), AASSET_MODE_BUFFER);
+    if (!asset)
+        return false;
+    const off_t size = AAsset_getLength(asset);
+    if (size <= 0) {
+        AAsset_close(asset);
+        return false;
+    }
+    out.resize(static_cast<size_t>(size));
+    const int read = AAsset_read(asset, out.data(), static_cast<size_t>(size));
+    AAsset_close(asset);
+    if (read != size) {
+        out.clear();
+        return false;
+    }
+    return true;
+}
+#endif // PLATFORM_ANDROID
+
 // Execute stream read file operation with optional PUNPack decompression
 bool FileIO::ExecuteStreamReadFile(std::shared_ptr<FileIOTaskData> taskData) {
     if (!taskData) {
@@ -973,20 +1013,44 @@ bool FileIO::ExecuteStreamReadFile(std::shared_ptr<FileIOTaskData> taskData) {
     bool result = false;
 
     try {
-        // Read file data
-        std::ifstream inFile(taskData->primaryFilename, std::ios::binary);
-        if (inFile.is_open()) {
-            // Get file size
-            inFile.seekg(0, std::ios::end);
-            size_t fileSize = inFile.tellg();
-            inFile.seekg(0, std::ios::beg);
-
-            if (fileSize > 0) {
-                // Read file content
-                std::vector<uint8_t> fileData(fileSize);
-                inFile.read(reinterpret_cast<char*>(fileData.data()), fileSize);
+        // Read file data (whole file into fileData; fileSize == 0 means empty)
+        std::vector<uint8_t> fileData;
+        size_t fileSize = 0;
+        bool opened = false;
+#if defined(PLATFORM_ANDROID)
+        // Android: APK assets are not files on disk — try the asset manager
+        // first for relative paths (textures, models, audio, movies).  When
+        // it succeeds, fileData already holds the bytes and the filesystem
+        // read below is skipped; internal-storage files (GameConfig.cfg,
+        // saves) and absolute paths still go through the filesystem.
+        if (ReadAndroidAsset(taskData->primaryFilename, fileData)) {
+            fileSize = fileData.size();
+            opened = true;
+        }
+#endif
+        if (!opened) {
+            std::ifstream inFile(taskData->primaryFilename, std::ios::binary);
+            if (inFile.is_open()) {
+                // Get file size (a failed seek reports -1: treat it as an
+                // open failure instead of resizing to a huge size).
+                inFile.seekg(0, std::ios::end);
+                const std::streampos endPos = inFile.tellg();
+                if (endPos >= 0) {
+                    fileSize = static_cast<size_t>(endPos);
+                    inFile.seekg(0, std::ios::beg);
+                    if (fileSize > 0) {
+                        // Read file content
+                        fileData.resize(fileSize);
+                        inFile.read(reinterpret_cast<char*>(fileData.data()), fileSize);
+                    }
+                    opened = true;
+                }
                 inFile.close();
+            }
+        }
 
+        if (opened) {
+            if (fileSize > 0) {
                 // Decompress data if requested
                 if (taskData->shouldPUNPack && m_punpack) {
                     PackResult packResult;
@@ -1043,7 +1107,7 @@ bool FileIO::ExecuteGetCurrentDirectory(std::shared_ptr<FileIOTaskData> taskData
         // Use platform-specific current directory implementation
         #if defined(_WIN64) || defined(_WIN32)
             currentPath = GetCurrentDirectoryWindows();
-        #elif defined(__linux__) || defined(__APPLE__) || defined(__ANDROID__) || defined(TARGET_OS_IPHONE) || defined(TARGET_IPHONE_SIMULATOR)
+        #elif defined(PLATFORM_LINUX) || defined(PLATFORM_MACOS) || defined(PLATFORM_ANDROID) || defined(PLATFORM_IOS)
             currentPath = GetCurrentDirectoryUnix();
         #else
             SetTaskError(taskData, FileIOErrorType::ERROR_PLATFORM_SPECIFIC, "Platform not supported");
@@ -1080,7 +1144,7 @@ bool FileIO::ExecuteRenameFile(std::shared_ptr<FileIOTaskData> taskData) {
         // Use platform-specific rename implementation
         #if defined(_WIN64) || defined(_WIN32)
             result = RenameFileWindows(taskData->primaryFilename, taskData->secondaryFilename);
-        #elif defined(__linux__) || defined(__APPLE__) || defined(__ANDROID__) || defined(TARGET_OS_IPHONE) || defined(TARGET_IPHONE_SIMULATOR)
+        #elif defined(PLATFORM_LINUX) || defined(PLATFORM_MACOS) || defined(PLATFORM_ANDROID) || defined(PLATFORM_IOS)
             result = RenameFileUnix(taskData->primaryFilename, taskData->secondaryFilename);
         #else
             SetTaskError(taskData, FileIOErrorType::ERROR_PLATFORM_SPECIFIC, "Platform not supported");
@@ -1180,7 +1244,7 @@ bool FileIO::ExecuteCopyFileTo(std::shared_ptr<FileIOTaskData> taskData) {
         // Use platform-specific copy implementation
 #if defined(_WIN64) || defined(_WIN32)
         result = CopyFileWindows(taskData->primaryFilename, taskData->secondaryFilename);
-#elif defined(__linux__) || defined(__APPLE__) || defined(__ANDROID__) || defined(TARGET_OS_IPHONE) || defined(TARGET_IPHONE_SIMULATOR)
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_MACOS) || defined(PLATFORM_ANDROID) || defined(PLATFORM_IOS)
         result = CopyFileUnix(taskData->primaryFilename, taskData->secondaryFilename);
 #else
         SetTaskError(taskData, FileIOErrorType::ERROR_PLATFORM_SPECIFIC, "Platform not supported");
@@ -1212,7 +1276,7 @@ bool FileIO::ExecuteMoveFileTo(std::shared_ptr<FileIOTaskData> taskData) {
         // Use platform-specific move implementation
 #if defined(_WIN64) || defined(_WIN32)
         result = MoveFileWindows(taskData->primaryFilename, taskData->directoryPath);
-#elif defined(__linux__) || defined(__APPLE__) || defined(__ANDROID__) || defined(TARGET_OS_IPHONE) || defined(TARGET_IPHONE_SIMULATOR)
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_MACOS) || defined(PLATFORM_ANDROID) || defined(PLATFORM_IOS)
         result = MoveFileUnix(taskData->primaryFilename, taskData->directoryPath);
 #else
         SetTaskError(taskData, FileIOErrorType::ERROR_PLATFORM_SPECIFIC, "Platform not supported");
@@ -1392,7 +1456,7 @@ bool FileIO::MoveFileWindows(const std::string& source, const std::string& dest)
 // Unix-based platform implementations (Linux, macOS, Android, iOS)
 //==============================================================================
 
-#if defined(__linux__) || defined(__APPLE__) || defined(__ANDROID__) || defined(TARGET_OS_IPHONE) || defined(TARGET_IPHONE_SIMULATOR)
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_MACOS) || defined(PLATFORM_ANDROID) || defined(PLATFORM_IOS)
 
 // Unix-based delete file implementation
 bool FileIO::DeleteFileUnix(const std::string& filename) {

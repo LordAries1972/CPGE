@@ -26,7 +26,18 @@
 #endif
 
 #if defined(__USE_OPENGL__)
-    #include <GL/glew.h>                                                            // OpenGL extension wrangler
+    #if defined(PLATFORM_ANDROID)
+        // Android: no GLEW in the NDK — GLES3 provides the GL types this
+        // file uses (no glewInit / GLEW_* symbols are referenced here).
+        // gl31.h adds GL_COMPUTE_SHADER (ES 3.1), gl32.h adds
+        // GL_GEOMETRY_SHADER (ES 3.2); tessellation has no ES equivalent
+        // (see GetOpenGLShaderType below).
+        #include <GLES3/gl3.h>
+        #include <GLES3/gl31.h>
+        #include <GLES3/gl32.h>
+    #else
+        #include <GL/glew.h>                                                            // OpenGL extension wrangler
+    #endif
 #endif
 
 #if defined(__USE_VULKAN__)
@@ -2996,8 +3007,16 @@ GLenum ShaderManager::GetOpenGLShaderType(ShaderType type) {
     case ShaderType::VERTEX_SHADER:                 return GL_VERTEX_SHADER;
     case ShaderType::PIXEL_SHADER:                  return GL_FRAGMENT_SHADER;
     case ShaderType::GEOMETRY_SHADER:               return GL_GEOMETRY_SHADER;
+#if defined(PLATFORM_ANDROID)
+    // OpenGL ES has no tessellation shaders at all: report them as
+    // unsupported (0), which the caller already turns into a clean
+    // "Unsupported shader type" compilation error.
+    case ShaderType::TESSELLATION_CONTROL_SHADER:   return 0;
+    case ShaderType::TESSELLATION_EVALUATION_SHADER: return 0;
+#else
     case ShaderType::TESSELLATION_CONTROL_SHADER:  return GL_TESS_CONTROL_SHADER;
     case ShaderType::TESSELLATION_EVALUATION_SHADER: return GL_TESS_EVALUATION_SHADER;
+#endif
     case ShaderType::COMPUTE_SHADER:                return GL_COMPUTE_SHADER;
     default:                                         return 0; // Invalid/unsupported type
     }

@@ -1431,11 +1431,121 @@ void KeyboardHandler::ProcessKeyboardEvents() {
        // This function serves as a placeholder for additional processing
        
    #elif defined(PLATFORM_ANDROID) || defined(PLATFORM_IOS)
-       // Mobile platform event processing would be handled through JNI/UIKit
+       // Android input arrives through the app-glue input queue
+       // (KeyboardHandler::HandleAndroidInputEvent, fed by main.cpp's glue
+       // onInputEvent callback); iOS input would be handled through UIKit.
        // This function serves as a placeholder for mobile-specific processing
-       
+
    #endif
 }
+
+#if defined(PLATFORM_ANDROID)
+//==============================================================================
+// Android input (AInputEvent) — see KeyboardHandler.h
+//==============================================================================
+// Map one Android key code to the engine's KeyCode enum. Letters and digits
+// are contiguous ranges in both enums, so they map arithmetically; everything
+// else is an explicit case. Unmapped codes return KEY_UNKNOWN and the caller
+// drops the event.
+static KeyCode AndroidKeyCodeToKeyCode(int32_t akey)
+{
+    if (akey >= AKEYCODE_A && akey <= AKEYCODE_Z)
+        return static_cast<KeyCode>(static_cast<uint32_t>(KeyCode::KEY_A) + static_cast<uint32_t>(akey - AKEYCODE_A));
+    if (akey >= AKEYCODE_0 && akey <= AKEYCODE_9)
+        return static_cast<KeyCode>(static_cast<uint32_t>(KeyCode::KEY_0) + static_cast<uint32_t>(akey - AKEYCODE_0));
+    if (akey >= AKEYCODE_F1 && akey <= AKEYCODE_F12)
+        return static_cast<KeyCode>(static_cast<uint32_t>(KeyCode::KEY_F1) + static_cast<uint32_t>(akey - AKEYCODE_F1));
+    if (akey >= AKEYCODE_NUMPAD_0 && akey <= AKEYCODE_NUMPAD_9)
+        return static_cast<KeyCode>(static_cast<uint32_t>(KeyCode::KEY_NUMPAD_0) + static_cast<uint32_t>(akey - AKEYCODE_NUMPAD_0));
+
+    switch (akey)
+    {
+        case AKEYCODE_SHIFT_LEFT:       return KeyCode::KEY_SHIFT_LEFT;
+        case AKEYCODE_SHIFT_RIGHT:      return KeyCode::KEY_SHIFT_RIGHT;
+        case AKEYCODE_CTRL_LEFT:        return KeyCode::KEY_CTRL_LEFT;
+        case AKEYCODE_CTRL_RIGHT:       return KeyCode::KEY_CTRL_RIGHT;
+        case AKEYCODE_ALT_LEFT:         return KeyCode::KEY_ALT_LEFT;
+        case AKEYCODE_ALT_RIGHT:        return KeyCode::KEY_ALT_RIGHT;
+        case AKEYCODE_META_LEFT:        return KeyCode::KEY_WIN_LEFT;
+        case AKEYCODE_META_RIGHT:       return KeyCode::KEY_WIN_RIGHT;
+        case AKEYCODE_DPAD_UP:          return KeyCode::KEY_ARROW_UP;
+        case AKEYCODE_DPAD_DOWN:        return KeyCode::KEY_ARROW_DOWN;
+        case AKEYCODE_DPAD_LEFT:        return KeyCode::KEY_ARROW_LEFT;
+        case AKEYCODE_DPAD_RIGHT:       return KeyCode::KEY_ARROW_RIGHT;
+        case AKEYCODE_HOME:             return KeyCode::KEY_HOME;
+        case AKEYCODE_MOVE_HOME:        return KeyCode::KEY_HOME;
+        case AKEYCODE_MOVE_END:         return KeyCode::KEY_END;
+        case AKEYCODE_PAGE_UP:          return KeyCode::KEY_PAGE_UP;
+        case AKEYCODE_PAGE_DOWN:        return KeyCode::KEY_PAGE_DOWN;
+        case AKEYCODE_SPACE:            return KeyCode::KEY_SPACE;
+        case AKEYCODE_ENTER:            return KeyCode::KEY_ENTER;
+        case AKEYCODE_DEL:              return KeyCode::KEY_BACKSPACE;
+        case AKEYCODE_FORWARD_DEL:      return KeyCode::KEY_DELETE;
+        case AKEYCODE_TAB:              return KeyCode::KEY_TAB;
+        case AKEYCODE_ESCAPE:           return KeyCode::KEY_ESCAPE;
+        case AKEYCODE_CAPS_LOCK:        return KeyCode::KEY_CAPS_LOCK;
+        case AKEYCODE_NUM_LOCK:         return KeyCode::KEY_NUM_LOCK;
+        case AKEYCODE_SCROLL_LOCK:      return KeyCode::KEY_SCROLL_LOCK;
+        case AKEYCODE_NUMPAD_MULTIPLY:  return KeyCode::KEY_NUMPAD_MULTIPLY;
+        case AKEYCODE_NUMPAD_ADD:       return KeyCode::KEY_NUMPAD_ADD;
+        case AKEYCODE_NUMPAD_SUBTRACT:  return KeyCode::KEY_NUMPAD_SUBTRACT;
+        case AKEYCODE_NUMPAD_DIVIDE:    return KeyCode::KEY_NUMPAD_DIVIDE;
+        case AKEYCODE_NUMPAD_DOT:       return KeyCode::KEY_NUMPAD_DECIMAL;
+        case AKEYCODE_NUMPAD_ENTER:     return KeyCode::KEY_NUMPAD_ENTER;
+        case AKEYCODE_SEMICOLON:        return KeyCode::KEY_SEMICOLON;
+        case AKEYCODE_EQUALS:           return KeyCode::KEY_EQUALS;
+        case AKEYCODE_COMMA:            return KeyCode::KEY_COMMA;
+        case AKEYCODE_MINUS:            return KeyCode::KEY_MINUS;
+        case AKEYCODE_PERIOD:           return KeyCode::KEY_PERIOD;
+        case AKEYCODE_SLASH:            return KeyCode::KEY_SLASH;
+        case AKEYCODE_GRAVE:            return KeyCode::KEY_GRAVE;
+        case AKEYCODE_LEFT_BRACKET:     return KeyCode::KEY_BRACKET_LEFT;
+        case AKEYCODE_BACKSLASH:        return KeyCode::KEY_BACKSLASH;
+        case AKEYCODE_RIGHT_BRACKET:    return KeyCode::KEY_BRACKET_RIGHT;
+        case AKEYCODE_APOSTROPHE:       return KeyCode::KEY_QUOTE;
+        case AKEYCODE_BACK:             return KeyCode::KEY_ANDROID_BACK;
+        case AKEYCODE_MENU:             return KeyCode::KEY_ANDROID_MENU;
+        case AKEYCODE_SEARCH:           return KeyCode::KEY_ANDROID_SEARCH;
+        case AKEYCODE_VOLUME_UP:        return KeyCode::KEY_VOLUME_UP;
+        case AKEYCODE_VOLUME_DOWN:      return KeyCode::KEY_VOLUME_DOWN;
+        case AKEYCODE_VOLUME_MUTE:      return KeyCode::KEY_VOLUME_MUTE;
+        case AKEYCODE_POWER:            return KeyCode::KEY_ANDROID_POWER;
+        default:                        return KeyCode::KEY_UNKNOWN;
+    }
+}
+
+bool KeyboardHandler::HandleAndroidInputEvent(AInputEvent* event)
+{
+    if (AInputEvent_getType(event) != AINPUT_EVENT_TYPE_KEY)
+        return false;   // Motion events belong to the Joystick backend / touch pointer
+
+    const int32_t akey = AKeyEvent_getKeyCode(event);
+    // Gamepad buttons (DPAD_CENTER, BUTTON_A/B/X/Y, ...) are joystick input,
+    // not keyboard input — let the Joystick backend claim them.
+    if ((AInputEvent_getSource(event) & AINPUT_SOURCE_GAMEPAD) != 0)
+        return false;
+
+    const KeyCode keyCode = AndroidKeyCodeToKeyCode(akey);
+    if (keyCode == KeyCode::KEY_UNKNOWN)
+        return false;
+
+    const uint32_t modifierFlags = GetCurrentModifierFlags();
+    const int32_t action = AKeyEvent_getAction(event);
+    if (action == AKEY_EVENT_ACTION_DOWN)
+    {
+        HandleKeyDown(keyCode, modifierFlags);
+        return true;
+    }
+    if (action == AKEY_EVENT_ACTION_UP)
+    {
+        HandleKeyUp(keyCode, modifierFlags);
+        return true;
+    }
+    // AKEY_EVENT_ACTION_MULTIPLE (key repeat batches) is not generated for
+    // physical keys on Android; repeats arrive as separate DOWN events.
+    return false;
+}
+#endif // PLATFORM_ANDROID
 
 //==============================================================================
 // Private Event Processing Methods Implementation

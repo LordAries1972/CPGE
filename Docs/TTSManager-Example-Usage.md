@@ -351,4 +351,47 @@ Check these states using `GetPlaybackState()` to ensure proper operation.
 
 On Linux, text-to-speech uses eSpeak-ng 1.51 instead of SAPI. The synth callback resamples 22050 Hz mono to 44100 Hz stereo into the miniaudio ring, with backpressure so a long line cannot overrun the buffer. All 7 `main.cpp` TTS call sites are enabled on Linux. Test: 42 checks, 0 failures, 131 voices; speech captured to `~/workspace/cpge-linux-android/scope/tts-test.wav`.
 
-Call it exactly as on Windows — the public API is unchanged; only the backend differs, selected by the platform guards at compile time. On Android, TTS is compiled out entirely until Phase D wires the JNI bridge (`android.speech.tts.TextToSpeech`) — there is no stub. Rule: use TTS where the platform supports it, disable it completely where it does not.
+Call it exactly as on Windows — the public API is unchanged; only the backend differs, selected by the platform guards at compile time. On Android, TTS used to be compiled out entirely until Phase D wired the JNI bridge — that landed 24 November 2026 (see below). Rule: use TTS where the platform supports it, disable it completely where it does not.
+
+## Android backend — TextToSpeech via JNI (24 November 2026)
+
+On Android there is no NDK TTS API, so the backend is the platform
+`android.speech.tts.TextToSpeech` driven through JNI from the Java
+helper `com.ultimanium.cpge.CpgeTts`
+(`Android/app/src/main/java/com/ultimanium/cpge/CpgeTts.java`). The
+native side lives in its own `#elif defined(PLATFORM_ANDROID)` section
+of `TTSManager.cpp` (a full implementation, like the Windows SAPI
+section) — `Initialize()` takes the `JavaVM` from the NativeActivity,
+loads `CpgeTts` through the activity's own class loader (a plain
+`FindClass` from an attached native thread uses the system class
+loader, which cannot see app classes), and calls `CpgeTts.init()`.
+`TextToSpeech` construction is async, so `Initialize()` waits up to
+2 s for `isReady()`; a device without TTS data returns false and the
+state is `ERROR`, so `main.cpp` treats TTS as unavailable instead of
+dropping speech silently.
+
+```cpp
+// Same public API as Windows/Linux — no caller changes:
+ttsManager.Initialize();                 // JNI bridge + TextToSpeech
+ttsManager.SetVoiceByName(L"en-US");     // BCP-47 tag, not an eSpeak name
+ttsManager.PlayAsync(L"Hello, Android"); // async; callback clears the state
+ttsManager.Stop();
+ttsManager.CleanUp();
+```
+
+Notes: speech is async on Android — `Play()` speaks then waits for the
+utterance callback, `PlayAsync()` returns at once. Each utterance gets
+a unique ID (`cpge-tts-<n>`) so a late callback for a flushed utterance
+cannot clear the new one. Rate/pitch map from the engine's -10..+10
+scale onto the platform 1.0 = normal scale (rate 1.0 + rate×0.1,
+pitch 1.0 + pitch×0.05); volume goes per-utterance via
+`KEY_PARAM_VOLUME` (best-effort — some engines ignore it). Voices are
+BCP-47 tags (`GetAvailableVoices` returns the tags the engine reports).
+There is no speaker-channel or pause API in Android TTS:
+`SetSpeakerChannel` / `SetVoiceQuality` store the config with no
+audible effect, `Pause` / `Resume` return false. The Java class ships
+in `classes.dex` (built by `scope/apk/build-dex.sh`, packaged by
+`scope/apk/package-apk.sh`; the manifest no longer declares
+`hasCode="false"`). Verification: both Android builds link clean
+(`android-opengl-build-10.log`, `android-vulkan-build-10.log`, exit 0);
+no device exists to hear it, so the speech itself is still untested.

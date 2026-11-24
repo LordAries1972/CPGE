@@ -483,14 +483,20 @@ bool ExceptionHandler::GetCurrentStackTrace(StackFrameInfo* frames, int maxFrame
 
     frameCount = 0;
 
-#if defined(_WIN32) || defined(_WIN64)
+#if defined(PLATFORM_WINDOWS)
     // Windows stack trace capture
     CONTEXT context;
     memset(&context, 0, sizeof(context));
     context.ContextFlags = CONTEXT_CONTROL;
     RtlCaptureContext(&context);
     return CaptureStackTrace(&context, frames, maxFrames, frameCount);
-#elif defined(__linux__) || defined(__APPLE__)
+#elif defined(PLATFORM_ANDROID)
+    // Android: Bionic's backtrace() is API-33-only and the minSdk here is 26,
+    // so stack walking is disabled on Android. Callers already handle a zero
+    // frame count; this is a deliberate platform limit, not a stub.
+    frameCount = 0;
+    return false;
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_MACOS) || defined(PLATFORM_IOS)
     // Linux/macOS stack trace using backtrace
     void* addresses[MAX_STACK_FRAMES];
     int count = backtrace(addresses, std::min(maxFrames, MAX_STACK_FRAMES));
@@ -502,11 +508,6 @@ bool ExceptionHandler::GetCurrentStackTrace(StackFrameInfo* frames, int maxFrame
     }
 
     return count > 0;
-#elif defined(__ANDROID__)
-    // Android stack trace using unwind
-    // Simplified implementation for Android
-    frameCount = 0;
-    return false; // TODO: Implement Android-specific stack walking
 #else
     // Fallback for unsupported platforms
     frameCount = 0;
@@ -850,7 +851,10 @@ bool ExceptionHandler::CaptureStackTrace(void* context, StackFrameInfo* frames, 
 
         return true;
     }
-#elif defined(__linux__) || defined(__APPLE__)
+#elif defined(PLATFORM_ANDROID)
+    // Android: no backtrace() at the minSdk 26 API level (Bionic added it in
+    // API 33); fall through to `return false` below.
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_MACOS) || defined(PLATFORM_IOS)
     // Unix-like systems stack trace using backtrace
     void* addresses[MAX_STACK_FRAMES];
     int count = backtrace(addresses, std::min(maxFrames, MAX_STACK_FRAMES));
@@ -1492,7 +1496,7 @@ bool ExceptionHandler::GetBasicStackTrace(void* context, uint64_t* addresses, in
             }
         }
     }
-#else
+#elif defined(PLATFORM_LINUX) || defined(PLATFORM_MACOS) || defined(PLATFORM_IOS)
     // Unix-like systems basic stack trace
     void* addressPtrs[MAX_STACK_FRAMES];
     int count = backtrace(addressPtrs, std::min(maxFrames, MAX_STACK_FRAMES));
@@ -1501,6 +1505,9 @@ bool ExceptionHandler::GetBasicStackTrace(void* context, uint64_t* addresses, in
     for (int i = 0; i < count; ++i) {
         addresses[i] = (uint64_t)addressPtrs[i];
     }
+#else
+    // Android and other platforms: no backtrace() at the minSdk 26 API level
+    // (Bionic added it in API 33); frameCount stays 0 and the caller handles it.
 #endif
 
     return frameCount > 0;

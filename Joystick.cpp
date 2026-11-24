@@ -600,14 +600,29 @@ void Joystick::detectJoysticks() {
         debug.logLevelMessage(LogLevel::LOG_INFO, L"Detected " + std::to_wstring(activeJoysticks.size()) + L" joysticks.");
     #endif
 }
+#elif defined(PLATFORM_ANDROID)
+void Joystick::detectJoysticks() {
+    std::lock_guard<std::recursive_mutex> lock(m_joyMutex);
+    // Android: the NDK exposes no gamepad enumeration API, so a slot is
+    // reported while any gamepad event has been seen for it
+    // (HandleAndroidInputEvent sets AndroidSlot::seen and fills the slot's
+    // PadInfo on first sight).  A slot that has never seen a gamepad event
+    // is not a fault — no pad attached is normal — so this stays silent,
+    // like the evdev scan.
+    std::vector<int> found;
+    for (int i = 0; i < MAX_JOYSTICKS; ++i) {
+        if (m_android[static_cast<size_t>(i)].seen) found.push_back(i);
+    }
+    activeJoysticks.swap(found);
+    m_activeCount.store(activeJoysticks.size(), std::memory_order_relaxed);
+}
 #else
 void Joystick::detectJoysticks() {
     std::lock_guard<std::recursive_mutex> lock(m_joyMutex);
-    // Android / macOS / iOS: no joystick backend yet, so no pad is ever
+    // macOS / iOS: no joystick backend yet, so no pad is ever
     // found.  Clear any previous state and report zero active controllers.
     // Deliberately silent: the feature is disabled on this platform, not
-    // stubbed, so there is nothing to warn about.  (Android input arrives
-    // through AInputEvent in Phase D.)
+    // stubbed, so there is nothing to warn about.
     activeJoysticks.clear();
     m_padInfo = std::array<PadInfo, MAX_JOYSTICKS>{};
     m_activeCount.store(0, std::memory_order_relaxed);
@@ -662,16 +677,217 @@ bool Joystick::ReadRawPad(int joystickID, JOYINFOEX& ji) {
     EvdevFillJoyInfo(joystickID, ji);
     return true;
 }
+#elif defined(PLATFORM_ANDROID)
+bool Joystick::ReadRawPad(int joystickID, JOYINFOEX& ji) {
+    std::lock_guard<std::recursive_mutex> lock(m_joyMutex);
+    if (joystickID < 0 || joystickID >= MAX_JOYSTICKS) {
+        LogJoystickWarning(L"ReadRawPad: invalid joystick ID " + std::to_wstring(joystickID) + L", expected 0.." + std::to_wstring(MAX_JOYSTICKS - 1));
+        ji = {};
+        return false;
+    }
+    if (!m_android[static_cast<size_t>(joystickID)].seen) {
+        // No gamepad event seen for this slot yet: no pad, not a fault.
+        ji = {};
+        return false;
+    }
+    AndroidFillJoyInfo(joystickID, ji);
+    return true;
+}
 #else
 bool Joystick::ReadRawPad(int joystickID, JOYINFOEX& ji) {
     std::lock_guard<std::recursive_mutex> lock(m_joyMutex);
     (void)joystickID;
     ji = {};
-    // Android / macOS / iOS: no joystick backend yet, so no pad is ever read.
+    // macOS / iOS: no joystick backend yet, so no pad is ever read.
     // Deliberately silent (disabled, not stubbed).
     return false;
 }
 #endif
+
+#if defined(PLATFORM_ANDROID)
+// ---- Android AInputEvent backend (see Joystick.h) ---------------------------
+// Gamepad events arrive through HandleAndroidInputEvent (called by main.cpp's
+// glue onInputEvent callback on the engine thread) and update the cached
+// AndroidSlot; AndroidFillJoyInfo translates the cache into the winmm
+// JOYINFOEX the game code already understands, mirroring EvdevFillJoyInfo.
+// Android reports the two triggers as separate axes (AXIS_LTRIGGER /
+// AXIS_RTRIGGER, 0 at rest to 1 fully pressed), so they are combined into
+// the winmm Z axis around the centre (Xbox-style, triggersOnZ) exactly as
+// the evdev backend does for ABS_Z / ABS_RZ.  Slots are per-deviceId
+// (Phase D step 3): HandleAndroidInputEvent claims a free slot for the
+// first event from a new device id and routes later events from that
+// device to the same slot.  Every failure here is a WARNING on the
+// diagnostics path only (see the hard-point rule in Joystick.h): a
+// missing pad is silent, never a dialog or quit.
+// ----------------------------------------------------------------------------
+// The hat (d-pad) as a winmm POV angle: hundredths of a degree clockwise
+// from up, or JOY_POVCENTERED when the hat is centred.  |hat| >= 0.5 counts
+// as pressed, so both the -1/0/1 hat axes and the DPAD keys (which set the
+// same pair) read the same way.
+static DWORD AndroidHatToPov(float hatX, float hatY)
+{
+    const int x = (hatX >= 0.5f) ? 1 : (hatX <= -0.5f) ? -1 : 0;
+    const int y = (hatY >= 0.5f) ? 1 : (hatY <= -0.5f) ? -1 : 0;
+    if (x == 0 && y == 0) return JOY_POVCENTERED;
+    if (x == 0 && y < 0) return 0;
+    if (x > 0 && y < 0) return 4500;
+    if (x > 0 && y == 0) return 9000;
+    if (x > 0 && y > 0) return 13500;
+    if (x == 0 && y > 0) return 18000;
+    if (x < 0 && y > 0) return 22500;
+    if (x < 0 && y == 0) return 27000;
+    return 31500;
+}
+
+void Joystick::AndroidFillJoyInfo(int slot, JOYINFOEX& ji) const
+{
+    const AndroidSlot& s = m_android[static_cast<size_t>(slot)];
+    const PadInfo& pi = m_padInfo[static_cast<size_t>(slot)];
+    ji = {};
+    ji.dwSize = sizeof(JOYINFOEX);
+    ji.dwFlags = JOY_RETURNALL;
+    // One axis: -1..1 -> the winmm [0, 65535] range.  An axis at rest reads
+    // as the centre, so getNormalizedAxes never sees a false deflection.
+    auto axis01 = [](float v) -> DWORD {
+        return static_cast<DWORD>(std::clamp((v + 1.0f) * 32767.5f, 0.0f, 65535.0f));
+    };
+    ji.dwXpos = axis01(s.axisX);
+    ji.dwYpos = axis01(s.axisY);
+    // Triggers on the Z axis (Xbox-style): combine the two 0..1 trigger
+    // axes into one axis around the centre, so a pad at rest reads as the
+    // centre instead of a fully pressed trigger.  dwRpos is the centre:
+    // there is no R rotation axis on such a pad.
+    ji.dwZpos = static_cast<DWORD>(std::clamp(32767.5f + (s.triggerL - s.triggerR) * 32767.5f, 0.0f, 65535.0f));
+    ji.dwRpos = 32767;
+    ji.dwUpos = axis01(s.axisZ);    // right stick X (AXIS_Z)
+    ji.dwVpos = axis01(s.axisRz);   // right stick Y (AXIS_RZ)
+    // Buttons: translate the logical PadButtons mask into the raw winmm
+    // numbering for this pad's family, using the same PadMap as
+    // ReadPadButtons, so a game sees the same raw buttons on Android as it
+    // does on Windows.
+    const PadMap* m = PadMapFor(pi.type);
+    auto raw = [](int n) { return n > 0 ? (1u << (n - 1)) : 0u; };
+    DWORD buttons = 0;
+    if (s.buttonMask & kPadSouth)  buttons |= raw(m->south);
+    if (s.buttonMask & kPadEast)   buttons |= raw(m->east);
+    if (s.buttonMask & kPadWest)   buttons |= raw(m->west);
+    if (s.buttonMask & kPadNorth)  buttons |= raw(m->north);
+    if (s.buttonMask & kPadL1)     buttons |= raw(m->l1);
+    if (s.buttonMask & kPadR1)     buttons |= raw(m->r1);
+    if (s.buttonMask & kPadL2)     buttons |= raw(m->l2);
+    if (s.buttonMask & kPadR2)     buttons |= raw(m->r2);
+    if (s.buttonMask & kPadSelect) buttons |= raw(m->select);
+    if (s.buttonMask & kPadStart)  buttons |= raw(m->start);
+    if (s.buttonMask & kPadL3)     buttons |= raw(m->l3);
+    if (s.buttonMask & kPadR3)     buttons |= raw(m->r3);
+    if (s.buttonMask & kPadGuide)  buttons |= raw(m->guide);
+    ji.dwButtons = buttons;
+    ji.dwPOV = AndroidHatToPov(s.hatX, s.hatY);
+}
+
+bool Joystick::HandleAndroidInputEvent(AInputEvent* event)
+{
+    const int32_t type = AInputEvent_getType(event);
+    const int32_t source = AInputEvent_getSource(event);
+    const bool isGamepad = (source & (AINPUT_SOURCE_GAMEPAD | AINPUT_SOURCE_JOYSTICK | AINPUT_SOURCE_DPAD)) != 0;
+    if (!isGamepad)
+        return false;   // Keyboard keys and touchscreen belong to the KeyboardHandler / GUI
+
+    std::lock_guard<std::recursive_mutex> lock(m_joyMutex);
+    // Per-device slots (Phase D step 3): the NDK exposes no gamepad
+    // enumeration API, but every event carries its device id, so the
+    // first event from a new device claims a free slot and later events
+    // from the same device find it again. A device that disconnects keeps
+    // its slot (its last state stays cached) until a new device needs it.
+    const int32_t deviceId = AInputEvent_getDeviceId(event);
+    int slot = -1;
+    for (int i = 0; i < MAX_JOYSTICKS; ++i) {
+        if (m_android[static_cast<size_t>(i)].seen &&
+            m_android[static_cast<size_t>(i)].deviceId == deviceId) { slot = i; break; }
+    }
+    if (slot < 0) {
+        for (int i = 0; i < MAX_JOYSTICKS; ++i) {
+            if (!m_android[static_cast<size_t>(i)].seen) { slot = i; break; }
+        }
+    }
+    if (slot < 0) {
+        // Every slot is taken by another pad, so this device cannot be
+        // tracked. A warning only (the diagnostics layer throttles
+        // repeats); the event is dropped, never a dialog or quit.
+        LogJoystickWarning(L"Joystick: Android gamepad event from device " + std::to_wstring(deviceId) + L" ignored — no free joystick slot");
+        return false;
+    }
+    AndroidSlot& s = m_android[static_cast<size_t>(slot)];
+    // First gamepad event for this slot: describe the pad.  Android gives
+    // no vendor / product IDs through the NDK, so it is Generic; the
+    // triggers ride the Z axis (Xbox-style) and the right stick is U/V.
+    if (!s.seen) {
+        s.seen = true;
+        s.deviceId = deviceId;
+        PadInfo& pi = m_padInfo[static_cast<size_t>(slot)];
+        pi.slot = slot; pi.type = PadType::Generic; pi.typeName = PadTypeName(PadType::Generic);
+        pi.name = L"Android gamepad"; pi.numButtons = 13; pi.numAxes = 6;
+        pi.hasZ = true; pi.hasR = false; pi.hasU = true; pi.hasV = true; pi.hasPov = true;
+        pi.triggersOnZ = true;
+        debug.logLevelMessage(LogLevel::LOG_INFO, L"[Joystick] Android gamepad detected (slot " + std::to_wstring(slot) + L", device " + std::to_wstring(deviceId) + L", Generic)");
+    }
+
+    if (type == AINPUT_EVENT_TYPE_KEY) {
+        const int32_t akey = AKeyEvent_getKeyCode(event);
+        const int32_t action = AKeyEvent_getAction(event);
+        if (action != AKEY_EVENT_ACTION_DOWN && action != AKEY_EVENT_ACTION_UP)
+            return false;
+        const bool down = (action == AKEY_EVENT_ACTION_DOWN);
+        uint32_t bit = 0;
+        uint32_t dpadBit = 0;
+        switch (akey) {
+            case AKEYCODE_BUTTON_A:      bit = kPadSouth; break;
+            case AKEYCODE_BUTTON_B:      bit = kPadEast; break;
+            case AKEYCODE_BUTTON_X:      bit = kPadWest; break;
+            case AKEYCODE_BUTTON_Y:      bit = kPadNorth; break;
+            case AKEYCODE_BUTTON_L1:     bit = kPadL1; break;
+            case AKEYCODE_BUTTON_R1:     bit = kPadR1; break;
+            case AKEYCODE_BUTTON_L2:     bit = kPadL2; break;
+            case AKEYCODE_BUTTON_R2:     bit = kPadR2; break;
+            case AKEYCODE_BUTTON_SELECT: bit = kPadSelect; break;
+            case AKEYCODE_BUTTON_START:  bit = kPadStart; break;
+            case AKEYCODE_BUTTON_THUMBL: bit = kPadL3; break;
+            case AKEYCODE_BUTTON_THUMBR: bit = kPadR3; break;
+            case AKEYCODE_BUTTON_MODE:   bit = kPadGuide; break;
+            case AKEYCODE_DPAD_UP:       dpadBit = 1u << 0; break;
+            case AKEYCODE_DPAD_RIGHT:    dpadBit = 1u << 1; break;
+            case AKEYCODE_DPAD_DOWN:     dpadBit = 1u << 2; break;
+            case AKEYCODE_DPAD_LEFT:     dpadBit = 1u << 3; break;
+            default: return false;   // not a gamepad button (e.g. a keyboard key with a gamepad source)
+        }
+        if (bit != 0) {
+            if (down) s.buttonMask |= bit; else s.buttonMask &= ~bit;
+        }
+        else {
+            if (down) s.dpadMask |= dpadBit; else s.dpadMask &= ~dpadBit;
+            // The DPAD keys and the hat axes share one hat pair: recompute
+            // it from the key mask whenever a DPAD key moves.
+            s.hatX = ((s.dpadMask & (1u << 1)) ? 1.0f : 0.0f) - ((s.dpadMask & (1u << 3)) ? 1.0f : 0.0f);
+            s.hatY = ((s.dpadMask & (1u << 2)) ? 1.0f : 0.0f) - ((s.dpadMask & (1u << 0)) ? 1.0f : 0.0f);
+        }
+        return true;
+    }
+
+    if (type == AINPUT_EVENT_TYPE_MOTION) {
+        // Sticks and triggers, pointer 0 (the first finger / stick).
+        s.axisX = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_X, 0);
+        s.axisY = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_Y, 0);
+        s.axisZ = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_Z, 0);
+        s.axisRz = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_RZ, 0);
+        s.triggerL = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_LTRIGGER, 0);
+        s.triggerR = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_RTRIGGER, 0);
+        s.hatX = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_HAT_X, 0);
+        s.hatY = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_HAT_Y, 0);
+        return true;
+    }
+    return false;
+}
+#endif // PLATFORM_ANDROID
 
 size_t Joystick::PollControllers() {
     size_t prevCount = m_activeCount.load(std::memory_order_relaxed);

@@ -22,6 +22,10 @@
     // headers, and this header is included by translation units that never
     // see a renderer header — so include GLEW here (first, as required).
     #include <GL/glew.h>
+#elif defined(__USE_OPENGL__) && defined(PLATFORM_ANDROID)
+    // Android: no GLEW in the NDK — the GLES3 headers provide GLuint/GLenum
+    // for the same OpenGL-only members.
+    #include <GLES3/gl3.h>
 #endif
 #include "Vectors.h"
 #include "Color.h"

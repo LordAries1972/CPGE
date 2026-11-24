@@ -32,26 +32,28 @@
 #include <functional>
 
 // Platform-specific includes with conditional compilation
-#if defined(_WIN64) || defined(_WIN32)
+// (PLATFORM_* from Platform.h, via Includes.h — Android is tested before
+// Linux because Android also defines __linux__.)
+#if defined(PLATFORM_WINDOWS)
 #include <windows.h>                                                // Windows file operations
 #include <direct.h>                                                 // Windows directory operations
 #include <io.h>                                                     // Windows I/O operations
-#elif defined(__linux__)
-#include <unistd.h>                                                 // Linux POSIX operations
-#include <sys/stat.h>                                               // Linux file statistics
-#include <dirent.h>                                                 // Linux directory operations
-#include <fcntl.h>                                                  // Linux file control operations
-#elif defined(__APPLE__)
-#include <unistd.h>                                                 // macOS POSIX operations
-#include <sys/stat.h>                                               // macOS file statistics
-#include <dirent.h>                                                 // macOS directory operations
-#include <fcntl.h>                                                  // macOS file control operations
-#elif defined(__ANDROID__)
+#elif defined(PLATFORM_ANDROID)
 #include <unistd.h>                                                 // Android POSIX operations
 #include <sys/stat.h>                                               // Android file statistics
 #include <dirent.h>                                                 // Android directory operations
 #include <fcntl.h>                                                  // Android file control operations
-#elif defined(TARGET_OS_IPHONE) || defined(TARGET_IPHONE_SIMULATOR)
+#elif defined(PLATFORM_LINUX)
+#include <unistd.h>                                                 // Linux POSIX operations
+#include <sys/stat.h>                                               // Linux file statistics
+#include <dirent.h>                                                 // Linux directory operations
+#include <fcntl.h>                                                  // Linux file control operations
+#elif defined(PLATFORM_MACOS)
+#include <unistd.h>                                                 // macOS POSIX operations
+#include <sys/stat.h>                                               // macOS file statistics
+#include <dirent.h>                                                 // macOS directory operations
+#include <fcntl.h>                                                  // macOS file control operations
+#elif defined(PLATFORM_IOS)
 #include <unistd.h>                                                 // iOS POSIX operations
 #include <sys/stat.h>                                               // iOS file statistics
 #include <dirent.h>                                                 // iOS directory operations

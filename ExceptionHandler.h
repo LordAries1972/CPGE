@@ -5,14 +5,25 @@
 #include <new>          // std::new_handler, std::set_new_handler, std::bad_alloc
 
 // Platform-specific includes for exception handling
-#if defined(_WIN32) || defined(_WIN64)
+// NOTE: test PLATFORM_ANDROID before PLATFORM_LINUX — Android also defines
+// __linux__, so the Linux branch would otherwise swallow the Android one
+// (and Bionic's backtrace() is API-33-only, so the Linux execinfo.h path
+// does not even compile at the minSdk 26 API level).
+#if defined(PLATFORM_WINDOWS)
     // Windows-specific exception handling
     #pragma comment(lib, "dbghelp.lib")
     #include <dbghelp.h>
     #include <psapi.h>
     #include <eh.h>
     #include <signal.h>
-#elif defined(__linux__)
+#elif defined(PLATFORM_ANDROID)
+    // Android-specific exception handling
+    #include <unwind.h>
+    #include <dlfcn.h>
+    #include <signal.h>
+    #include <android/log.h>
+    #include <cxxabi.h>
+#elif defined(PLATFORM_LINUX)
     // Linux-specific exception handling
     #include <execinfo.h>
     #include <signal.h>
@@ -20,7 +31,7 @@
     #include <sys/wait.h>
     #include <cxxabi.h>
     #include <dlfcn.h>
-#elif defined(__APPLE__)
+#elif defined(PLATFORM_MACOS) || defined(PLATFORM_IOS)
     // macOS/iOS-specific exception handling
     #include <execinfo.h>
     #include <signal.h>
@@ -30,13 +41,6 @@
     #include <dlfcn.h>
     #include <mach/mach.h>
     #include <mach/task.h>
-#elif defined(__ANDROID__)
-    // Android-specific exception handling
-    #include <unwind.h>
-    #include <dlfcn.h>
-    #include <signal.h>
-    #include <android/log.h>
-    #include <cxxabi.h>
 #endif
 
 // Maximum number of stack frames to capture during exception

@@ -117,3 +117,44 @@ movie path fixed the engine no longer hits the critical at all; with the
 movie deliberately broken (FFmpeg headers missing) the `LOG_CRITICAL` is
 still logged and the engine continues into the intro and the main loop
 instead of tearing down.
+
+## 24 November 2026 - Android logcat mirror + internal-storage log file
+
+On Android the log file path is relative (`DebugLog.txt`), which resolves
+to the process working directory — `/` on Android, which is not writable —
+so every `Insert_Into_Log_File` write failed silently and no log was ever
+kept. Two changes, both in `Debug.cpp`, Android-only:
+
+1. **Logcat mirror.** Every line is mirrored to `__android_log_print`
+   (tag `CPGE`), with the Android priority taken from the line's tag prefix
+   (`[DEBUG]` → `ANDROID_LOG_DEBUG`, `[WARNING]` → `WARN`, `[ERROR]` /
+   `[CRITICAL]` / `[TERMINATION]` → `ERROR`, everything else `INFO`).
+   Read it live with:
+
+   ```sh
+   adb logcat -s CPGE
+   ```
+
+2. **Internal-storage log file.** The file write goes to
+   `<internal-storage>/DebugLog.txt` (`AndroidApp::GetInternalDataPath()`,
+   resolved per write — the `Debug` global is constructed during static
+   initialisation, before `android_main()` runs, so the path cannot be
+   resolved at construction time). Before `SetApp` the path is empty and
+   the file write is skipped (logcat already has the line). The first
+   successful write of a session truncates, preserving the "clean slate per
+   session" behaviour `ClearLogFile` provides on the other platforms (on
+   Android the constructor-time truncate targets `/` and is a silent
+   no-op). `liblog` was already linked for Android
+   (`Linux/CMakeLists.txt`: `EGL GLESv3 android log`).
+
+```cpp
+// Debug.cpp (Android only)
+static std::string AndroidLogFilePath();   // "<internal>/DebugLog.txt", or ""
+static void AndroidMirrorToLogcat(const std::wstring& taggedLine,
+                                  const std::wstring& fullOutput);
+```
+
+Verification: Vulkan Android build links clean with the mirror
+(`android-vulkan-build-8.log`, exit 0). Logcat output and the
+internal-storage file are untested on a device (no device/emulator was
+available) — step 3 work.

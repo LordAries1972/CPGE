@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- CPGE Android manifest (Phase D step 2, 24 Nov 2026): NativeActivity entry.
+     The native library is libCPGE.so (Linux/CMakeLists.txt sets OUTPUT_NAME
+     "CPGE"); android.app.lib_name must match it. minSdk 26 (see
+     app/build.gradle): AAudio, used by the miniaudio backend, needs API 26.
+     Package name is provisional (com.ultimanium.cpge) — Daniel can change it
+     in the manifest, app/build.gradle (namespace/applicationId) and the
+     settings below; it must stay consistent across all three. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.ultimanium.cpge">
+
+    <!-- NetworkManager uses BSD sockets; INTERNET is its only permission. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.gamepad" android:required="false" />
+
+    <application
+        android:label="CPGE"
+        android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
+        <!-- hasCode is true (the default): the APK carries classes.dex
+             with the CpgeTts Java helper for Android TTS (Phase D step 3).
+             The activity itself is still NativeActivity; the Java class
+             is only ever reached through JNI from the native engine. -->
+        <activity
+            android:name="android.app.NativeActivity"
+            android:label="CPGE"
+            android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|smallestScreenSize|uiMode"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape">
+            <meta-data android:name="android.app.lib_name" android:value="CPGE" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

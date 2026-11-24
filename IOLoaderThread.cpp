@@ -212,6 +212,19 @@ static bool LoadMusicFile(const std::wstring& assetsRelativeName)
                     L"[LOADER] glXMakeCurrent (loader context) failed -- texture uploads will silently fail and screen will be blank");
             }
         }
+    #elif defined(__USE_OPENGL__) && defined(PLATFORM_ANDROID)
+        // Android mirror of the Windows/Linux blocks above: make the shared
+        // EGL loader context current on its 1x1 pbuffer surface, so
+        // glGenTextures / glTexImage2D calls in LoadAllKnownTextures() have
+        // a valid context on this thread. The pbuffer (not the window
+        // surface) is used so the render thread keeps the window surface.
+        if (m_loaderGLContext != EGL_NO_CONTEXT && m_glContext.eglDisplay != EGL_NO_DISPLAY &&
+            m_glContext.eglLoaderSurface != EGL_NO_SURFACE) {
+            if (eglMakeCurrent(m_glContext.eglDisplay, m_glContext.eglLoaderSurface, m_glContext.eglLoaderSurface, m_loaderGLContext) == EGL_FALSE) {
+                debug.logLevelMessage(LogLevel::LOG_ERROR,
+                    L"[LOADER] eglMakeCurrent (loader context) failed -- texture uploads will silently fail and screen will be blank");
+            }
+        }
     #endif
 
     // Check the status of the Loader thread and flag that we have loading to do.
@@ -937,6 +950,11 @@ static bool LoadMusicFile(const std::wstring& assetsRelativeName)
         if (m_loaderGLContext && m_glContext.display) {
             glFlush();
             glXMakeCurrent(m_glContext.display, None, nullptr);
+        }
+    #elif defined(__USE_OPENGL__) && defined(PLATFORM_ANDROID)
+        if (m_loaderGLContext != EGL_NO_CONTEXT && m_glContext.eglDisplay != EGL_NO_DISPLAY) {
+            glFlush();
+            eglMakeCurrent(m_glContext.eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         }
     #endif
 

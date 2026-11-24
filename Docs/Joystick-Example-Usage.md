@@ -615,3 +615,45 @@ if (pad.valid()) log(pad.typeName);              // "Xbox 360 controller", "Dual
 On Linux the joystick reads `/dev/input/event*` directly (evdev) instead of WinMM. Xbox and PlayStation trigger models are supported: the combined-Z trigger mapping is fixed, so a pad at rest no longer reads as a fully-pressed trigger, and `ReadPadButtons` returns the same logical `PadButton` bits (`kPadSouth`, `kPadL1` / `R1` / `L2` / `R2`, ...) on every platform. The hard-point rule from the 23 November joystick fix is preserved: hardware faults (unplugged pad, no driver, bad parameters, caps/read failures) are `LOG_WARNING` only, never errors, criticals, dialogs or quits, with a status dump to `DebugLog.txt`.
 
 Verification: a virtual-device shim test — 71 checks in pad mode + 5 in no-device mode, 0 failures. No physical pad was available on the build machine, so real hardware is still untested. One Linux limit: button-to-key events are dropped (no XTest) with a single throttled warning.
+
+## Android backend — AInputEvent (24 November 2026)
+
+On Android the joystick reads `AInputEvent`s from the app-glue input queue
+instead of WinMM/evdev. The NDK exposes no gamepad enumeration API, so the
+first gamepad event from a device claims a free slot and later events from
+that device are routed to the same slot by the event's device id (Phase D
+step 3, 24 November 2026 — before that, every gamepad shared slot 0). A
+device that disconnects keeps its slot until a new device needs it; if
+every slot is taken, the event is dropped with a single warning (never a
+dialog or quit). `detectJoysticks()` reports a slot while any gamepad
+event has been seen for it. The cache (`AndroidSlot` in `Joystick.h`,
+which now also stores the owning `deviceId`) mirrors `EvdevSlot`:
+`HandleAndroidInputEvent` writes it, `AndroidFillJoyInfo` translates it
+into the winmm `JOYINFOEX` the game code already understands.
+
+```cpp
+// Joystick.h (Android only)
+bool HandleAndroidInputEvent(AInputEvent* event);   // called by main.cpp's glue onInputEvent
+```
+
+Key events (gamepad / joystick / d-pad sources only — keyboard keys are
+not consumed here, the `KeyboardHandler` backend owns them): `BUTTON_A/B/X/Y`
+→ south/east/west/north, `BUTTON_L1/R1/L2/R2`, `SELECT`/`START`,
+`THUMBL/R3` → L3/R3, `MODE` → guide; `DPAD_*` keys feed the hat pair.
+Motion events (pointer 0): `AXIS_X/Y` left stick, `AXIS_Z/RZ` right stick
+(U/V), `AXIS_LTRIGGER/RTRIGGER` triggers, `AXIS_HAT_X/Y` d-pad hat.
+Triggers are combined into the winmm Z axis around the centre (Xbox-style,
+`triggersOnZ`), exactly as the evdev backend does for `ABS_Z` / `ABS_RZ`,
+so a pad at rest reads as the centre instead of a fully pressed trigger.
+The pad reports as `Generic` (Android gives no vendor/product IDs through
+the NDK), 13 buttons, 6 axes, POV from the hat. Only slot 0 is used —
+per-deviceId slots for multiple pads are a later step.
+
+The hard-point rule from the 23 November joystick fix is preserved:
+a missing pad is silent (no event seen yet is normal, not a fault), never
+a dialog or quit.
+
+Verification: both Android builds link clean with the backend
+(`android-opengl-build-10.log`, `android-vulkan-build-10.log`, exit 0).
+Per-deviceId slots landed 24 November 2026 (Phase D step 3). No physical
+pad or device was available, so real gamepad input is still untested.
