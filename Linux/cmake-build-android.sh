@@ -21,8 +21,9 @@
 # On success the built libCPGE.so is installed to the project root, to the
 # Gradle project's jniLibs/<abi>/, and Assets/ is synced to the Gradle
 # project's assets/; the AndroidManifest.xml NativeActivity entry is
-# verified; then the debug APK is built with aapt2 (see "What a build
-# does" in the help).
+# verified; then the APK is built with aapt2 (see "What a build does" in
+# the help). Release builds are stripped of debug info (llvm-strip) and
+# are not debuggable; debug builds keep debug info and are debuggable.
 
 set -euo pipefail
 
@@ -101,10 +102,16 @@ What a build does:
      install step) and to Android/app/src/main/jniLibs/<abi>/, syncs
      Assets/ to Android/app/src/main/assets/ (AIHistory excluded), and
      verifies the AndroidManifest.xml NativeActivity entry (see below).
-  4. Builds the debug APK with aapt2 (Android/package-apk.sh),
-     AFTER the install, so the APK packages the root .so and Assets/.
-     Debug/arm64-v8a only; skipped with a clear note otherwise
-     (missing packaging script, release build, or another ABI).
+  4. Builds the APK with aapt2 (Android/package-apk.sh), AFTER the
+     install, so the APK packages the .so and Assets/ — debug AND
+     release, both as cpge-<renderer>-<config>.apk (arm64-v8a only;
+     skipped with a clear note for another ABI). Release builds are
+     stripped of debug info with llvm-strip (from the NDK) and are
+     not debuggable; debug builds keep debug info and are debuggable.
+     A release APK is signed with the release keystore when
+     CPGE_RELEASE_KEYSTORE is set (see Android/package-apk.sh);
+     otherwise it is signed with the debug keystore and the script
+     says so.
 
 NativeActivity — what it is (in plain words):
   Android apps normally start in a Java activity. NativeActivity is
@@ -230,6 +237,49 @@ PYEOF
     return 1
 }
 
+# --- Path / tool helpers (Windows/Git Bash) --------------------------------
+# Same helpers as Android/package-apk.sh: posix_path normalises a root
+# with cygpath when it exists (Git Bash/MSYS2/Cygwin; no-op on Linux),
+# find_tool resolves a tool through its plain/.exe/.bat/.cmd names.
+posix_path() {  # posix_path <path> -> POSIX form (no-op without cygpath)
+    if command -v cygpath &>/dev/null; then
+        cygpath -u "$1"
+    else
+        printf '%s' "$1"
+    fi
+}
+
+find_tool() {  # find_tool <dir> <name> -> prints the resolved path or nothing
+    local _dir="$1" _name="$2" _suffix
+    for _suffix in "" ".exe" ".bat" ".cmd"; do
+        if [[ -f "$_dir/$_name$_suffix" ]]; then
+            printf '%s' "$_dir/$_name$_suffix"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# llvm-strip from the NDK: $NDK_ROOT/toolchains/llvm/prebuilt/*/bin
+# (one dir per host OS — globbed, so it works on Linux and on
+# Windows/Git Bash). Prints the path or nothing; always returns 0 so
+# callers can test for empty. NDK_ROOT is resolved later in this script
+# (this function is only called from install_and_package_android, after
+# the NDK check).
+find_llvm_strip() {
+    local _ndk_posix _pb _ls
+    _ndk_posix="$(posix_path "${NDK_ROOT:-}")"
+    for _pb in "$_ndk_posix"/toolchains/llvm/prebuilt/*/; do
+        [[ -d "$_pb" ]] || continue
+        _ls="$(find_tool "${_pb}bin" llvm-strip || true)"
+        if [[ -n "$_ls" ]]; then
+            printf '%s' "$_ls"
+            return 0
+        fi
+    done
+    return 0
+}
+
 # --- Install to root + Gradle project, then package the APK -----------------
 # Runs on success only. Automates the three "Next steps" this script used
 # to print, in order, and then builds the APK AFTER the install so the APK
@@ -238,8 +288,9 @@ PYEOF
 #   2. Assets/ to the Gradle project's assets/ (AIHistory excluded).
 #   3. NativeActivity entry in AndroidManifest.xml (verified, repaired
 #      if missing or wrong — see ensure_native_activity above).
-#   4. Debug APK via Android/package-apk.sh (aapt2), debug/arm64-v8a
-#      only; skipped with a clear note otherwise.
+#   4. APK via Android/package-apk.sh (aapt2), debug and release,
+#      arm64-v8a only; skipped with a clear note for another ABI.
+#      Release builds are stripped (llvm-strip) before packaging.
 install_and_package_android() {
     local _so="${BUILD_DIR}/libCPGE.so"
     if [[ ! -f "${_so}" ]]; then
@@ -255,6 +306,26 @@ install_and_package_android() {
     mkdir -p "${_jni}"
     cp -f "${_so}" "${_jni}/libCPGE.so" || { echo "ERROR: could not install libCPGE.so to ${_jni}"; return 1; }
     echo "Installed: ${_jni}/libCPGE.so"
+
+    # 1b. Release: strip debug info from BOTH installed copies (root and
+    #     jniLibs). Debug keeps its symbols. llvm-strip comes from the
+    #     NDK; a missing llvm-strip is a hard error for release builds —
+    #     a release build must never ship with debug info.
+    if [[ "${CONFIG}" == "Release" ]]; then
+        local _llvm_strip _f _before _after
+        _llvm_strip="$(find_llvm_strip)"
+        if [[ -z "${_llvm_strip}" ]]; then
+            echo "ERROR: llvm-strip not found in ${NDK_ROOT}/toolchains/llvm/prebuilt/*/bin — release builds must be stripped."
+            echo "  Install the NDK via Android Studio (SDK Manager → SDK Tools → NDK (Side by side)) or: sdkmanager \"ndk;<version>\""
+            return 1
+        fi
+        for _f in "${PROJECT_ROOT}/libCPGE.so" "${_jni}/libCPGE.so"; do
+            _before="$(stat -c%s "$_f")"
+            "$_llvm_strip" "$_f" || { echo "ERROR: llvm-strip failed on $_f"; return 1; }
+            _after="$(stat -c%s "$_f")"
+            echo "Stripped: ${_f} (${_before} -> ${_after} bytes)"
+        done
+    fi
 
     # 2. Assets/ to the Gradle project's assets/ (AIHistory excluded,
     #    exactly as Android/package-apk.sh does for the APK).
@@ -274,15 +345,16 @@ install_and_package_android() {
     # 3. NativeActivity entry in the manifest.
     ensure_native_activity || return 1
 
-    # 4. APK, built AFTER the install so it packages the root .so and
-    #    Assets/. aapt2 packaging is debug/arm64-v8a only
-    #    (package-apk.sh hardcodes that pair).
+    # 4. APK, built AFTER the install so it packages the .so and
+    #    Assets/. Debug and release both package (arm64-v8a only);
+    #    the config is passed through so package-apk.sh strips the
+    #    release .so and leaves the debug one alone.
     local _apk_script="${PROJECT_ROOT}/Android/package-apk.sh"
-    if [[ "${CONFIG}" == "Debug" && "${ABI}" == "arm64-v8a" ]]; then
+    if [[ "${ABI}" == "arm64-v8a" ]]; then
         if [[ -x "${_apk_script}" ]]; then
-            echo "Packaging APK with aapt2: ${_apk_script} ${ARG1,,}"
-            if "${_apk_script}" "${ARG1,,}"; then
-                echo "APK packaged: Android/cpge-${ARG1,,}-debug.apk"
+            echo "Packaging APK with aapt2: ${_apk_script} ${ARG1,,} ${CONFIG,,}"
+            if "${_apk_script}" "${ARG1,,}" "${CONFIG,,}"; then
+                echo "APK packaged: Android/cpge-${ARG1,,}-${CONFIG,,}.apk"
             else
                 echo "ERROR: APK packaging failed."
                 echo "  Library build: SUCCEEDED (libCPGE.so installed to the project root and jniLibs/${ABI}/)."
@@ -298,7 +370,7 @@ install_and_package_android() {
             return 1
         fi
     else
-        echo "NOTE: APK packaging skipped — aapt2 packaging is debug/arm64-v8a only (this build: ${CONFIG}/${ABI})."
+        echo "NOTE: APK packaging skipped — aapt2 packaging is arm64-v8a only (this build: ${CONFIG}/${ABI})."
         echo "  Library build: SUCCEEDED (libCPGE.so installed to the project root and jniLibs/${ABI}/)."
     fi
     return 0

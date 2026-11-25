@@ -91,26 +91,43 @@ On a successful build the script automates the whole post-build flow
    `libCPGE.so`); the MAIN/LAUNCHER intent-filter puts the app in the
    launcher. GameActivity is the newer Jetpack alternative; this
    project uses NativeActivity.
-4. The debug APK is built with aapt2 (`Android/package-apk.sh`),
-   AFTER the install, so the APK packages the root `.so` and
-   `Assets/`. Debug/arm64-v8a only; skipped with a clear note
-   otherwise (release build or another ABI). `package-apk.sh` takes
-   the `.so` from the project root, falling back to the build-dir copy.
-   The packaging scripts find the SDK from `ANDROID_HOME` (or
-   `ANDROID_SDK_ROOT`), build-tools from
-   `ANDROID_BUILD_TOOLS_VERSION` (default 34.0.0, newest installed as
-   fallback), and the JDK from `JAVA_HOME` (falling back to the SDK
-   tree's JDK 17, then `java` on PATH); when a tool is genuinely
-   missing they fail with what to install. On Windows/Git Bash,
-   `ANDROID_HOME` and `JAVA_HOME` may hold Windows-style paths
+4. The APK is built with aapt2 (`Android/package-apk.sh`), AFTER the
+   install, so the APK packages the `.so` and `Assets/` — debug AND
+   release, both as `cpge-<renderer>-<config>.apk` (arm64-v8a only;
+   skipped with a clear note for another ABI). `package-apk.sh`
+   takes the `.so` from the build dir for the requested config,
+   falling back to the project-root copy. The packaging scripts find
+   the SDK from `ANDROID_HOME` (or `ANDROID_SDK_ROOT`), build-tools
+   from `ANDROID_BUILD_TOOLS_VERSION` (default 34.0.0, newest
+   installed as fallback), and the JDK from `JAVA_HOME` (falling back
+   to the SDK tree's JDK 17, then `java` on PATH); when a tool is
+   genuinely missing they fail with what to install. On Windows/Git
+   Bash, `ANDROID_HOME` and `JAVA_HOME` may hold Windows-style paths
    (`D:\...`); the scripts normalise them to POSIX paths with
    `cygpath` and resolve tools with their Windows extensions
    (`apksigner.bat`, `d8.bat`, `aapt2.exe`, `zipalign.exe`) — 25
    November 2026.
 
+Release APKs (25 November 2026): build with
+`./cmake-build-android.sh vulkan release` (or `opengl release`) —
+output is `Android/cpge-<renderer>-release.apk`. Release builds are
+stripped of debug info with `llvm-strip` (from the NDK, resolved the
+same way as the build script resolves it); a release build with no
+`llvm-strip` fails loudly rather than shipping an unstripped `.so`.
+The release APK is not debuggable (`aapt2 link` runs without
+`--debug-mode`; the manifest has no `android:debuggable` attribute),
+and debug builds stay debuggable and unstripped. Signing: a release
+APK uses the release keystore when `CPGE_RELEASE_KEYSTORE` is set
+(with `CPGE_RELEASE_KEYSTORE_PASS`, `CPGE_RELEASE_KEY_ALIAS` and
+`CPGE_RELEASE_KEY_PASS` — all four required); otherwise it is signed
+with the debug keystore and the script prints a NOTE saying so — set
+a release keystore before distributing a release APK. `package-apk.sh`
+also takes the config directly (`./package-apk.sh vulkan release`);
+it defaults to `debug`, so existing callers are unaffected.
+
 Build outputs do not belong on GitHub (25 November 2026): `.gitignore`
 covers `build/` and `build-android/` at any depth, `Debug/` /
-`Release/`, and the binary extensions (`*.so`, `*.dll`, `*.spv`,
+`Release/`, and the binary extensions (`*.so`, `*.spv`,
 `*.cso`, `*.apk`, `*.dex`, …) plus `cache.dat` and `Assets/AIHistory/`,
 so the `.so`, APKs, dex, keystore and staged copies above are never
 committed. Tracked build binaries are being deleted from Phase2 in the

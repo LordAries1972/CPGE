@@ -7,13 +7,35 @@
 # Gradle is the fallback only — do not wait on the other_tcp setting.
 # This script is therefore how APKs are produced, not a stopgap.
 #
-# Usage: ./package-apk.sh <opengl|vulkan>   (run from Android/ or anywhere;
-#        all paths are resolved from this script's location)
-# Output: Android/cpge-<renderer>-debug.apk (signed, zipaligned).
+# Usage: ./package-apk.sh <opengl|vulkan> [debug|release]   (run from Android/
+#        or anywhere; all paths are resolved from this script's location)
+#        The config defaults to debug, so existing callers are unaffected.
+# Output: Android/cpge-<renderer>-<config>.apk (signed, zipaligned).
+#        Debug keeps cpge-<renderer>-debug.apk (debuggable, debug-signed,
+#        unstripped). Release makes cpge-<renderer>-release.apk: the .so is
+#        stripped of debug info with llvm-strip (from the NDK), aapt2 link
+#        runs WITHOUT --debug-mode (so the APK is not debuggable), and it
+#        is signed with the release keystore when CPGE_RELEASE_KEYSTORE is
+#        set (with CPGE_RELEASE_KEYSTORE_PASS, CPGE_RELEASE_KEY_ALIAS and
+#        CPGE_RELEASE_KEY_PASS); otherwise it is signed with the debug
+#        keystore and the script says so — set a release keystore before
+#        distributing a release APK. The .so is taken from the build dir
+#        for the requested config first
+#        (Linux/build-android/arm64-v8a/<Renderer>/<Config>/libCPGE.so —
+#        the exact artifact for that config), falling back to the
+#        repo-root copy (which is only correct when it matches the
+#        requested config).
 # The Java TTS helper (CpgeTts) is compiled to classes.dex by
 # build-dex.sh (same folder) and added automatically when it exists; the
 # manifest's android:hasCode is true, so the dex must be present for the
 # TTS class to load (before step 3 the APK shipped without a dex).
+#
+# NDK (release only): resolved the same way Linux/cmake-build-android.sh
+# does — ANDROID_NDK, then ANDROID_NDK_HOME, then the newest dir under
+# ANDROID_HOME/ndk, then ~/workspace/android-sdk/ndk. llvm-strip comes
+# from $NDK/toolchains/llvm/prebuilt/*/bin (linux-x86_64 on Linux,
+# windows-x86_64 on Windows/Git Bash) through find_tool. A release build
+# with no llvm-strip fails loudly — it never ships an unstripped .so.
 #
 # SDK setup: the Android SDK root is taken from ANDROID_HOME (or
 # ANDROID_SDK_ROOT), falling back to ~/workspace/android-sdk (the build
@@ -38,8 +60,14 @@
 set -euo pipefail
 
 RENDERER="${1:-}"
+CONFIG="${2:-debug}"
+CONFIG="${CONFIG,,}"
 if [ "$RENDERER" != "opengl" ] && [ "$RENDERER" != "vulkan" ]; then
-    echo "Usage: $0 <opengl|vulkan>" >&2
+    echo "Usage: $0 <opengl|vulkan> [debug|release]" >&2
+    exit 2
+fi
+if [ "$CONFIG" != "debug" ] && [ "$CONFIG" != "release" ]; then
+    echo "Usage: $0 <opengl|vulkan> [debug|release] (config '$CONFIG' is not debug or release)" >&2
     exit 2
 fi
 
@@ -153,40 +181,113 @@ APKSIGNER="$(find_tool "$BT" apksigner || true)"
 [[ -n "$KEYTOOL" ]] || { echo "ERROR: keytool not found — set JAVA_HOME to a JDK 17 install." >&2; exit 1; }
 command -v zip &>/dev/null || { echo "ERROR: zip not found — needed to stage the APK contents (on Git Bash: pacman -S zip, or install 7-Zip and put it on PATH)." >&2; exit 1; }
 
+# --- NDK / llvm-strip (release only) ---------------------------------------
+# Release builds are stripped of debug info. The NDK is resolved the same
+# way Linux/cmake-build-android.sh does; llvm-strip comes from its
+# toolchains/llvm/prebuilt/*/bin (one dir per host OS — globbed, so it
+# works on Linux and on Windows/Git Bash). A release build with no
+# llvm-strip fails loudly — it never ships an unstripped .so. Debug does
+# not need the NDK at all, so nothing here runs for debug.
+LLVM_STRIP=""
+if [[ "$CONFIG" == "release" ]]; then
+    newest_ndk_dir() {  # newest_ndk_dir <base> -> newest dir (directories only)
+        ls -d "$1"/*/ 2>/dev/null | sort -V | tail -1
+    }
+    NDK_ROOT=""
+    for _c in \
+            "${ANDROID_NDK:-}" \
+            "${ANDROID_NDK_HOME:-}" \
+            "$(newest_ndk_dir "$SDK_ROOT/ndk")" \
+            "$(newest_ndk_dir "$HOME/workspace/android-sdk/ndk")"; do
+        if [[ -n "$_c" && -d "$_c" && -f "$_c/build/cmake/android.toolchain.cmake" ]]; then
+            NDK_ROOT="$_c"
+            break
+        fi
+    done
+    if [[ -z "$NDK_ROOT" ]]; then
+        echo "ERROR: Android NDK not found — needed for llvm-strip (release builds are stripped)." >&2
+        echo "  Set ANDROID_NDK to your NDK root, e.g.:" >&2
+        echo "    export ANDROID_NDK=/path/to/android-sdk/ndk/<version>" >&2
+        exit 1
+    fi
+    _ndk_posix="$(posix_path "$NDK_ROOT")"
+    for _pb in "$_ndk_posix"/toolchains/llvm/prebuilt/*/; do
+        [[ -d "$_pb" ]] || continue
+        _ls="$(find_tool "${_pb}bin" llvm-strip || true)"
+        if [[ -n "$_ls" ]]; then LLVM_STRIP="$_ls"; break; fi
+    done
+    [[ -n "$LLVM_STRIP" ]] || { echo "ERROR: llvm-strip not found in $NDK_ROOT/toolchains/llvm/prebuilt/*/bin — release builds must be stripped." >&2; echo "  Install the NDK via Android Studio (SDK Manager → SDK Tools → NDK (Side by side)) or: sdkmanager \"ndk;<version>\"" >&2; exit 1; }
+    echo "llvm-strip: $LLVM_STRIP"
+fi
+
 RENDERER_DIR=OpenGL
 [ "$RENDERER" = "vulkan" ] && RENDERER_DIR=Vulkan
-# 25 Nov 2026: prefer the repo-root installed copy — cmake-build-android.sh
-# installs libCPGE.so to the project root on every successful build, so the
-# APK packages exactly the library the root run uses (and the APK is built
-# AFTER that install). Fall back to the build-dir .so when the root copy is
-# absent (e.g. the library was built by Gradle or an older script).
-LIB="$REPO/libCPGE.so"
-[ -f "$LIB" ] || LIB="$REPO/Linux/build-android/arm64-v8a/$RENDERER_DIR/Debug/libCPGE.so"
+CONFIG_DIR=Debug
+[ "$CONFIG" = "release" ] && CONFIG_DIR=Release
+# 25 Nov 2026: prefer the build-dir .so for the requested config — it is
+# the exact artifact for that config. The repo-root copy is only correct
+# when it matches the requested config (a stale root copy from a debug
+# build must never be packaged as a release APK), so it is the fallback
+# now, not the first choice. (cmake-build-android.sh still installs the
+# .so to the root on every build, and builds the APK AFTER that install,
+# so the root copy is fresh when the script is called from a build.)
+LIB="$REPO/Linux/build-android/arm64-v8a/$RENDERER_DIR/$CONFIG_DIR/libCPGE.so"
+[ -f "$LIB" ] || LIB="$REPO/libCPGE.so"
 MANIFEST="$REPO/Android/app/src/main/AndroidManifest.xml"
-OUT="$SCRIPT_DIR/cpge-$RENDERER-debug.apk"
-KEYSTORE="$SCRIPT_DIR/debug.keystore"
+OUT="$SCRIPT_DIR/cpge-$RENDERER-$CONFIG.apk"
 STAGE="$SCRIPT_DIR/stage-$RENDERER"
 
-[ -f "$LIB" ] || { echo "Missing libCPGE.so — build the Android $RENDERER lib first (looked in $REPO/libCPGE.so and $REPO/Linux/build-android/arm64-v8a/$RENDERER_DIR/Debug/)." >&2; exit 1; }
+[ -f "$LIB" ] || { echo "Missing libCPGE.so — build the Android $RENDERER $CONFIG lib first (looked in $REPO/Linux/build-android/arm64-v8a/$RENDERER_DIR/$CONFIG_DIR/ and $REPO/libCPGE.so)." >&2; exit 1; }
 [ -f "$MANIFEST" ] || { echo "Missing $MANIFEST" >&2; exit 1; }
 
-# 1. Debug keystore (created once; standard Android debug-keystore values).
-if [ ! -f "$KEYSTORE" ]; then
+# 1. Signing keystore. Release uses a release keystore when configured
+# (CPGE_RELEASE_KEYSTORE + CPGE_RELEASE_KEYSTORE_PASS +
+# CPGE_RELEASE_KEY_ALIAS + CPGE_RELEASE_KEY_PASS — all four required);
+# otherwise it falls back to the debug keystore and says so, because a
+# debug-signed release APK must not be mistaken for a distribution
+# build. Debug always uses the debug keystore (created once, standard
+# Android debug-keystore values).
+SIGN_KEYSTORE="$SCRIPT_DIR/debug.keystore"
+SIGN_STOREPASS=android
+SIGN_ALIAS=androiddebugkey
+SIGN_KEYPASS=android
+if [[ "$CONFIG" == "release" && -n "${CPGE_RELEASE_KEYSTORE:-}" ]]; then
+    SIGN_KEYSTORE="$CPGE_RELEASE_KEYSTORE"
+    SIGN_STOREPASS="${CPGE_RELEASE_KEYSTORE_PASS:-}"
+    SIGN_ALIAS="${CPGE_RELEASE_KEY_ALIAS:-}"
+    SIGN_KEYPASS="${CPGE_RELEASE_KEY_PASS:-}"
+    [[ -n "$SIGN_STOREPASS" && -n "$SIGN_ALIAS" && -n "$SIGN_KEYPASS" ]] || { echo "ERROR: CPGE_RELEASE_KEYSTORE is set but CPGE_RELEASE_KEYSTORE_PASS, CPGE_RELEASE_KEY_ALIAS and CPGE_RELEASE_KEY_PASS must all be set too." >&2; exit 1; }
+    [[ -f "$SIGN_KEYSTORE" ]] || { echo "ERROR: release keystore not found: $SIGN_KEYSTORE (CPGE_RELEASE_KEYSTORE)." >&2; exit 1; }
+    echo "Signing release APK with release keystore: $SIGN_KEYSTORE (alias $SIGN_ALIAS)"
+elif [[ "$CONFIG" == "release" ]]; then
+    echo "NOTE: release APK will be signed with the DEBUG keystore — set CPGE_RELEASE_KEYSTORE (+ CPGE_RELEASE_KEYSTORE_PASS, CPGE_RELEASE_KEY_ALIAS, CPGE_RELEASE_KEY_PASS) for a distribution keystore."
+fi
+if [[ ! -f "$SIGN_KEYSTORE" ]]; then
     "$KEYTOOL" -genkeypair -v \
-        -keystore "$KEYSTORE" -storepass android -alias androiddebugkey -keypass android \
+        -keystore "$SIGN_KEYSTORE" -storepass "$SIGN_STOREPASS" -alias "$SIGN_ALIAS" -keypass "$SIGN_KEYPASS" \
         -keyalg RSA -keysize 2048 -validity 10000 \
         -dname "CN=Android Debug, O=Android, C=US" >/dev/null 2>&1
-    echo "Created debug keystore: $KEYSTORE"
+    echo "Created keystore: $SIGN_KEYSTORE"
 fi
 
 # 2. Compile the manifest + resources table. The SDK versions are passed
 # explicitly: without them aapt2 assumes a low targetSdk and the APK gains
 # implied legacy permissions (WRITE_EXTERNAL_STORAGE, READ_PHONE_STATE).
+# --debug-mode only for debug: it marks the APK debuggable. A release APK
+# must not be debuggable, so the flag is omitted for release (the
+# manifest has no android:debuggable attribute).
 rm -f "$OUT"
-"$AAPT2" link -o "$OUT" \
-    --manifest "$MANIFEST" \
-    -I "$PLATFORM_JAR" \
-    --min-sdk-version 26 --target-sdk-version 34 --debug-mode
+if [[ "$CONFIG" == "debug" ]]; then
+    "$AAPT2" link -o "$OUT" \
+        --manifest "$MANIFEST" \
+        -I "$PLATFORM_JAR" \
+        --min-sdk-version 26 --target-sdk-version 34 --debug-mode
+else
+    "$AAPT2" link -o "$OUT" \
+        --manifest "$MANIFEST" \
+        -I "$PLATFORM_JAR" \
+        --min-sdk-version 26 --target-sdk-version 34
+fi
 
 # 3. Stage the native library and the game assets. AIHistory holds runtime
 # AI log files, not game data, so it is excluded. The .so is stored
@@ -195,6 +296,16 @@ rm -f "$OUT"
 rm -rf "$STAGE"
 mkdir -p "$STAGE/lib/arm64-v8a" "$STAGE/assets"
 cp "$LIB" "$STAGE/lib/arm64-v8a/libCPGE.so"
+# Release: strip the STAGED copy (not the source — the build-dir and
+# root copies are left alone for the caller). llvm-strip was resolved
+# and required earlier; a missing one already failed the script.
+if [[ "$CONFIG" == "release" ]]; then
+    _staged="$STAGE/lib/arm64-v8a/libCPGE.so"
+    _before="$(stat -c%s "$_staged")"
+    "$LLVM_STRIP" "$_staged"
+    _after="$(stat -c%s "$_staged")"
+    echo "Stripped: $_staged (${_before} -> ${_after} bytes)"
+fi
 cp -r "$REPO/Assets/." "$STAGE/assets/"
 rm -rf "$STAGE/assets/AIHistory"
 ( cd "$STAGE" && zip -q -0 "$OUT" lib/arm64-v8a/libCPGE.so && zip -q -r "$OUT" assets )
@@ -214,7 +325,7 @@ rm -rf "$STAGE"
 # the aligned bytes).
 "$ZIPALIGN" -f 4 "$OUT" "$OUT.aligned"
 mv "$OUT.aligned" "$OUT"
-"$APKSIGNER" sign --ks "$KEYSTORE" --ks-pass pass:android --key-pass pass:android "$OUT"
+"$APKSIGNER" sign --ks "$SIGN_KEYSTORE" --ks-pass "pass:$SIGN_STOREPASS" --ks-key-alias "$SIGN_ALIAS" --key-pass "pass:$SIGN_KEYPASS" "$OUT"
 
 echo "=== $OUT ==="
 ls -la "$OUT"
