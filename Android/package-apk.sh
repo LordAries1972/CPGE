@@ -192,18 +192,56 @@ APKSIGNER="$(find_tool "$BT" apksigner || true)"
 
 # Archiver for staging the APK contents: `zip` first, else `7z`.
 # 7-Zip does NOT provide a `zip` command — its command is `7z` — so a
-# `zip` check can never be satisfied by installing 7-Zip alone. `7z`
-# is also looked for in the standard Windows install locations
-# (C:\Program Files\7-Zip and C:\Program Files (x86)\7-Zip), so a
-# default 7-Zip install works even if it is not on PATH. The choice is
-# printed so the log shows which archiver staged the APK.
+# `zip` check can never be satisfied by installing 7-Zip alone.
+# Resolution order (25 Nov 2026):
+#   1. CPGE_7Z — an explicit override holding the path to the 7z
+#      executable (e.g. CPGE_7Z='/d/Tools/7-Zip/7z.exe', or a directory
+#      holding 7z.exe). The escape hatch for a renamed or moved 7-Zip
+#      install; used when set and a 7z executable is found there.
+#   2. `zip` on PATH.
+#   3. `7z` on PATH.
+#   4. Windows registry (when `reg` is available): 7-Zip records its
+#      install directory in the Path value under
+#      HKLM\SOFTWARE\7-Zip (64-bit) or HKLM\SOFTWARE\WOW6432Node\7-Zip
+#      (32-bit). A missing `reg`, a missing key, or an unparsable value
+#      is just "not found" — never a failure.
+#   5. The standard install locations on C: and D: (D: is a common
+#      drive for Windows program installs, e.g. D:\Program Files\7-Zip).
+# A PATH change only reaches a NEW shell — a Git Bash window that was
+# already open when PATH was edited still has the old PATH, so close
+# and reopen Git Bash after editing PATH. The choice is printed so the
+# log shows which archiver staged the APK.
 ZIP_TOOL=""; ZIP_CMD=""
-if command -v zip &>/dev/null; then
+if [[ -n "${CPGE_7Z:-}" ]]; then
+    if [[ -f "$CPGE_7Z" ]]; then
+        ZIP_TOOL=7z; ZIP_CMD="$CPGE_7Z"
+    elif [[ -d "$CPGE_7Z" ]]; then
+        _z="$(find_tool "$CPGE_7Z" 7z || true)"
+        if [[ -n "$_z" ]]; then ZIP_TOOL=7z; ZIP_CMD="$_z"; fi
+    fi
+    if [[ -z "$ZIP_TOOL" ]]; then
+        echo "NOTE: CPGE_7Z is set ($CPGE_7Z) but no 7z executable was found there — ignoring it."
+    fi
+fi
+if [[ -z "$ZIP_TOOL" ]] && command -v zip &>/dev/null; then
     ZIP_TOOL=zip; ZIP_CMD="$(command -v zip)"
-elif command -v 7z &>/dev/null; then
+fi
+if [[ -z "$ZIP_TOOL" ]] && command -v 7z &>/dev/null; then
     ZIP_TOOL=7z; ZIP_CMD="$(command -v 7z)"
-else
-    for _dir in "/c/Program Files/7-Zip" "/c/Program Files (x86)/7-Zip"; do
+fi
+if [[ -z "$ZIP_TOOL" ]] && command -v reg &>/dev/null; then
+    for _key in "HKLM\SOFTWARE\7-Zip" "HKLM\SOFTWARE\WOW6432Node\7-Zip"; do
+        _reg_path="$(reg query "$_key" /v Path 2>/dev/null | awk -F'REG_SZ' 'NF>1 {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' || true)"
+        if [[ -n "$_reg_path" ]]; then
+            _reg_dir="$(posix_path "$_reg_path")"
+            _reg_dir="${_reg_dir%/}"
+            _z="$(find_tool "$_reg_dir" 7z || true)"
+            if [[ -n "$_z" ]]; then ZIP_TOOL=7z; ZIP_CMD="$_z"; break; fi
+        fi
+    done
+fi
+if [[ -z "$ZIP_TOOL" ]]; then
+    for _dir in "/c/Program Files/7-Zip" "/c/Program Files (x86)/7-Zip" "/d/Program Files/7-Zip" "/d/Program Files (x86)/7-Zip"; do
         _z="$(find_tool "$_dir" 7z || true)"
         if [[ -n "$_z" ]]; then ZIP_TOOL=7z; ZIP_CMD="$_z"; break; fi
     done
@@ -213,9 +251,14 @@ if [[ -z "$ZIP_TOOL" ]]; then
     echo "  7-Zip does NOT provide a \`zip\` command — its command is \`7z\`. Installing" >&2
     echo "  7-Zip alone never satisfies a \`zip\` check. Either:" >&2
     echo "    - get \`zip\` (on Git Bash: pacman -S zip), or" >&2
-    echo "    - install 7-Zip and make sure \`7z\` is on PATH (add C:\Program Files\7-Zip" >&2
-    echo "      to PATH). The script uses \`7z\` as a fallback, and also checks the" >&2
-    echo "      standard install locations, so a default 7-Zip install usually just works." >&2
+    echo "    - install 7-Zip and make sure \`7z\` is on PATH (add C:\\Program Files\\7-Zip" >&2
+    echo "      to PATH). A PATH change only applies to a NEW Git Bash window — close" >&2
+    echo "      and reopen Git Bash after editing PATH, or the old shell still has the" >&2
+    echo "      old PATH. Or point the script straight at your 7z.exe:" >&2
+    echo "        CPGE_7Z='/d/Tools/7-Zip/7z.exe'   (path to the 7z executable, any location)" >&2
+    echo "  The script also looks up the 7-Zip install in the Windows registry and" >&2
+    echo "  checks the standard install locations on C: and D:, so a default install" >&2
+    echo "  usually just works." >&2
     exit 1
 fi
 echo "Archiver: $ZIP_TOOL ($ZIP_CMD)"

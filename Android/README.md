@@ -56,9 +56,13 @@ NativeActivity app that packages the engine (`libCPGE.so`) as an APK. Created
   7-Zip does NOT provide a `zip` command — its command is `7z` — so
   installing 7-Zip never satisfies a `zip` check. On Git Bash:
   `pacman -S zip` for `zip`, or install 7-Zip and put
-  `C:\Program Files\7-Zip` on PATH for `7z` (the script also checks
-  the standard install locations, so a default 7-Zip install usually
-  just works).
+  `C:\Program Files\7-Zip` on PATH for `7z`. A PATH change only applies
+  to a NEW Git Bash window — close and reopen Git Bash after editing
+  PATH. The script also looks up the 7-Zip install in the Windows
+  registry (`HKLM\SOFTWARE\7-Zip`) and checks the standard install
+  locations on C: and D:, so a default 7-Zip install usually just
+  works; if yours is renamed or moved, point the script straight at it
+  with `CPGE_7Z='/d/Tools/7-Zip/7z.exe'`.
 
 ## Build
 
