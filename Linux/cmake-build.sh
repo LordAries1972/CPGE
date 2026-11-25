@@ -16,6 +16,11 @@
 #   ./cmake-build.sh clean
 #   ./cmake-build.sh help               # lists every directive (also -h, --help, -help)
 #
+# Before building (debug and release alike) the script checks that every
+# dependency the build needs is present and downloads any that are
+# missing (apt on Linux; FFmpeg comes from the distro -dev packages,
+# verified to satisfy the build). See check_linux_deps below.
+#
 # On success the built executable and its shaders are installed into the
 # project root (like install-debug.bat / install-release.bat on Windows),
 # so the executable runs from the root where Assets/ lives.
@@ -84,6 +89,15 @@ Config (second argument, used by opengl / vulkan / all):
   release   Release build
 
 What a build does:
+  0. Checks every dependency the build needs (cmake, compiler, make,
+     OpenGL / X11 / GLEW / GLU headers, and for Vulkan the Vulkan SDK
+     + xcb + X11-xcb headers, plus shaderc, glslangValidator, ALSA,
+     FFmpeg and eSpeak-ng) and downloads any that are missing — apt on
+     Linux (FFmpeg from the distro -dev packages). This runs
+     before building, for debug and release alike. A required
+     dependency that cannot be downloaded stops the build here with
+     the exact fix; an optional one only warns (CMake disables that
+     feature). When everything is present this step is a silent no-op.
   1. Reads GAME_NAME from Includes.h.
   2. Configures and builds into Linux/build/<Renderer>/<Config>
      using all CPU cores.
@@ -167,6 +181,238 @@ install_to_root() {
                 ;;
         esac
     done
+    return 0
+}
+
+# --- Dependency check: download if not found (25 November 2026) -------------
+# Before building (and therefore before packaging, for both debug and
+# release — this check is NOT gated on CONFIG), every dependency the
+# build needs is verified present, and downloaded when it is missing.
+# This is the "repair" step: a VM reset wipes the installed -dev
+# packages, and a build that fails halfway through on a missing header
+# is an environment failure, not a code failure — the check repairs the
+# environment first so the build can fulfil.
+#
+# HARD dependencies (the build cannot succeed without them): cmake, a C++
+# compiler, make, and the headers CMakeLists.txt requires — OpenGL, X11,
+# GLEW, GLU, and for the Vulkan renderer Vulkan + xcb + X11-xcb. If one
+# is missing and cannot be downloaded, the script prints the exact fix
+# and exits non-zero BEFORE building.
+# SOFT dependencies (CMakeLists.txt treats them as optional — the build
+# still succeeds with that feature disabled): shaderc + glslangValidator
+# (Vulkan only), ALSA, FFmpeg, eSpeak-ng. A missing one is still
+# downloaded when possible; if the download fails the script prints a
+# WARNING with the exact fix and builds on (CMake disables the feature).
+# GLM and miniaudio are VENDORED in repo/include/ and are never
+# downloaded — CMakeLists.txt already fails fast with a clear message
+# if include/glm/glm.hpp is missing.
+#
+# Linux system packages come from apt (sudo when not root). If apt
+# cannot reach the network, the cached .debs in /var/cache/apt/archives
+# are tried with dpkg as a fallback. FFmpeg comes from the distro -dev
+# packages too (Ubuntu 24.04: FFmpeg 6.1.1) — verified 25 November 2026
+# that the engine compiles and links against them (the manual
+# FFmpeg 8.1.2 headers in /usr/local/include are no longer needed;
+# the old 8.x runtime libraries stay installed but unused once the
+# 6.1 -dev packages provide the .so symlinks).
+# When everything is present the check is a silent no-op and the build
+# proceeds exactly as before.
+_have_cmd() { command -v "$1" &>/dev/null; }   # _have_cmd <name>
+_have_file() { [[ -f "$1" ]]; }                # _have_file <path>
+
+# apt helpers. _apt_sudo is set by _apt_init: empty when root, "sudo -n"
+# when passwordless sudo works, unset when neither is available (then
+# _apt_install fails fast with the manual command instead of hanging on
+# a password prompt).
+_APT_SUDO=""
+_APT_INIT_DONE=""
+_apt_init() {
+    [[ -n "${_APT_INIT_DONE}" ]] && return 0
+    _APT_INIT_DONE=1
+    if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+        _APT_SUDO=""
+    elif _have_cmd sudo && sudo -n true 2>/dev/null; then
+        _APT_SUDO="sudo -n"
+    else
+        _APT_SUDO="__NONE__"
+    fi
+    return 0
+}
+
+# _apt_update_once — refresh the package lists once per script run
+# (and once per `all` run: the flag is exported so a re-invoked child
+# skips the second update). Only called when an install is actually
+# needed, so the no-op path never pays for it. A failed update is not
+# fatal here — the cached .debs may still satisfy the install.
+# No update is needed when package lists already exist: apt writes
+# *_Packages into place only when complete, so existing lists are
+# usable even if they are a day old (and an update can take ten
+# minutes on a slow mirror).
+_apt_update_once() {
+    [[ -n "${CPGE_APT_UPDATED:-}" ]] && return 0
+    if ls /var/lib/apt/lists/*_Packages >/dev/null 2>&1; then
+        export CPGE_APT_UPDATED=1
+        return 0
+    fi
+    echo "Dependency check: refreshing package lists (apt-get update — can take a while on a slow mirror)..."
+    if ${_APT_SUDO} apt-get update; then
+        export CPGE_APT_UPDATED=1
+    else
+        echo "NOTE: apt-get update failed — continuing with the cached package lists."
+    fi
+    return 0
+}
+
+# _apt_install_pkgs <pkg...> — install the named packages with apt, with
+# a dpkg fallback from the apt cache. Returns 0 only if every package is
+# verifiably installed afterwards (checked by the caller's presence
+# test, not by apt's exit code alone).
+_apt_install_pkgs() {
+    local _pkgs=("$@") _p _f
+    _apt_init
+    if [[ "${_APT_SUDO}" == "__NONE__" ]] || ! _have_cmd apt-get; then
+        echo "ERROR: cannot install packages — no usable apt (need root or passwordless sudo)."
+        echo "  Run this by hand, then re-run the build:"
+        echo "    sudo apt-get install -y ${_pkgs[*]}"
+        return 1
+    fi
+    _apt_update_once
+    echo "Dependency check: installing missing packages: ${_pkgs[*]}"
+    if ${_APT_SUDO} apt-get install -y "${_pkgs[@]}"; then
+        return 0
+    fi
+    echo "NOTE: apt-get install failed — trying the cached .debs with dpkg..."
+    for _p in "${_pkgs[@]}"; do
+        for _f in /var/cache/apt/archives/"${_p}"_*.deb; do
+            [[ -f "$_f" ]] || continue
+            ${_APT_SUDO} dpkg -i "$_f" 2>/dev/null || true
+        done
+    done
+    return 0
+}
+
+# _apt_fix_line <pkg...> — the one-liner the user runs by hand.
+_apt_fix_line() { echo "    sudo apt-get install -y $*"; }
+
+# FFmpeg (soft): headers in /usr/include, the multiarch dir
+# /usr/include/x86_64-linux-gnu (where Ubuntu's -dev packages put
+# them), or /usr/local/include, and libraries in the loader path.
+# Returns 0 when FFmpeg is usable, 1 when it is not (the caller warns
+# and continues — CMake disables MoviePlayer / ScreenRecorder when
+# FFmpeg is absent).
+_ffmpeg_present() {
+    local _h _l
+    for _h in /usr/include/libavformat/avformat.h /usr/include/x86_64-linux-gnu/libavformat/avformat.h /usr/local/include/libavformat/avformat.h; do
+        [[ -f "$_h" ]] || continue
+        for _l in /usr/lib/x86_64-linux-gnu/libavformat.so* /usr/local/lib/x86_64-linux-gnu/libavformat.so*; do
+            [[ -e "$_l" ]] && return 0
+        done
+        # Headers found but no .so in the usual places — ask the loader.
+        ldconfig -p 2>/dev/null | grep -q "libavformat.so" && return 0
+        return 1
+    done
+    return 1
+}
+
+# The Linux dependency check. RENDERER must be set before calling.
+# Exits 1 (via return 1 — the caller exits) when a HARD dependency is
+# missing and could not be downloaded; soft failures only warn.
+check_linux_deps() {
+    local _missing_hard=() _missing_soft=() _p _vulkan_sdk_inc=""
+    # --- Tools (hard) ---
+    if ! _have_cmd "${CMAKE_EXE}"; then
+        echo "ERROR: cmake not found — it is required to configure the build."
+        echo "  Install it with:"
+        echo "    sudo apt install cmake          # Ubuntu/Debian"
+        echo "    sudo dnf install cmake          # Fedora/RHEL"
+        echo "    sudo pacman -S cmake            # Arch"
+        echo "  Or set CMAKE_EXE to the full path of your cmake binary."
+        return 1
+    fi
+    if ! _have_cmd g++ && ! _have_cmd clang++; then
+        _missing_hard+=(g++)
+    fi
+    _have_cmd make || _missing_hard+=(make)
+
+    # --- Headers (hard) — one apt package per header ---
+    _have_file /usr/include/GL/gl.h       || _missing_hard+=(libgl-dev)
+    _have_file /usr/include/X11/Xlib.h    || _missing_hard+=(libx11-dev)
+    _have_file /usr/include/GL/glew.h     || _missing_hard+=(libglew-dev)
+    _have_file /usr/include/GL/glu.h      || _missing_hard+=(libglu1-mesa-dev)
+    if [[ "${RENDERER}" == "Vulkan" ]]; then
+        [[ -n "${VULKAN_SDK:-}" ]] && _vulkan_sdk_inc="${VULKAN_SDK}/include/vulkan/vulkan.h"
+        if ! _have_file /usr/include/vulkan/vulkan.h && ! _have_file "${_vulkan_sdk_inc}"; then
+            _missing_hard+=(libvulkan-dev)
+        fi
+        _have_file /usr/include/xcb/xcb.h        || _missing_hard+=(libxcb1-dev)
+        _have_file /usr/include/X11/Xlib-xcb.h   || _missing_hard+=(libx11-xcb-dev)
+        # --- Soft (Vulkan only) ---
+        _have_file /usr/include/shaderc/shaderc.h || _missing_soft+=(libshaderc-dev)
+        _have_cmd glslangValidator                || _missing_soft+=(glslang-tools)
+    fi
+
+    # --- Install the missing hard packages (one apt run) ---
+    if [[ ${#_missing_hard[@]} -gt 0 ]]; then
+        echo "Dependency check: missing (required): ${_missing_hard[*]}"
+        _apt_install_pkgs "${_missing_hard[@]}" || true
+        # Re-verify every hard dependency after the install attempt.
+        local _still_missing=()
+        for _p in "${_missing_hard[@]}"; do
+            case "$_p" in
+                g++)   _have_cmd g++ || _have_cmd clang++ || _still_missing+=("$_p") ;;
+                make)  _have_cmd make || _still_missing+=("$_p") ;;
+                libgl-dev)        _have_file /usr/include/GL/gl.h       || _still_missing+=("$_p") ;;
+                libx11-dev)       _have_file /usr/include/X11/Xlib.h    || _still_missing+=("$_p") ;;
+                libglew-dev)      _have_file /usr/include/GL/glew.h     || _still_missing+=("$_p") ;;
+                libglu1-mesa-dev) _have_file /usr/include/GL/glu.h      || _still_missing+=("$_p") ;;
+                libvulkan-dev)    _have_file /usr/include/vulkan/vulkan.h || _have_file "${_vulkan_sdk_inc}" || _still_missing+=("$_p") ;;
+                libxcb1-dev)      _have_file /usr/include/xcb/xcb.h     || _still_missing+=("$_p") ;;
+                libx11-xcb-dev)   _have_file /usr/include/X11/Xlib-xcb.h || _still_missing+=("$_p") ;;
+            esac
+        done
+        if [[ ${#_still_missing[@]} -gt 0 ]]; then
+            echo "ERROR: could not obtain required dependencies: ${_still_missing[*]}"
+            echo "  Install them by hand, then re-run the build:"
+            _apt_fix_line "${_still_missing[@]}"
+            return 1
+        fi
+        echo "Dependency check: required dependencies installed."
+    fi
+
+    # --- Install the missing soft packages (one apt run; failure warns) ---
+    if [[ ${#_missing_soft[@]} -gt 0 ]]; then
+        echo "Dependency check: missing (optional): ${_missing_soft[*]} — installing..."
+        _apt_install_pkgs "${_missing_soft[@]}" || true
+        for _p in "${_missing_soft[@]}"; do
+            case "$_p" in
+                libshaderc-dev) _have_file /usr/include/shaderc/shaderc.h || echo "WARNING: libshaderc-dev still missing — runtime GLSL→SPIR-V compilation disabled; pre-compiled .spv files required. Fix: $(_apt_fix_line libshaderc-dev)" ;;
+                glslang-tools)  _have_cmd glslangValidator || echo "WARNING: glslangValidator still missing — Vulkan shaders are copied for runtime shaderc compile instead. Fix: $(_apt_fix_line glslang-tools)" ;;
+            esac
+        done
+    fi
+
+    # --- Soft (all renderers): ALSA, eSpeak-ng, FFmpeg ---
+    _have_file /usr/include/alsa/asoundlib.h || {
+        echo "Dependency check: missing (optional): libasound2-dev — installing..."
+        _apt_install_pkgs libasound2-dev || true
+        _have_file /usr/include/alsa/asoundlib.h || echo "WARNING: libasound2-dev still missing — SoundManager may produce no audio on Linux. Fix: $(_apt_fix_line libasound2-dev)"
+    }
+    _have_file /usr/include/espeak-ng/speak_lib.h || {
+        echo "Dependency check: missing (optional): libespeak-ng-dev — installing..."
+        _apt_install_pkgs libespeak-ng-dev || true
+        _have_file /usr/include/espeak-ng/speak_lib.h || echo "WARNING: libespeak-ng-dev still missing — TTSManager disabled on Linux. Fix: $(_apt_fix_line libespeak-ng-dev)"
+    }
+    if ! _ffmpeg_present; then
+        echo "Dependency check: FFmpeg headers/libraries missing (optional) — installing..."
+        _apt_install_pkgs libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libswresample-dev || true
+        if _ffmpeg_present; then
+            echo "Dependency check: FFmpeg restored."
+        else
+            echo "WARNING: FFmpeg still missing — MoviePlayer/ScreenRecorder disabled; MPTM external samples silent."
+            echo "  Fix by hand, then re-run the build:"
+            echo "    sudo apt-get install -y libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libswresample-dev"
+        fi
+    fi
     return 0
 }
 
@@ -292,15 +538,11 @@ case "${ARG2,,}" in
         ;;
 esac
 
-# --- Validate cmake ---
-if ! command -v "${CMAKE_EXE}" &>/dev/null; then
-    echo "ERROR: cmake not found. Install it with:"
-    echo "  sudo apt install cmake          # Ubuntu/Debian"
-    echo "  sudo dnf install cmake          # Fedora/RHEL"
-    echo "  sudo pacman -S cmake            # Arch"
-    echo "Or set CMAKE_EXE to the full path of your cmake binary."
-    exit 1
-fi
+# --- Dependency check (before building, for debug AND release) -----------
+# Verifies every dependency the build needs and downloads any that are
+# missing (see check_linux_deps above). A missing required dependency
+# that cannot be downloaded stops the build here, before CMake runs.
+check_linux_deps || exit 1
 
 # --- Renderer define: CMake only, no Includes.h patching -------------------
 # The renderer define (__USE_OPENGL__ / __USE_VULKAN__) is passed to the

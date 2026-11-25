@@ -26,9 +26,14 @@
 #        repo-root copy (which is only correct when it matches the
 #        requested config).
 # The Java TTS helper (CpgeTts) is compiled to classes.dex by
-# build-dex.sh (same folder) and added automatically when it exists; the
-# manifest's android:hasCode is true, so the dex must be present for the
-# TTS class to load (before step 3 the APK shipped without a dex).
+# build-dex.sh (same folder). The dex is built automatically before
+# packaging — the build pipeline (Linux/cmake-build-android.sh) calls
+# build-dex.sh first, and a standalone run of this script builds it
+# here when classes.dex is missing — and a missing dex is an error,
+# not a note: the APK is never packaged without it (the manifest's
+# android:hasCode is true, so the dex must be present for the TTS
+# class to load). Before step 3 the APK shipped without a dex; that
+# gap is closed (25 Nov 2026).
 #
 # NDK (release only): resolved the same way Linux/cmake-build-android.sh
 # does — ANDROID_NDK, then ANDROID_NDK_HOME, then the newest dir under
@@ -478,15 +483,34 @@ cp -r "$REPO/Assets/." "$STAGE/assets/"
 rm -rf "$STAGE/assets/AIHistory"
 ( cd "$STAGE" && apk_store "$OUT" lib/arm64-v8a/libCPGE.so && apk_deflate "$OUT" assets )
 
-# 4. Optional Java helper dex (TTS JNI bridge, step 3). Present only after
-# build-dex.sh has run AND the manifest's android:hasCode is true; until
-# then the APK ships without a dex and this step is skipped.
-if [ -f "$SCRIPT_DIR/classes.dex" ]; then
-    ( cd "$SCRIPT_DIR" && apk_store "$OUT" classes.dex )
-    echo "Added classes.dex (TTS JNI helper)"
-else
-    echo "NOTE: no classes.dex — TTS JNI helper not packaged (run build-dex.sh first)"
+# 4. Java helper dex (TTS JNI bridge, step 3). The manifest's
+# android:hasCode is true, so the dex must be present for the TTS class
+# to load. The build pipeline calls build-dex.sh before packaging; a
+# standalone run builds it here when classes.dex is missing. A missing
+# dex is an error, not a note — the script never silently packages an
+# APK without it. On failure the partial APK ($OUT, created by aapt2
+# link in step 2) is removed, so no incomplete APK is left behind.
+if [[ ! -f "$SCRIPT_DIR/classes.dex" ]]; then
+    _dex_script="$SCRIPT_DIR/build-dex.sh"
+    if [[ -x "$_dex_script" ]]; then
+        echo "classes.dex missing — building it with build-dex.sh..."
+        if ! "$_dex_script"; then
+            echo "ERROR: classes.dex build failed (build-dex.sh) — cannot package an APK without the TTS JNI helper." >&2
+            rm -f "$OUT"
+            rm -rf "$STAGE"
+            exit 1
+        fi
+    fi
+    if [[ ! -f "$SCRIPT_DIR/classes.dex" ]]; then
+        echo "ERROR: no classes.dex — TTS JNI helper not packaged. Run Android/build-dex.sh by hand, then re-run this script." >&2
+        echo "  (The APK is never packaged without classes.dex — the manifest has android:hasCode=true.)" >&2
+        rm -f "$OUT"
+        rm -rf "$STAGE"
+        exit 1
+    fi
 fi
+( cd "$SCRIPT_DIR" && apk_store "$OUT" classes.dex )
+echo "Added classes.dex (TTS JNI helper)"
 rm -rf "$STAGE"
 
 # 5. Align then sign. zipalign must run before apksigner (signing covers

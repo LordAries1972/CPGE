@@ -147,6 +147,67 @@ a release keystore before distributing a release APK. `package-apk.sh`
 also takes the config directly (`./package-apk.sh vulkan release`);
 it defaults to `debug`, so existing callers are unaffected.
 
+Dependency check — downloads missing dependencies before building
+(25 November 2026): `Linux/cmake-build-android.sh` (and
+`Linux/cmake-build.sh` for the Linux desktop build) now check that
+every dependency the build needs is present, and download any that
+are missing, BEFORE building — and therefore before packaging — for
+debug and release alike. Android checks: `cmake`, `make`, `curl`, a
+JDK 17+ (Temurin, from `JAVA_HOME`, any `jdk-17*` dir in the SDK
+tree, or `javac` on PATH), the SDK (cmdline tools 11076708,
+build-tools 34.0.0 with `aapt2`/`zipalign`/`apksigner`/`d8`, a
+platform `android-XX` with `android.jar`), the NDK (r27c
+27.2.12479018 by default; r30 also works), and an archiver
+(`zip`/`7z`/`7za`/`wzzip`, same resolution order as
+`package-apk.sh`, checked here as a pre-flight so a missing archiver
+fails before the build instead of after it). Downloads come from
+`dl.google.com` with `curl` (the SDK/NDK zips) and `api.adoptium.net`
+for the JDK — `sdkmanager` does not work behind this VM's egress
+proxy, so it is never used. A missing NDK is downloaded as r27c and
+installed to `ndk/27.2.12479018`; a missing JDK is installed to
+`jdk-17.0.21.1+2` (the name `package-apk.sh` looks for) and
+`JAVA_HOME` is exported for the packaging step. On Windows (Git
+Bash) the apt steps are skipped — only the SDK/NDK/JDK/tool checks
+apply — and archives are unpacked with `unzip` when present, else
+PowerShell `Expand-Archive`. A required dependency that cannot be
+downloaded stops the build with the exact fix (command or URL);
+`platform-tools` (adb, only needed to install on a device) and
+`glslangValidator` only warn. When everything is present the check
+is a silent no-op. The Linux desktop script does the same for its
+dependencies with `apt` (OpenGL/X11/GLEW/GLU headers, Vulkan SDK +
+xcb + X11-xcb for the Vulkan renderer, shaderc, `glslangValidator`,
+ALSA, FFmpeg from the distro `-dev` packages — Ubuntu 24.04: FFmpeg
+6.1.1, verified to satisfy the build — and eSpeak-ng); GLM and
+miniaudio are vendored in `include/` and are never downloaded. See
+`../scope/DEPENDENCY_CHECK_VERIFICATION.md` for the full dependency
+list, the download sources and the test results.
+
+`classes.dex` is built automatically, and the APK can be installed on a
+device (25 November 2026): the build pipeline (`Linux/cmake-build-android.sh`)
+now builds `classes.dex` (the Java TTS JNI helper, `Android/build-dex.sh`)
+before packaging, so the APK always carries it — a failed dex build stops
+the build before packaging, and `Android/package-apk.sh` does the same
+for a standalone run (building the dex when it is missing, and failing
+loudly with no APK produced when the build fails). The old "no
+`classes.dex` — TTS JNI helper not packaged" note is gone: a missing dex
+is an error now, not a note, because the manifest has
+`android:hasCode=true` and TTS cannot work on Android without it.
+
+After the APK is packaged, an interactive build offers to install it
+on a connected device (`adb` — USB hardware or an emulator, both
+appear in `adb devices`): one device is offered by name, several are
+listed with serial + model and picked by number, and the install runs
+`adb -s <serial> install -r <apk>` (`-r` so a reinstall keeps the
+app's data). Flags: `-install` installs without prompting when a
+device is present (exactly one device → it; several → the first
+listed); `-no-install` skips the prompt entirely. A non-interactive
+run (CI, a pipe) skips the prompt with a one-line note naming the
+manual command; no devices, a missing adb, a decline, or a failed
+install are all reported and never fail the build. `adb` is resolved
+from the SDK `platform-tools` dir first, then from PATH, and
+`CPGE_ADB` overrides both (a path to an `adb` binary). See
+`../scope/DEX_INSTALL_VERIFICATION.md` for the test results.
+
 Build outputs do not belong on GitHub (25 November 2026): `.gitignore`
 covers `build/` and `build-android/` at any depth, `Debug/` /
 `Release/`, and the binary extensions (`*.so`,
