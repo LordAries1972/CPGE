@@ -17,6 +17,7 @@
 
 # Build artifacts (keep source, exclude intermediates)
 build/
+build-android/
 x64/
 Debug/
 Release/
@@ -29,6 +30,10 @@ Release/
 *.pdb
 *.map
 *.ilk
+# Android packaging outputs (the Linux Docker build never uses them;
+# the four APKs alone are ~520 MB of build context)
+*.apk
+*.idsig
 
 # CMake cache
 CMakeCache.txt
@@ -66,8 +71,12 @@ Thumbs.db
 *.cso
 *.spv
 
-# Video artifacts
-*.mp4
+# Video artifacts — recordings ONLY, not the shipped movies:
+# Assets/cpge.mp4 is the SCENE_INTRO FOSS credit movie and
+# Assets/test1.mp4 is a test movie; both must ship in the image, so
+# there is no blanket *.mp4 exclusion here (the old one stripped them).
+Assets/Playbacks/*.mp4
+Assets/recording_*.mp4
 recording.mp4
 
 # User-specific files
@@ -80,6 +89,15 @@ steam/
 # Node modules (if any package.json exists)
 node_modules/
 
+# Android project (Gradle project + packaging scripts + APKs, ~700 MB):
+# the Linux Docker build never touches it.
+Android/
+
 # Dependencies that should be installed in container, not copied
+# lib/ holds Windows-only .lib/.dll files (glew32.lib, glfw3.lib, ...)
+# that the Linux build never uses. include/ MUST be copied, NOT excluded:
+# GLM is vendored in include/glm/ and Linux/CMakeLists.txt fails the
+# configure with a FATAL_ERROR if include/glm/glm.hpp is missing — the
+# old `include/` exclusion here broke every docker build at configure
+# time (fixed 25 Nov 2026, Phase C Dockerfile verification).
 lib/
-include/

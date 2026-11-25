@@ -356,6 +356,21 @@ void VulkanRenderer::Cleanup()
 
     ReleasePlatformOverlayResources();
 
+    // Overlay staging buffers are plain Vulkan resources created by
+    // CreateOverlayResources() on every platform, but nothing in Cleanup()
+    // destroyed them: on Windows ReleasePlatformOverlayResources() above
+    // destroys both pairs (and nulls the handles, so the guards below skip
+    // there), on Linux/Android that function is a no-op and the buffers
+    // leaked. Validation reported exactly this pair at shutdown — one
+    // VkBuffer + one VkDeviceMemory not destroyed before vkDestroyDevice
+    // (VUID-vkDestroyDevice-device-05137, Phase C run 1; the background
+    // staging pair is never created on Linux/Android, so only the overlay
+    // pair leaks). Destroy them here, while the device is still alive.
+    if (m_overlayStagingBuffer != VK_NULL_HANDLE) { vkDestroyBuffer(m_device, m_overlayStagingBuffer, nullptr); m_overlayStagingBuffer = VK_NULL_HANDLE; }
+    if (m_overlayStagingMemory != VK_NULL_HANDLE) { vkFreeMemory(m_device, m_overlayStagingMemory, nullptr);    m_overlayStagingMemory = VK_NULL_HANDLE; }
+    if (m_bgStagingBuffer      != VK_NULL_HANDLE) { vkDestroyBuffer(m_device, m_bgStagingBuffer, nullptr);      m_bgStagingBuffer      = VK_NULL_HANDLE; }
+    if (m_bgStagingMemory      != VK_NULL_HANDLE) { vkFreeMemory(m_device, m_bgStagingMemory, nullptr);         m_bgStagingMemory      = VK_NULL_HANDLE; }
+
     CleanupSwapChain();
 
     // Pipelines

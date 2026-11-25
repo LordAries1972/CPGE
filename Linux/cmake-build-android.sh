@@ -28,10 +28,12 @@
 # project's assets/; the AndroidManifest.xml NativeActivity entry is
 # verified; classes.dex (the Java TTS JNI helper) is built with
 # Android/build-dex.sh; then the APK is built with aapt2 (see "What a
-# build does" in the help). After packaging, an interactive session is
-# offered to install the APK on a connected device (adb — USB hardware
-# or an emulator); -install installs without prompting, -no-install
-# skips the prompt. Release builds are stripped of debug info
+# build does" in the help). On a clean release build the high scores and
+# recordings are reset first (Linux/reset.sh, before the Assets/ sync),
+# so the APK ships a fresh start — see the help. After packaging, an
+# interactive session is offered to install the APK on a connected device
+# (adb — USB hardware or an emulator); -install installs without prompting,
+# -no-install skips the prompt. Release builds are stripped of debug info
 # (llvm-strip) and are not debuggable; debug builds keep debug info
 # and are debuggable.
 
@@ -153,6 +155,16 @@ What a build does:
      without prompting when a device is present (exactly one device
      → it; several → the first listed); -no-install skips the prompt
      entirely. The install never fails the build.
+
+  Reset on a clean release build (25 November 2026): when BOTH -clean
+  and release were requested, the build resets the high scores and
+  their recordings for a fresh start (Linux/reset.sh) BEFORE the
+  Assets/ sync in step 3, so the APK ships a fresh table — and clears
+  the same files on every connected device (best effort, via adb
+  run-as; never fails the build — see reset_android_device below).
+  A failed build-machine reset stops the build here, before
+  packaging: a clean release build must never ship with stale
+  scores. Debug builds and builds without -clean never reset.
 
 NativeActivity — what it is (in plain words):
   Android apps normally start in a Java activity. NativeActivity is
@@ -974,10 +986,71 @@ maybe_install_apk() {  # maybe_install_apk <apk-path>
     return 0
 }
 
+# --- Reset the on-device scores + recordings (25 November 2026) ---------
+# Best effort only, and it never fails the build: a fresh install starts
+# clean, and `adb install -r` preserves internal storage, so a clean
+# release build also clears the on-device table when a device is
+# connected (every connected device in state "device" — usually one).
+# The build-machine reset (Linux/reset.sh) is the hard-fail step; this
+# one only ever prints a note.
+#
+# Paths: the engine's writable home on Android is internal storage
+# (AndroidApp::GetInternalDataPath, /data/data/<pkg>/files) and its
+# runtime Assets/ is baseDir + "/Assets" (main.cpp), so the table is
+# <files>/Assets/highscores.txt with recordings in
+# <files>/Assets/Playbacks/. The <files>/ root copies are cleared too:
+# the SetFile binding has no caller in the current code, so both
+# locations are plausible and both live inside the app's own storage.
+#
+# Access: /data/data/<pkg> is not readable by the adb shell user, so
+# this uses `run-as <pkg>` — which only works for debuggable apps
+# (debug builds). A release build is not debuggable, so on a release
+# install the device step notes the skip and the build still succeeds;
+# a debug build on a connected device is cleared properly. If the game
+# is running on the device, close it first — it would rewrite the
+# table when it exits.
+reset_android_device() {  # reset_android_device — always returns 0
+    local _adb _list _serial _state _model _pkg _files
+    _pkg="${CPGE_ANDROID_PACKAGE:-com.ultimanium.cpge}"
+    _files="/data/data/${_pkg}/files"
+
+    _adb="$(resolve_adb || true)"
+    if [[ -z "$_adb" ]]; then
+        echo "NOTE: on-device reset skipped — adb not found (install platform-tools to clear scores on a device: sdkmanager \"platform-tools\")."
+        return 0
+    fi
+    _list="$(_adb_devices "$_adb")"
+    if [[ -z "$_list" ]]; then
+        echo "NOTE: on-device reset skipped — no device connected."
+        return 0
+    fi
+    while IFS=$'\t' read -r _serial _state _model; do
+        [[ -z "$_serial" ]] && continue
+        # run-as runs as the app user, so the app's own files/ is
+        # reachable; absolute paths are used so the call does not
+        # depend on run-as's working directory. The table file goes
+        # with plain rm; the recordings need a shell glob inside
+        # run-as (adb does not expand wildcards for the remote side).
+        if "$_adb" -s "$_serial" shell run-as "$_pkg" rm -f "${_files}/Assets/highscores.txt" "${_files}/highscores.txt" 2>/dev/null \
+            && "$_adb" -s "$_serial" shell run-as "$_pkg" sh -c "rm -f ${_files}/Assets/Playbacks/*.mp4 ${_files}/Assets/Playbacks/*.json ${_files}/Assets/Playbacks/*.cpr ${_files}/Playbacks/*.mp4 ${_files}/Playbacks/*.json ${_files}/Playbacks/*.cpr" 2>/dev/null; then
+            echo "On-device reset: cleared high scores and recordings on ${_serial} (${_model:-unknown model})."
+        else
+            echo "NOTE: on-device reset skipped on ${_serial} — run-as failed (release builds are not debuggable, so their internal storage cannot be cleared over adb; uninstall the app first, or use a debug build)."
+        fi
+    done <<< "$_list"
+    return 0
+}
+
 # --- Install to root + Gradle project, then package the APK -----------------
 # Runs on success only. Automates the three "Next steps" this script used
 # to print, in order, and then builds the APK AFTER the install so the APK
 # packages the root .so and Assets/:
+#   0. Clean release builds only: reset the high scores and their
+#      recordings for a fresh start (Linux/reset.sh) BEFORE the Assets/
+#      sync at step 2, so the APK ships a fresh table; the on-device
+#      table is cleared too when a device is connected (best effort —
+#      see reset_android_device above, never fails the build). A failed
+#      build-machine reset stops the build here, before packaging.
 #   1. libCPGE.so to the project root and to jniLibs/<abi>/.
 #   2. Assets/ to the Gradle project's assets/ (AIHistory excluded).
 #   3. NativeActivity entry in AndroidManifest.xml (verified, repaired
@@ -995,6 +1068,19 @@ install_and_package_android() {
     if [[ ! -f "${_so}" ]]; then
         echo "ERROR: expected library not found after a successful build: ${_so}"
         return 1
+    fi
+
+    # 0. Clean release builds only: reset the high scores and their
+    #    recordings for a fresh start (Daniel, 25 Nov 2026). Runs
+    #    BEFORE the Assets/ sync at step 2, so the staged Assets/ —
+    #    and the APK packaged from it — carry a fresh table. The
+    #    build-machine reset is a hard failure (a release must never
+    #    ship with stale scores); the on-device reset is best effort
+    #    and never fails the build (see reset_android_device).
+    if [[ "${CONFIG}" == "Release" && -n "${CLEAN_BUILD}" ]]; then
+        echo "Resetting high scores and recordings for a fresh start (clean release build)..."
+        bash "${SCRIPT_DIR}/reset.sh" || { echo "ERROR: reset failed (Linux/reset.sh) — the build is stopped so a clean release never ships with stale scores."; return 1; }
+        reset_android_device || true
     fi
 
     # 1. Project root (the executable placed in the root folder — same

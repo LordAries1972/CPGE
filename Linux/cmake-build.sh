@@ -107,6 +107,16 @@ What a build does:
      from the root, where Assets/ and the other runtime folders
      are found. For 'all' the install runs once at the end, and
      only if every pipeline succeeded.
+  4. On a clean release build only (-clean AND release), resets
+     the high scores and their recordings for a fresh start
+     (Linux/reset.sh): deletes Assets/highscores.txt and the
+     recording files in Assets/Playbacks/ (*.mp4, *.json, *.cpr).
+     The Playbacks/ folder itself is kept — nothing recreates
+     it — and unrelated files are never touched. A failed reset
+     stops the build here: a clean release build must never ship
+     with stale scores. Debug builds and builds without -clean
+     never reset, and neither does the bare 'clean' directive,
+     which only deletes the build tree.
   NOTE: this script never edits Includes.h. The renderer define
   (__USE_OPENGL__ / __USE_VULKAN__) is passed to the compiler by CMake
   (-D via Linux/CMakeLists.txt), which is the single source of truth.
@@ -604,4 +614,23 @@ echo "Build succeeded: ${RENDERER} ${CONFIG} -- $(date)"
 # --- Install to project root (skipped when called from 'all') ---
 if [[ -z "${SKIP_INSTALL:-}" ]]; then
     install_to_root "${RENDERER}" "${CONFIG}" || exit 1
+fi
+
+# --- Reset high scores + recordings (clean release builds only) --------
+# Runs after a successful build, only when BOTH -clean and release were
+# requested (Daniel, 25 Nov 2026): a clean release build ships a fresh
+# start — no stale high scores, no old recordings. Debug builds and
+# builds without -clean never reset, and neither does the bare `clean`
+# directive above (it only deletes the build tree and exits before any
+# build runs). For 'all' each pipeline resets after its own build
+# (the reset is idempotent, so the second run finds nothing to do).
+# A failed reset stops the build here (same pattern as the dex /
+# llvm-strip failures): a release must never ship with stale scores
+# because the reset silently failed.
+# reset.sh is called through bash on purpose: the GitHub push tool does
+# not preserve file modes, so a pulled reset.sh may be mode 644 — bash
+# runs it either way.
+if [[ "${CONFIG}" == "Release" && -n "${CLEAN_BUILD}" ]]; then
+    echo "Resetting high scores and recordings for a fresh start (clean release build)..."
+    bash "${SCRIPT_DIR}/reset.sh" || { echo "ERROR: reset failed (Linux/reset.sh) — the build is stopped so a clean release never ships with stale scores."; exit 1; }
 fi

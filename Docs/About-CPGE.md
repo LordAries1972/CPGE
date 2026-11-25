@@ -4204,17 +4204,24 @@ On the engine side, `BlenderImports.cpp/.h` contains the specific import adaptat
 
 ## 38. Steam Integration (Future)
 
-**Source files:** `MySteam.cpp/.h` (excluded from current build)
+**Source files:** none — Steam has **no implementation in the tree**.
 
-Steam SDK integration is prepared but **deliberately excluded from all current builds**. `MySteam.cpp` and `MySteam.h` are present in the repository but are not referenced in `CMakeLists.txt` or `CrossPlatformGameEngine.vcxproj`.
+Steam integration is deliberately excluded from all current builds. `MySteam.cpp/.h` and `MyUtils.cpp/.h` were dead code — in no build listing (`Linux/CMakeLists.txt`, root `CMakeLists.txt`, `CrossPlatformGameEngine.vcxproj` / `.filters`) and with no callers — and were removed on 25 November 2026. They remain recoverable from git history (for example `git show HEAD:MySteam.cpp`) if the wrapper is ever wanted back.
 
-Steam integration will be enabled when the author initiates active release work. At that point, the following Steam features are planned:
+The vendored `steam/` headers remain in the repository, but the link library is absent on **every** platform: `steam/lib/linux64/` holds only `libsdkencryptedappticket.so`, and `steam/lib/win64/` holds only the encrypted-appticket DLL/lib. There is no `libsteam_api.so` / `steam_api.lib` / `steam_api.dll` anywhere in the repo, so the removed wrapper was unlinkable on Windows as well as Linux — it could never have been built as listed, on any platform, without a separately obtained Steamworks SDK library.
+
+Steam stays excluded from all builds until a commercial release is actively prepared. Release-time procedure:
+
+1. Obtain the Steamworks SDK through a Steam partner account ([partner.steamgames.com](https://partner.steamgames.com)) — it cannot be fetched from a public mirror.
+2. Vendor `libsteam_api.so` (Linux) / `steam_api.lib` + `steam_api.dll` (Windows) under `steam/lib/<platform>/`.
+3. Restore the `STEAM` wrapper from git history, or rewrite it against the SDK headers.
+4. Wire it into `Linux/CMakeLists.txt` and `CrossPlatformGameEngine.vcxproj` behind `PLATFORM_LINUX` / `PLATFORM_WINDOWS` guards, linked only for release configurations.
+
+Planned features are unchanged:
 - Achievements and leaderboards via `ISteamUserStats`.
 - Cloud saves via `ISteamRemoteStorage`.
 - Overlay integration via `ISteamFriends`.
 - DLC management via `ISteamApps`.
-
-All Steam headers live in the `steam/` directory and are already present in the repository. No third-party build step is required — the Steam SDK ships as header-only declarations backed by `steam_api.lib`.
 
 [Back to Table of Contents](#table-of-contents)
 

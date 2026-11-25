@@ -290,6 +290,31 @@ if errorlevel 1 goto :error
 echo.
 echo Build succeeded: %RENDERER% %CONFIG% -- %DATE%  %TIME%
 
+:: --- Reset high scores + recordings (clean release builds only) ---
+:: Runs after a successful build, only when BOTH -clean and release were
+:: requested (Daniel, 25 Nov 2026): a clean release build ships a fresh
+:: start -- no stale high scores, no old recordings. Debug builds and
+:: builds without -clean never reset, and neither does the bare "clean"
+:: directive above (it only deletes the build trees and exits before any
+:: build runs). For "all" each pipeline resets after its own build (the
+:: reset is idempotent, so later runs find nothing to do). A failed or
+:: missing reset.bat stops the build here: a release must never ship
+:: with stale scores.
+if /i "%CONFIG%"=="Release" if defined CLEAN_BUILD (
+    if exist "%SCRIPT_DIR%reset.bat" (
+        echo Resetting high scores and recordings for a fresh start ^(clean release build^) ...
+        call "%SCRIPT_DIR%reset.bat"
+        if errorlevel 1 (
+            echo ERROR: reset.bat failed -- the build is stopped so a clean release never ships with stale scores.
+            exit /b 1
+        )
+    ) else (
+        echo ERROR: reset.bat missing: "%SCRIPT_DIR%reset.bat"
+        echo   It ships in the repo at the project root -- your checkout is incomplete.
+        exit /b 1
+    )
+)
+
 :: --- Run install script on success (skipped when called from 'cmake-build all') ---
 if not defined SKIP_INSTALL (
     if /i "%CONFIG%"=="Debug" (
@@ -369,6 +394,16 @@ echo   3. Stops stale cl.exe / mspdbsrv.exe processes.
 echo   4. Configures and builds into build\^<Renderer^>\^<Config^>
 echo      (Visual Studio 17 2022, x64).
 echo   5. Runs install-debug.bat or install-release.bat on success.
+echo   6. On a clean release build only (-clean AND release), resets
+echo      the high scores and their recordings for a fresh start
+echo      (reset.bat): deletes Assets\highscores.txt and the
+echo      recording files in Assets\Playbacks\ (*.mp4, *.json, *.cpr).
+echo      The Playbacks\ folder itself is kept -- nothing recreates
+echo      it -- and unrelated files are never touched. A failed reset
+echo      stops the build here: a clean release build must never ship
+echo      with stale scores. Debug builds and builds without -clean
+echo      never reset, and neither does the bare "clean" directive,
+echo      which only deletes the build trees.
 echo.
 echo Examples:
 echo   cmake-build dx11 debug

@@ -55,7 +55,9 @@ message(STATUS "Output     : ${EXE_OUTPUT_NAME}")
 #   DX11Renderer, DX12Renderer, DXCamera, DXRenderFrame,
 #   WinMediaPlayer, WinSystem
 # CrossPlatformGameEngine.rc (Windows resource file) is also excluded.
-# MySteam is excluded (deferred to release).
+# Steam: no implementation in tree (see Docs/About-CPGE.md §38). The
+#  Steamworks link library (libsteam_api.so) is not vendored; Steam stays
+#  excluded until a commercial release is actively prepared.
 # Renderer-specific sources are added per RENDERER below so the OpenGL build
 # never compiles the Vulkan backend (and vice versa).
 set(SOURCES

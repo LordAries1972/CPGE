@@ -67,7 +67,7 @@ All four implementations provide identical public APIs and support all effect ty
 
 **Vulkan Notes:**
 - Fullscreen fade quad rendered via inline GLSL compiled with shaderc at runtime (falls back gracefully if shaderc is unavailable)
-- Pixel-level effects (`Blit2DColoredPixel`) draw to the Direct2D CPU overlay on Windows, or to the CPU rasterizer on Linux/Android
+- Pixel-level effects (`Blit2DColoredPixel`) draw to the Direct2D CPU overlay on Windows, or to the CPU rasterizer on Linux/Android; on Linux/Vulkan they draw through the native Vulkan 2D blits (Phase C, 25 Nov 2026) — queued pre-pass, replayed inside the main render pass via the 2D pipeline; Android still no-op
 - `VkCommandBuffer` is passed through for future GPU-native effects; current effects do not submit Vulkan draw commands directly
 
 ---
@@ -1471,7 +1471,7 @@ fxManager.FadeOutThenCallback(
 | DX11 (`FXManager`) | `ID2D1RenderTarget::DrawBitmap` opacity parameter | `_WIN64` / `_WIN32` |
 | DX12 (`FXManager`) | `ID2D1DeviceContext::DrawBitmap` opacity parameter | `_WIN64` / `_WIN32` |
 | OpenGL (`GLFXManager`) | `Render2DQuad` with `MyColor(255, 255, 255, alpha×255)` | No guard — cross-platform |
-| Vulkan (`VKFXManager`) | `ID2D1RenderTarget::DrawBitmap` (Windows); falls back to opaque `Blit2DObjectToSize` on Linux/Android | `PLATFORM_WINDOWS` |
+| Vulkan (`VKFXManager`) | `ID2D1RenderTarget::DrawBitmap` (Windows); native Vulkan 2D blits on Linux (Phase C, 25 Nov 2026) — queued pre-pass, replayed inside the main render pass via the 2D pipeline; Android still no-op | `PLATFORM_WINDOWS` |
 
 ---
 
@@ -1568,7 +1568,9 @@ fxManager.StopTileMapScroller(mapID);
 `Blit2DAtlasTile` (the sub-rect atlas blit primitive backing this effect) is implemented via
 Direct2D `DrawBitmap` with an explicit source rect on DX11/DX12/Vulkan, and via `Render2DQuad`'s
 existing source-rect parameters on OpenGL — no new shaders or GPU resources are required on any
-pipeline.
+pipeline. On Linux/Vulkan it is implemented natively (Phase C, 25 Nov 2026) with the same
+row-major routing as Windows/OpenGL: the tile's source sub-rect is baked into per-vertex UVs
+and the quad is queued pre-pass and replayed inside the main render pass.
 
 ---
 

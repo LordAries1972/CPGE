@@ -325,6 +325,15 @@ void VulkanRenderer::UploadPlatformOverlays(VkCommandBuffer cmd)
     (void)cmd; // Unused on Linux/Android.
 }
 
+// Phase C native Vulkan 2D blits: Android still uses the no-op blit stubs,
+// so there is no queued Vulkan blit to replay here. (The Linux body in
+// linux-vulkan-render.cpp draws the queued quads; the Android port is a
+// follow-up once the Linux path is proven.)
+void VulkanRenderer::ReplayQueued2DBlits(VkCommandBuffer cmd, bool background)
+{
+    (void)cmd; (void)background;
+}
+
 void VulkanRenderer::RenderPlatformOverlay(VkCommandBuffer cmd)
 {
     (void)cmd; // Unused on Linux/Android.
@@ -345,6 +354,10 @@ bool VulkanRenderer::HasPlatformOverlayTarget() const
 inline void VulkanRenderer::RenderIntroMovie()
 {
     if (moviePlayer.IsPlaying() || (gameplayPlaybackActive && moviePlayer.IsPaused())) {
+        // Advance the decoder and audio pipeline (Phase C, 25 Nov 2026 —
+        // mirrors Windows Vulkan / OpenGL RenderIntroMovie). Without this
+        // the decoder never advances and IsPlaying() stays true forever.
+        moviePlayer.UpdateFrame();
         uint32_t fw = 0, fh = 0;
         const uint8_t* frameData = moviePlayer.GetCurrentFrameRGBA(fw, fh);
         if (frameData && fw == m_overlayWidth && fh == m_overlayHeight) {

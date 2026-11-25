@@ -1054,6 +1054,13 @@ void VulkanRenderer::RenderFrame()
                 }
             }
 
+            // ---- Queued native 2D blits, background queue (Phase C) ----
+            // Replayed here, before 3D, so background blits (e.g. the zoomed
+            // IMG_GAMEINTRO1, which the plain bg blit above skips while zoom
+            // is active) land under the 3D models. Linux draws the queued
+            // quads; the Windows/Android bodies are empty no-ops.
+            ReplayQueued2DBlits(cmd, true);
+
             // ---- Background overlay composite (starfield) — BEFORE 3D models ----
             // Composited here so starfield dots appear behind 3D scene geometry on SCENE_GAMETITLE,
             // matching the DX11 draw order where D2D writes to the backbuffer before 3D renders over it.
@@ -1145,6 +1152,13 @@ void VulkanRenderer::RenderFrame()
                     fd.pendingFreeSets.push_back(ds);
                 }
             }
+
+            // ---- Queued native 2D blits, overlay queue (Phase C) ----
+            // Replayed after the overlay composite and before the fullscreen
+            // fade, preserving the Windows order where Render2D blits sit in
+            // the overlay composited after 3D. Linux draws the queued quads;
+            // the Windows/Android bodies are empty no-ops.
+            ReplayQueued2DBlits(cmd, false);
 
             // ---- FX fullscreen effects (fades, etc.) — drawn last so they overlay everything ----
             try { fxManager.Render(); } catch (...) {} // intentional silent swallow (per-frame path)

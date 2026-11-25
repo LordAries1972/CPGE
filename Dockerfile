@@ -24,16 +24,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Layer 2: Install development libraries (development dependencies layer)
 # These are the libraries Linux/CMakeLists.txt actually links:
-# OpenGL/GLEW, Vulkan + shaderc/glslang (SPIRV at build time), glm, X11/xcb
+# OpenGL/GLEW, Vulkan + shaderc/glslang (SPIRV at build time), X11/xcb
 # (windowing), ALSA (sound), plus assimp/ogg/vorbis/portaudio/ssl/curl
 # used by the engine. (libglfw3-dev was removed: the Linux build does not use GLFW.)
+# GLM is NOT installed here: it is vendored in include/glm/ (0.9.9.8,
+# managed by Daniel) and Linux/CMakeLists.txt checks for that copy and
+# never calls find_package(glm) on Linux — a system libglm-dev would be
+# dead weight. FFmpeg and eSpeak-ng ARE installed: they are optional in
+# CMakeLists.txt (SOFT deps in Linux/cmake-build.sh), but without them the
+# image builds with MoviePlayer/ScreenRecorder/TTS silently disabled,
+# unlike a host build — install them for feature parity.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1-mesa-dev \
     libglew-dev \
     libvulkan-dev \
     libshaderc-dev \
     glslang-tools \
-    libglm-dev \
     libx11-dev \
     libxcb1-dev \
     libx11-xcb-dev \
@@ -44,6 +50,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libogg-dev \
     libvorbis-dev \
     libportaudio-dev \
+    libavformat-dev \
+    libavcodec-dev \
+    libavutil-dev \
+    libswscale-dev \
+    libswresample-dev \
+    libespeak-ng-dev \
+    espeak-ng \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
@@ -91,6 +104,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Networking/crypto
     libssl3 \
     libcurl4 \
+    # FFmpeg runtime (MoviePlayer/ScreenRecorder link these — the builder
+    # stage installs the -dev packages, so the runtime image needs the
+    # matching shared libraries or the game binary fails to start).
+    # Sonames are the Ubuntu 22.04 (FFmpeg 4.4) ones.
+    libavformat58 \
+    libavcodec58 \
+    libavutil56 \
+    libswscale5 \
+    libswresample3 \
+    # eSpeak-ng runtime (TTSManager)
+    libespeak-ng1 \
     # Utilities
     curl \
     && rm -rf /var/lib/apt/lists/*

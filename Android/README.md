@@ -208,6 +208,21 @@ from the SDK `platform-tools` dir first, then from PATH, and
 `CPGE_ADB` overrides both (a path to an `adb` binary). See
 `../scope/DEX_INSTALL_VERIFICATION.md` for the test results.
 
+Reset on a clean release build (25 November 2026): when BOTH `-clean`
+and `release` were requested, the build resets the high scores and
+their recordings for a fresh start (`Linux/reset.sh`, run before the
+`Assets/` sync above, so the APK ships a fresh table): it deletes
+`Assets/highscores.txt` and the recording files in
+`Assets/Playbacks/` (`*.mp4`, `*.json`, `*.cpr`) — the `Playbacks/`
+folder itself is kept, and unrelated files are never touched. A failed
+reset stops the build before packaging. The same files are also
+cleared on every connected device (best effort, via `adb run-as`;
+never fails the build — `run-as` only works for debuggable apps, so
+on a release install the device step notes the skip). Debug builds
+and builds without `-clean` never reset. See
+`../Docs/BuildScripts-Example-Usage.md` and
+`../scope/RESET_VERIFICATION.md`.
+
 Build outputs do not belong on GitHub (25 November 2026): `.gitignore`
 covers `build/` and `build-android/` at any depth, `Debug/` /
 `Release/`, and the binary extensions (`*.so`,

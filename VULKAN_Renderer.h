@@ -304,6 +304,15 @@ public:
 
     void  RenderBackgroundImage();
 
+    // Replay the per-frame queue of native Vulkan 2D blits inside the main
+    // render pass (Phase C). Declared unguarded like
+    // CompositePlatformBackgroundOverlay: the Linux body draws the queued
+    // quads through the 2D pipeline, the Windows/Android bodies are empty
+    // no-ops (Windows draws via D2D, Android awaits its own Phase C
+    // follow-up). Called from VULKAN_RenderFrame.cpp once for the background
+    // queue (before 3D) and once for the overlay queue (after 3D).
+    void  ReplayQueued2DBlits(VkCommandBuffer cmd, bool background);
+
     // Direct access to current frame command buffer for FXManager
     VkCommandBuffer  GetCurrentCommandBuffer()  const;
     VkRenderPass     GetRenderPass()            const { return m_renderPass; }
@@ -668,6 +677,46 @@ private:
 #elif defined(PLATFORM_LINUX)
     xcb_connection_t* m_xcbConnection = nullptr;
     xcb_window_t      m_xcbWindow     = 0;
+
+    // Phase C native Vulkan 2D blits (Linux only). Blits are issued from
+    // RenderPlatformOverlay(), which runs BEFORE the main render pass begins,
+    // so they cannot draw immediately: each blit appends one quad to a
+    // per-frame queue, and ReplayQueued2DBlits() draws the queue inside the
+    // pass. Two queues preserve the Windows draw order — background quads
+    // replay before 3D models, overlay quads after 3D (before the fade).
+    // m_drawToBackground routes a blit to the background queue, mirroring
+    // the Windows Blit2DCenteredZoom routing.
+    struct LinuxBlitQuad
+    {
+        int   texIndex = -1;    // m_textures2D index, or -1 = 1x1 white m_defaultTexture (coloured pixels)
+        float dx = 0.0f, dy = 0.0f, dw = 0.0f, dh = 0.0f;   // destination rect, pixels
+        float u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f;   // source sub-rect, float UVs
+        float r = 1.0f, g = 1.0f, b = 1.0f, a = 1.0f;       // vertex tint (alpha in a; push-constant opacity stays 1)
+    };
+    // Queue capacity, re-checked 25 Nov 2026 against the real callers: the
+    // tilemap scroller emits (screenW/tileW + 2) x (screenH/tileH + 2) quads,
+    // so 16 px tiles at 1920x1080 need ~8,540 quads; starfield (~80 dots) and
+    // fireworks (~6 rockets x 48 particles + trails, ~1,000 px worst case)
+    // add ~1,000 more. 16384 covers that worst case with headroom; overflow
+    // drops extras with a throttled warning, never a crash.
+    static constexpr uint32_t kLinuxBlitMaxQuads = 16384;
+    std::vector<LinuxBlitQuad> m_linuxBlitQueueBg;
+    std::vector<LinuxBlitQuad> m_linuxBlitQueueOverlay;
+    // Per-frame-in-flight dynamic vertex buffers for the queued quads
+    // (4 strip verts per quad, same VkVertex2D layout as the unit quad).
+    // Host-visible + coherent, persistently mapped; sized for kLinuxBlitMaxQuads.
+    // Created lazily on the first blit so init stays untouched, destroyed in
+    // ReleasePlatformOverlayResources() (called from Cleanup()).
+    VkBuffer       m_linuxBlitVB[VK_MAX_FRAMES_IN_FLIGHT]       = {};
+    VkDeviceMemory m_linuxBlitVBMem[VK_MAX_FRAMES_IN_FLIGHT]    = {};
+    void*          m_linuxBlitVBMapped[VK_MAX_FRAMES_IN_FLIGHT] = {};
+    bool           m_linuxBlitVBReady = false;
+    uint32_t       m_linuxBlitDropped = 0;   // overflowed quads, throttled warning
+    void EnsureLinuxBlitBuffers();
+    void DestroyLinuxBlitBuffers();
+    void EnqueueLinuxBlit(int texIndex, float dx, float dy, float dw, float dh,
+                          float u0, float v0, float u1, float v1,
+                          float r, float g, float b, float a);
 #elif defined(PLATFORM_ANDROID)
     ANativeWindow*    m_nativeWindow  = nullptr;
 #endif
