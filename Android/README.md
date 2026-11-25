@@ -171,6 +171,7 @@ Bash) the apt steps are skipped — only the SDK/NDK/JDK/tool checks
 apply — and archives are unpacked with `unzip` when present, else
 PowerShell `Expand-Archive`. A required dependency that cannot be
 downloaded stops the build with the exact fix (command or URL);
+cmdline tools (nothing in the build uses `sdkmanager`),
 `platform-tools` (adb, only needed to install on a device) and
 `glslangValidator` only warn. When everything is present the check
 is a silent no-op. The Linux desktop script does the same for its
@@ -181,6 +182,11 @@ ALSA, FFmpeg from the distro `-dev` packages — Ubuntu 24.04: FFmpeg
 miniaudio are vendored in `include/` and are never downloaded. See
 `../scope/DEPENDENCY_CHECK_VERIFICATION.md` for the full dependency
 list, the download sources and the test results.
+
+(26 November 2026 fix: the Windows cmdline-tools download URL was
+wrong — Google names it `commandlinetools-win-...`, not
+`commandlinetools-windows-...` — and cmdline tools are now a soft
+dependency, so a failed download warns and the build continues.)
 
 `classes.dex` is built automatically, and the APK can be installed on a
 device (25 November 2026): the build pipeline (`Linux/cmake-build-android.sh`)

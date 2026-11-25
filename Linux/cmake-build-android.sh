@@ -343,14 +343,16 @@ find_llvm_strip() {
 #
 # HARD (the build or the APK packaging cannot succeed without them):
 # cmake, make, curl (for the downloads), a JDK 17+ (javac + keytool),
-# the Android SDK (cmdline tools, build-tools with aapt2 / zipalign /
-# apksigner / d8, a platform android-XX with android.jar), the NDK,
-# and an archiver (zip/7z/7za/wzzip — the same resolution order as
+# the Android SDK (build-tools with aapt2 / zipalign / apksigner / d8,
+# a platform android-XX with android.jar), the NDK, and an archiver
+# (zip/7z/7za/wzzip — the same resolution order as
 # Android/package-apk.sh, checked here as a pre-flight so a missing
 # archiver fails before the build instead of after it). If one is
 # missing and cannot be downloaded, the script prints the exact fix
 # and exits non-zero BEFORE building.
-# SOFT: platform-tools (adb — only needed to install on a device) and
+# SOFT: cmdline tools (nothing in the build invokes sdkmanager — the
+# build needs cmake, make, JDK, NDK, build-tools and a platform only),
+# platform-tools (adb — only needed to install on a device) and
 # glslangValidator (Vulkan shaders fall back to a copy + runtime
 # shaderc compile without it). A missing one is still downloaded when
 # possible; if the download fails the script warns and builds on.
@@ -360,10 +362,14 @@ find_llvm_strip() {
 #
 # Downloads come from dl.google.com (curl — sdkmanager does not work
 # behind this VM's egress proxy, its Java tunnelling fails) and from
-# api.adoptium.net for the Temurin JDK 17. Every URL below was verified
-# with curl -I on 25 November 2026: NDK r27c (27.2.12479018, the
-# default), cmdline tools 11076708, build-tools r34, platform
-# android-34 (platform-34-ext12_r01.zip), platform-tools, Temurin 17.
+# api.adoptium.net for the Temurin JDK 17. Every URL below was re-verified
+# with curl -I on 26 November 2026 for both Windows and Linux variants:
+# NDK r27c (27.2.12479018, the default), cmdline tools 11076708,
+# build-tools r34, platform android-34 (platform-34-ext12_r01.zip),
+# platform-tools, Temurin 17. NOTE: cmdline tools use the OS token "win"
+# on Windows (commandlinetools-win-...); the 25 November check used
+# "windows" and that URL 404s — fixed 26 November 2026 (see the
+# _cmdline_os helper).
 # On Windows (Git Bash) the apt steps are skipped — only the SDK/NDK/
 # JDK/tool checks apply — and archives are unpacked with unzip when
 # present, else PowerShell Expand-Archive. The SDK is laid out in the
@@ -378,6 +384,11 @@ _is_windows() {  # Git Bash / MSYS2 / Cygwin
 }
 _is_linux() { [[ "$(uname -s 2>/dev/null)" == "Linux" ]]; }
 _android_os() { _is_windows && echo windows || echo linux; }  # dl.google.com OS suffix
+# cmdline tools use a different OS token: Google names the Windows
+# package commandlinetools-win-... (not -windows-...). NDK, build-tools
+# and platform-tools all use "windows" — only cmdline tools differ.
+# (The 25 Nov 2026 check used "windows" here; that URL 404s.)
+_cmdline_os() { _is_windows && echo win || _android_os; }
 
 # _download <url> <dest-file> — curl, failing loudly on HTTP errors.
 # Returns 1 when curl is missing or the download fails.
@@ -678,8 +689,9 @@ _download_ndk() {
 # Returns 1 when a HARD dependency is missing and could not be
 # downloaded; soft failures only warn. Sets NDK_ROOT and JDK_DIR.
 check_android_deps() {
-    local _os _bt _pt
+    local _os _bt _pt _cmdline_os
     _os="$(_android_os)"
+    _cmdline_os="$(_cmdline_os)"
 
     # --- Tools (hard): cmake, make, curl ---
     if ! _have_cmd "${CMAKE_EXE}"; then
@@ -728,17 +740,17 @@ check_android_deps() {
         echo "Dependency check: JDK 17 installed: ${JDK_DIR}"
     fi
 
-    # --- SDK: cmdline tools (hard) ---
+    # --- SDK: cmdline tools (soft — nothing in the build invokes sdkmanager) ---
     if ! _have_file "${SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" && ! _have_file "${SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager.bat"; then
         echo "Dependency check: Android cmdline tools missing — downloading..."
-        if ! _sdk_download_and_install "https://dl.google.com/android/repository/commandlinetools-${_os}-11076708_latest.zip" "${SDK_ROOT}/cmdline-tools/latest"; then
-            echo "ERROR: could not download the Android cmdline tools."
+        if ! _sdk_download_and_install "https://dl.google.com/android/repository/commandlinetools-${_cmdline_os}-11076708_latest.zip" "${SDK_ROOT}/cmdline-tools/latest"; then
+            echo "WARNING: cmdline tools could not be downloaded — continuing without them (nothing in the build uses sdkmanager)."
             echo "  Install them by hand (Android Studio → SDK Manager → SDK Tools → Android SDK Command-line Tools)"
-            echo "  or download https://dl.google.com/android/repository/commandlinetools-${_os}-11076708_latest.zip"
+            echo "  or download https://dl.google.com/android/repository/commandlinetools-${_cmdline_os}-11076708_latest.zip"
             echo "  and extract it to ${SDK_ROOT}/cmdline-tools/latest"
-            return 1
+        else
+            echo "Dependency check: cmdline tools installed."
         fi
-        echo "Dependency check: cmdline tools installed."
     fi
 
     # --- SDK: platform-tools / adb (soft — only needed to install on a device) ---
