@@ -57,6 +57,15 @@
 # executable. Without that, the apksigner check failed on Daniel's
 # machine with a mixed path (D:\AndroidSDK/build-tools/36.0.0/apksigner)
 # for a file that is really apksigner.bat.
+#
+# Archiver (25 Nov 2026): the APK contents are staged with `zip` when
+# it is on PATH, else `7z` (7-Zip — its command is `7z`, NOT `zip`, so
+# installing 7-Zip never satisfies a `zip` check; the old error message
+# said exactly that and was wrong). `7z` is also looked for in the
+# standard Windows install locations (C:\Program Files\7-Zip and
+# C:\Program Files (x86)\7-Zip), so a default 7-Zip install works even
+# if it is not on PATH. If neither is found the script fails with
+# instructions for both routes instead of a bare "not found".
 set -euo pipefail
 
 RENDERER="${1:-}"
@@ -170,7 +179,8 @@ if [[ -z "$KEYTOOL" ]] && command -v keytool &>/dev/null; then KEYTOOL="$(comman
 export PATH="$JDK/bin:$PATH"
 
 # Tool checks with actionable errors (aapt2/zipalign/apksigner live in
-# build-tools; keytool/javac in the JDK; zip stages the APK contents).
+# build-tools; keytool/javac in the JDK; zip or 7z stages the APK
+# contents — see the archiver block below).
 AAPT2="$(find_tool "$BT" aapt2 || true)"
 ZIPALIGN="$(find_tool "$BT" zipalign || true)"
 APKSIGNER="$(find_tool "$BT" apksigner || true)"
@@ -179,7 +189,60 @@ APKSIGNER="$(find_tool "$BT" apksigner || true)"
 [[ -n "$APKSIGNER" ]] || { echo "ERROR: apksigner missing in $BT — reinstall build-tools (sdkmanager \"build-tools;${BT_VER}\")." >&2; exit 1; }
 [[ -n "$JAVAC" ]] || { echo "ERROR: javac not found — set JAVA_HOME to a JDK 17 install." >&2; exit 1; }
 [[ -n "$KEYTOOL" ]] || { echo "ERROR: keytool not found — set JAVA_HOME to a JDK 17 install." >&2; exit 1; }
-command -v zip &>/dev/null || { echo "ERROR: zip not found — needed to stage the APK contents (on Git Bash: pacman -S zip, or install 7-Zip and put it on PATH)." >&2; exit 1; }
+
+# Archiver for staging the APK contents: `zip` first, else `7z`.
+# 7-Zip does NOT provide a `zip` command — its command is `7z` — so a
+# `zip` check can never be satisfied by installing 7-Zip alone. `7z`
+# is also looked for in the standard Windows install locations
+# (C:\Program Files\7-Zip and C:\Program Files (x86)\7-Zip), so a
+# default 7-Zip install works even if it is not on PATH. The choice is
+# printed so the log shows which archiver staged the APK.
+ZIP_TOOL=""; ZIP_CMD=""
+if command -v zip &>/dev/null; then
+    ZIP_TOOL=zip; ZIP_CMD="$(command -v zip)"
+elif command -v 7z &>/dev/null; then
+    ZIP_TOOL=7z; ZIP_CMD="$(command -v 7z)"
+else
+    for _dir in "/c/Program Files/7-Zip" "/c/Program Files (x86)/7-Zip"; do
+        _z="$(find_tool "$_dir" 7z || true)"
+        if [[ -n "$_z" ]]; then ZIP_TOOL=7z; ZIP_CMD="$_z"; break; fi
+    done
+fi
+if [[ -z "$ZIP_TOOL" ]]; then
+    echo "ERROR: no archiver found — needed to stage the APK contents (zip or 7z)." >&2
+    echo "  7-Zip does NOT provide a \`zip\` command — its command is \`7z\`. Installing" >&2
+    echo "  7-Zip alone never satisfies a \`zip\` check. Either:" >&2
+    echo "    - get \`zip\` (on Git Bash: pacman -S zip), or" >&2
+    echo "    - install 7-Zip and make sure \`7z\` is on PATH (add C:\Program Files\7-Zip" >&2
+    echo "      to PATH). The script uses \`7z\` as a fallback, and also checks the" >&2
+    echo "      standard install locations, so a default 7-Zip install usually just works." >&2
+    exit 1
+fi
+echo "Archiver: $ZIP_TOOL ($ZIP_CMD)"
+
+# Staging helpers — the same code path works with `zip` or `7z`, so the
+# APK is identical in structure either way. apk_store adds files
+# STORED (uncompressed — the .so and classes.dex are stored so zipalign
+# can page-align them); apk_deflate adds a directory DEFLATED,
+# recursively. Both run from the caller's working directory so the
+# stored paths are relative, exactly as the old `zip` calls did. 7z
+# output goes to /dev/null (it is chatty; errors still reach stderr).
+apk_store() {  # apk_store <apk> <files...>
+    local _apk="$1"; shift
+    if [[ "$ZIP_TOOL" == "7z" ]]; then
+        "$ZIP_CMD" a -tzip -mx=0 "$_apk" "$@" >/dev/null
+    else
+        zip -q -0 "$_apk" "$@"
+    fi
+}
+apk_deflate() {  # apk_deflate <apk> <dir>
+    local _apk="$1"; shift
+    if [[ "$ZIP_TOOL" == "7z" ]]; then
+        "$ZIP_CMD" a -tzip "$_apk" "$@" >/dev/null
+    else
+        zip -q -r "$_apk" "$@"
+    fi
+}
 
 # --- NDK / llvm-strip (release only) ---------------------------------------
 # Release builds are stripped of debug info. The NDK is resolved the same
@@ -308,13 +371,13 @@ if [[ "$CONFIG" == "release" ]]; then
 fi
 cp -r "$REPO/Assets/." "$STAGE/assets/"
 rm -rf "$STAGE/assets/AIHistory"
-( cd "$STAGE" && zip -q -0 "$OUT" lib/arm64-v8a/libCPGE.so && zip -q -r "$OUT" assets )
+( cd "$STAGE" && apk_store "$OUT" lib/arm64-v8a/libCPGE.so && apk_deflate "$OUT" assets )
 
 # 4. Optional Java helper dex (TTS JNI bridge, step 3). Present only after
 # build-dex.sh has run AND the manifest's android:hasCode is true; until
 # then the APK ships without a dex and this step is skipped.
 if [ -f "$SCRIPT_DIR/classes.dex" ]; then
-    ( cd "$SCRIPT_DIR" && zip -q -0 "$OUT" classes.dex )
+    ( cd "$SCRIPT_DIR" && apk_store "$OUT" classes.dex )
     echo "Added classes.dex (TTS JNI helper)"
 else
     echo "NOTE: no classes.dex — TTS JNI helper not packaged (run build-dex.sh first)"

@@ -51,6 +51,14 @@ NativeActivity app that packages the engine (`libCPGE.so`) as an APK. Created
 - `sdkmanager` does NOT work on this machine (Java proxy tunnelling fails);
   SDK packages were installed with `curl` from `dl.google.com` — use curl,
   not sdkmanager, for any new SDK package.
+- `zip` or 7-Zip for APK staging (25 November 2026): `package-apk.sh`
+  stages the APK contents with `zip` when it is on PATH, else `7z`.
+  7-Zip does NOT provide a `zip` command — its command is `7z` — so
+  installing 7-Zip never satisfies a `zip` check. On Git Bash:
+  `pacman -S zip` for `zip`, or install 7-Zip and put
+  `C:\Program Files\7-Zip` on PATH for `7z` (the script also checks
+  the standard install locations, so a default 7-Zip install usually
+  just works).
 
 ## Build
 
@@ -101,7 +109,9 @@ On a successful build the script automates the whole post-build flow
    from `ANDROID_BUILD_TOOLS_VERSION` (default 34.0.0, newest
    installed as fallback), and the JDK from `JAVA_HOME` (falling back
    to the SDK tree's JDK 17, then `java` on PATH); when a tool is
-   genuinely missing they fail with what to install. On Windows/Git
+   genuinely missing they fail with what to install. The APK contents
+   are staged with `zip` or `7z` (see Prerequisites — 7-Zip provides
+   `7z`, not `zip`). On Windows/Git
    Bash, `ANDROID_HOME` and `JAVA_HOME` may hold Windows-style paths
    (`D:\...`); the scripts normalise them to POSIX paths with
    `cygpath` and resolve tools with their Windows extensions
@@ -127,7 +137,7 @@ it defaults to `debug`, so existing callers are unaffected.
 
 Build outputs do not belong on GitHub (25 November 2026): `.gitignore`
 covers `build/` and `build-android/` at any depth, `Debug/` /
-`Release/`, and the binary extensions (`*.so`, `*.spv`,
+`Release/`, and the binary extensions (`*.so`,
 `*.cso`, `*.apk`, `*.dex`, …) plus `cache.dat` and `Assets/AIHistory/`,
 so the `.so`, APKs, dex, keystore and staged copies above are never
 committed. Tracked build binaries are being deleted from Phase2 in the
