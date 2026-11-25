@@ -51,18 +51,25 @@ NativeActivity app that packages the engine (`libCPGE.so`) as an APK. Created
 - `sdkmanager` does NOT work on this machine (Java proxy tunnelling fails);
   SDK packages were installed with `curl` from `dl.google.com` — use curl,
   not sdkmanager, for any new SDK package.
-- `zip` or 7-Zip for APK staging (25 November 2026): `package-apk.sh`
-  stages the APK contents with `zip` when it is on PATH, else `7z`.
+- `zip`, 7-Zip, 7za or WinZip for APK staging (25 November 2026):
+  `package-apk.sh` stages the APK contents with `zip` when it is on
+  PATH, else `7z`, else `7za` (the standalone 7-Zip console — NCH
+  ExpressZip bundles 7za.exe, so a machine with ExpressZip on PATH has
+  `7za` even though 7-Zip itself was never installed), else `wzzip`
+  (WinZip's command-line tool, from the free WinZip Command Line Support
+  Add-On — a separate download from winzip.com, NOT in base WinZip).
   7-Zip does NOT provide a `zip` command — its command is `7z` — so
   installing 7-Zip never satisfies a `zip` check. On Git Bash:
   `pacman -S zip` for `zip`, or install 7-Zip and put
   `C:\Program Files\7-Zip` on PATH for `7z`. A PATH change only applies
   to a NEW Git Bash window — close and reopen Git Bash after editing
   PATH. The script also looks up the 7-Zip install in the Windows
-  registry (`HKLM\SOFTWARE\7-Zip`) and checks the standard install
-  locations on C: and D:, so a default 7-Zip install usually just
-  works; if yours is renamed or moved, point the script straight at it
-  with `CPGE_7Z='/d/Tools/7-Zip/7z.exe'`.
+  registry (`HKLM\SOFTWARE\7-Zip`), the WinZip App Paths key
+  (`HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\wzzip.exe`),
+  and checks the standard install locations on C: and D:, so a default
+  install usually just works; if yours is renamed or moved, point the
+  script straight at it with `CPGE_7Z='/d/Tools/7-Zip/7z.exe'` (or a
+  7za.exe path).
 
 ## Build
 
@@ -114,8 +121,9 @@ On a successful build the script automates the whole post-build flow
    installed as fallback), and the JDK from `JAVA_HOME` (falling back
    to the SDK tree's JDK 17, then `java` on PATH); when a tool is
    genuinely missing they fail with what to install. The APK contents
-   are staged with `zip` or `7z` (see Prerequisites — 7-Zip provides
-   `7z`, not `zip`). On Windows/Git
+   are staged with `zip`, `7z`, `7za` or `wzzip` (see Prerequisites —
+   7-Zip provides `7z`, not `zip`; ExpressZip provides `7za`; WinZip's
+   `wzzip` needs the Command Line Support Add-On). On Windows/Git
    Bash, `ANDROID_HOME` and `JAVA_HOME` may hold Windows-style paths
    (`D:\...`); the scripts normalise them to POSIX paths with
    `cygpath` and resolve tools with their Windows extensions

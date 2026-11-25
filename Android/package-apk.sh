@@ -61,11 +61,16 @@
 # Archiver (25 Nov 2026): the APK contents are staged with `zip` when
 # it is on PATH, else `7z` (7-Zip — its command is `7z`, NOT `zip`, so
 # installing 7-Zip never satisfies a `zip` check; the old error message
-# said exactly that and was wrong). `7z` is also looked for in the
-# standard Windows install locations (C:\Program Files\7-Zip and
+# said exactly that and was wrong), else `7za` (the standalone 7-Zip
+# console — NCH ExpressZip bundles 7za.exe, so a machine with ExpressZip
+# on PATH has `7za` even though 7-Zip itself was never installed; 7za
+# takes the same `a -tzip [-mx=0]` arguments used here), else `wzzip`
+# (WinZip's command-line tool, from the free WinZip Command Line Support
+# Add-On — it is NOT in base WinZip). `7z`/`7za` are also looked for in
+# the standard Windows install locations (C:\Program Files\7-Zip and
 # C:\Program Files (x86)\7-Zip), so a default 7-Zip install works even
-# if it is not on PATH. If neither is found the script fails with
-# instructions for both routes instead of a bare "not found".
+# if it is not on PATH. If none is found the script fails with
+# instructions instead of a bare "not found".
 set -euo pipefail
 
 RENDERER="${1:-}"
@@ -179,8 +184,8 @@ if [[ -z "$KEYTOOL" ]] && command -v keytool &>/dev/null; then KEYTOOL="$(comman
 export PATH="$JDK/bin:$PATH"
 
 # Tool checks with actionable errors (aapt2/zipalign/apksigner live in
-# build-tools; keytool/javac in the JDK; zip or 7z stages the APK
-# contents — see the archiver block below).
+# build-tools; keytool/javac in the JDK; zip, 7z, 7za or wzzip stages
+# the APK contents — see the archiver block below).
 AAPT2="$(find_tool "$BT" aapt2 || true)"
 ZIPALIGN="$(find_tool "$BT" zipalign || true)"
 APKSIGNER="$(find_tool "$BT" apksigner || true)"
@@ -190,37 +195,65 @@ APKSIGNER="$(find_tool "$BT" apksigner || true)"
 [[ -n "$JAVAC" ]] || { echo "ERROR: javac not found — set JAVA_HOME to a JDK 17 install." >&2; exit 1; }
 [[ -n "$KEYTOOL" ]] || { echo "ERROR: keytool not found — set JAVA_HOME to a JDK 17 install." >&2; exit 1; }
 
-# Archiver for staging the APK contents: `zip` first, else `7z`.
-# 7-Zip does NOT provide a `zip` command — its command is `7z` — so a
-# `zip` check can never be satisfied by installing 7-Zip alone.
+# Archiver for staging the APK contents: `zip` first, else `7z`, else
+# `7za`. 7-Zip does NOT provide a `zip` command — its command is `7z` —
+# so a `zip` check can never be satisfied by installing 7-Zip alone.
+# `7za` is the standalone 7-Zip console (same `a -tzip [-mx=0]`
+# arguments): NCH ExpressZip bundles 7za.exe, so a machine with
+# ExpressZip on PATH has `7za` even though 7-Zip was never installed.
 # Resolution order (25 Nov 2026):
-#   1. CPGE_7Z — an explicit override holding the path to the 7z
+#   1. CPGE_7Z — an explicit override holding the path to the 7z or 7za
 #      executable (e.g. CPGE_7Z='/d/Tools/7-Zip/7z.exe', or a directory
-#      holding 7z.exe). The escape hatch for a renamed or moved 7-Zip
-#      install; used when set and a 7z executable is found there.
+#      holding 7z.exe or 7za.exe). The escape hatch for a renamed or
+#      moved 7-Zip install; used when set and a 7z/7za executable is
+#      found there.
 #   2. `zip` on PATH.
-#   3. `7z` on PATH.
+#   3. `7z` on PATH, then `7za` on PATH.
 #   4. Windows registry (when `reg` is available): 7-Zip records its
 #      install directory in the Path value under
 #      HKLM\SOFTWARE\7-Zip (64-bit) or HKLM\SOFTWARE\WOW6432Node\7-Zip
 #      (32-bit). A missing `reg`, a missing key, or an unparsable value
 #      is just "not found" — never a failure.
 #   5. The standard install locations on C: and D: (D: is a common
-#      drive for Windows program installs, e.g. D:\Program Files\7-Zip).
+#      drive for Windows program installs, e.g. D:\Program Files\7-Zip),
+#      resolving `7z` then `7za` in each.
+#   6. `wzzip` (WinZip Command Line Support Add-On): on PATH, then the
+#      App Paths registry key
+#      (HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\wzzip.exe),
+#      then the standard WinZip locations (C:\Program Files\WinZip and
+#      C:\Program Files (x86)\WinZip). wzzip is last — it needs the
+#      separate add-on, which most WinZip installs do not have.
 # A PATH change only reaches a NEW shell — a Git Bash window that was
 # already open when PATH was edited still has the old PATH, so close
 # and reopen Git Bash after editing PATH. The choice is printed so the
 # log shows which archiver staged the APK.
+# resolve_7z_in_dir <dir> — sets ZIP_TOOL/ZIP_CMD to `7z` or `7za` if
+# either is found in the directory (via find_tool, so .exe/.bat/.cmd
+# suffixes are tried); returns 1 when neither is there. Used for the
+# CPGE_7Z directory, the registry directory, and the standard install
+# locations, so the 7z-then-7za order is the same everywhere.
+resolve_7z_in_dir() {
+    local _dir="$1" _z=""
+    _z="$(find_tool "$_dir" 7z || true)"
+    if [[ -n "$_z" ]]; then ZIP_TOOL=7z; ZIP_CMD="$_z"; return 0; fi
+    _z="$(find_tool "$_dir" 7za || true)"
+    if [[ -n "$_z" ]]; then ZIP_TOOL=7za; ZIP_CMD="$_z"; return 0; fi
+    return 1
+}
+
 ZIP_TOOL=""; ZIP_CMD=""
 if [[ -n "${CPGE_7Z:-}" ]]; then
     if [[ -f "$CPGE_7Z" ]]; then
-        ZIP_TOOL=7z; ZIP_CMD="$CPGE_7Z"
+        case "$(basename "$CPGE_7Z")" in
+            7za|7za.*) ZIP_TOOL=7za ;;
+            *) ZIP_TOOL=7z ;;
+        esac
+        ZIP_CMD="$CPGE_7Z"
     elif [[ -d "$CPGE_7Z" ]]; then
-        _z="$(find_tool "$CPGE_7Z" 7z || true)"
-        if [[ -n "$_z" ]]; then ZIP_TOOL=7z; ZIP_CMD="$_z"; fi
+        resolve_7z_in_dir "$CPGE_7Z" || true
     fi
     if [[ -z "$ZIP_TOOL" ]]; then
-        echo "NOTE: CPGE_7Z is set ($CPGE_7Z) but no 7z executable was found there — ignoring it."
+        echo "NOTE: CPGE_7Z is set ($CPGE_7Z) but no 7z/7za executable was found there — ignoring it."
     fi
 fi
 if [[ -z "$ZIP_TOOL" ]] && command -v zip &>/dev/null; then
@@ -229,33 +262,59 @@ fi
 if [[ -z "$ZIP_TOOL" ]] && command -v 7z &>/dev/null; then
     ZIP_TOOL=7z; ZIP_CMD="$(command -v 7z)"
 fi
+if [[ -z "$ZIP_TOOL" ]] && command -v 7za &>/dev/null; then
+    ZIP_TOOL=7za; ZIP_CMD="$(command -v 7za)"
+fi
 if [[ -z "$ZIP_TOOL" ]] && command -v reg &>/dev/null; then
     for _key in "HKLM\SOFTWARE\7-Zip" "HKLM\SOFTWARE\WOW6432Node\7-Zip"; do
         _reg_path="$(reg query "$_key" /v Path 2>/dev/null | awk -F'REG_SZ' 'NF>1 {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' || true)"
         if [[ -n "$_reg_path" ]]; then
             _reg_dir="$(posix_path "$_reg_path")"
             _reg_dir="${_reg_dir%/}"
-            _z="$(find_tool "$_reg_dir" 7z || true)"
-            if [[ -n "$_z" ]]; then ZIP_TOOL=7z; ZIP_CMD="$_z"; break; fi
+            if resolve_7z_in_dir "$_reg_dir"; then break; fi
         fi
     done
 fi
 if [[ -z "$ZIP_TOOL" ]]; then
     for _dir in "/c/Program Files/7-Zip" "/c/Program Files (x86)/7-Zip" "/d/Program Files/7-Zip" "/d/Program Files (x86)/7-Zip"; do
-        _z="$(find_tool "$_dir" 7z || true)"
-        if [[ -n "$_z" ]]; then ZIP_TOOL=7z; ZIP_CMD="$_z"; break; fi
+        if resolve_7z_in_dir "$_dir"; then break; fi
+    done
+fi
+# wzzip (WinZip Command Line Support Add-On) is the last resort — it
+# needs the separate add-on, which most WinZip installs do not have.
+# It registers an App Paths key, so it can be found even when it is not
+# on PATH. The App Paths default value is the full path to wzzip.exe.
+if [[ -z "$ZIP_TOOL" ]] && command -v wzzip &>/dev/null; then
+    ZIP_TOOL=wzzip; ZIP_CMD="$(command -v wzzip)"
+fi
+if [[ -z "$ZIP_TOOL" ]] && command -v reg &>/dev/null; then
+    _wz_path="$(reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\wzzip.exe" /ve 2>/dev/null | awk -F'REG_SZ' 'NF>1 {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' || true)"
+    if [[ -n "$_wz_path" ]]; then
+        _wz_posix="$(posix_path "$_wz_path")"
+        if [[ -f "$_wz_posix" ]]; then ZIP_TOOL=wzzip; ZIP_CMD="$_wz_posix"; fi
+    fi
+fi
+if [[ -z "$ZIP_TOOL" ]]; then
+    for _dir in "/c/Program Files/WinZip" "/c/Program Files (x86)/WinZip"; do
+        _z="$(find_tool "$_dir" wzzip || true)"
+        if [[ -n "$_z" ]]; then ZIP_TOOL=wzzip; ZIP_CMD="$_z"; break; fi
     done
 fi
 if [[ -z "$ZIP_TOOL" ]]; then
-    echo "ERROR: no archiver found — needed to stage the APK contents (zip or 7z)." >&2
+    echo "ERROR: no archiver found — needed to stage the APK contents (zip, 7z, 7za or wzzip)." >&2
     echo "  7-Zip does NOT provide a \`zip\` command — its command is \`7z\`. Installing" >&2
     echo "  7-Zip alone never satisfies a \`zip\` check. Either:" >&2
     echo "    - get \`zip\` (on Git Bash: pacman -S zip), or" >&2
     echo "    - install 7-Zip and make sure \`7z\` is on PATH (add C:\\Program Files\\7-Zip" >&2
-    echo "      to PATH). A PATH change only applies to a NEW Git Bash window — close" >&2
-    echo "      and reopen Git Bash after editing PATH, or the old shell still has the" >&2
-    echo "      old PATH. Or point the script straight at your 7z.exe:" >&2
-    echo "        CPGE_7Z='/d/Tools/7-Zip/7z.exe'   (path to the 7z executable, any location)" >&2
+    echo "      to PATH), or use \`7za\` — NCH ExpressZip bundles 7za.exe (the" >&2
+    echo "      standalone 7-Zip console, same commands as 7z) and the script" >&2
+    echo "      accepts it, or use \`wzzip\` — WinZip's command-line tool, from the" >&2
+    echo "      free WinZip Command Line Support Add-On (separate download from" >&2
+    echo "      winzip.com; it is NOT in base WinZip). A PATH change only applies" >&2
+    echo "      to a NEW Git Bash window — close and reopen Git Bash after editing" >&2
+    echo "      PATH, or the old shell still has the old PATH. Or point the script" >&2
+    echo "      straight at your 7z.exe or 7za.exe:" >&2
+    echo "        CPGE_7Z='/d/Tools/7-Zip/7z.exe'   (path to the 7z/7za executable, any location)" >&2
     echo "  The script also looks up the 7-Zip install in the Windows registry and" >&2
     echo "  checks the standard install locations on C: and D:, so a default install" >&2
     echo "  usually just works." >&2
@@ -263,28 +322,31 @@ if [[ -z "$ZIP_TOOL" ]]; then
 fi
 echo "Archiver: $ZIP_TOOL ($ZIP_CMD)"
 
-# Staging helpers — the same code path works with `zip` or `7z`, so the
-# APK is identical in structure either way. apk_store adds files
-# STORED (uncompressed — the .so and classes.dex are stored so zipalign
-# can page-align them); apk_deflate adds a directory DEFLATED,
-# recursively. Both run from the caller's working directory so the
-# stored paths are relative, exactly as the old `zip` calls did. 7z
-# output goes to /dev/null (it is chatty; errors still reach stderr).
+# Staging helpers — the same code path works with `zip`, `7z`, `7za` or
+# `wzzip`, so the APK is identical in structure either way. apk_store
+# adds files STORED (uncompressed — the .so and classes.dex are stored
+# so zipalign can page-align them); apk_deflate adds a directory
+# DEFLATED, recursively. Both run from the caller's working directory
+# so the stored paths are relative, exactly as the old `zip` calls did.
+# 7z/7za output goes to /dev/null (it is chatty; errors still reach
+# stderr), as does wzzip's. wzzip takes `-e0` for Stored and `-r -p`
+# for a recursive deflated add with relative folder names — never `-P`,
+# which would bake the staging directory's full path into the APK.
 apk_store() {  # apk_store <apk> <files...>
     local _apk="$1"; shift
-    if [[ "$ZIP_TOOL" == "7z" ]]; then
-        "$ZIP_CMD" a -tzip -mx=0 "$_apk" "$@" >/dev/null
-    else
-        zip -q -0 "$_apk" "$@"
-    fi
+    case "$ZIP_TOOL" in
+        7z|7za) "$ZIP_CMD" a -tzip -mx=0 "$_apk" "$@" >/dev/null ;;
+        wzzip)  "$ZIP_CMD" -a -e0 "$_apk" "$@" >/dev/null ;;
+        *)      zip -q -0 "$_apk" "$@" ;;
+    esac
 }
 apk_deflate() {  # apk_deflate <apk> <dir>
     local _apk="$1"; shift
-    if [[ "$ZIP_TOOL" == "7z" ]]; then
-        "$ZIP_CMD" a -tzip "$_apk" "$@" >/dev/null
-    else
-        zip -q -r "$_apk" "$@"
-    fi
+    case "$ZIP_TOOL" in
+        7z|7za) "$ZIP_CMD" a -tzip "$_apk" "$@" >/dev/null ;;
+        wzzip)  "$ZIP_CMD" -a -r -p "$_apk" "$@" >/dev/null ;;
+        *)      zip -q -r "$_apk" "$@" ;;
+    esac
 }
 
 # --- NDK / llvm-strip (release only) ---------------------------------------
