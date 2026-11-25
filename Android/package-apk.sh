@@ -186,6 +186,11 @@ if [[ -z "$JDK" ]]; then
 fi
 KEYTOOL="$(find_tool "$JDK/bin" keytool || true)"
 if [[ -z "$KEYTOOL" ]] && command -v keytool &>/dev/null; then KEYTOOL="$(command -v keytool)"; fi
+# apksigner reads JAVA_HOME from the environment to find java — export
+# the JDK resolved above, or a bad JAVA_HOME left in the environment
+# (e.g. the Oracle JRE shim dir) makes signing fail even though javac
+# and keytool just resolved fine. (Same fix as build-dex.sh.)
+export JAVA_HOME="$JDK"
 export PATH="$JDK/bin:$PATH"
 
 # Tool checks with actionable errors (aapt2/zipalign/apksigner live in

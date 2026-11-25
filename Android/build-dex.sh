@@ -112,6 +112,10 @@ if [[ -z "$JDK" ]]; then
     echo "  Or install one via Android Studio (it bundles a JDK) or Temurin 17." >&2
     exit 1
 fi
+# d8 reads JAVA_HOME from the environment to find java — export the JDK
+# resolved above, or a bad JAVA_HOME left in the environment (e.g. the
+# Oracle JRE shim dir) makes d8 fail even though javac just worked.
+export JAVA_HOME="$JDK"
 export PATH="$JDK/bin:$PATH"
 
 D8="$(find_tool "$BT" d8 || true)"

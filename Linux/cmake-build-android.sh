@@ -514,7 +514,8 @@ _apt_install_pkgs() {
 # Sets JDK_DIR on success. When none is found the Temurin JDK 17 is
 # downloaded (Adoptium API, latest 17 GA) and installed to
 # $SDK_ROOT/jdk-17.0.21.1+2 — the exact name Android/package-apk.sh
-# looks for — and JAVA_HOME is exported so the packaging step finds it.
+# looks for. The caller exports JAVA_HOME from JDK_DIR: the packaging
+# steps (d8, apksigner) read JAVA_HOME from the environment, not JDK_DIR.
 _jdk_present() {
     local _j _v
     if [[ -n "${JAVA_HOME:-}" ]]; then
@@ -739,6 +740,17 @@ check_android_deps() {
         fi
         echo "Dependency check: JDK 17 installed: ${JDK_DIR}"
     fi
+    # Export the JDK we resolved. The packaging steps (d8, apksigner)
+    # read JAVA_HOME from the environment, not JDK_DIR — a bad JAVA_HOME
+    # left in the environment (e.g. the Oracle JRE shim dir, which has
+    # no javac) would otherwise reach d8/apksigner even though a good
+    # JDK was found, and the dex build would fail after the library
+    # built fine. (26 Nov 2026: exactly what happened on Daniel's
+    # Windows build — JAVA_HOME was the Oracle Common Files dir.)
+    if [[ -n "${JAVA_HOME:-}" && "$(posix_path "${JAVA_HOME:-}")" != "$JDK_DIR" ]]; then
+        echo "NOTE: JAVA_HOME was ${JAVA_HOME} (no javac there) — using ${JDK_DIR} for the packaging steps."
+    fi
+    export JAVA_HOME="$JDK_DIR"
 
     # --- SDK: cmdline tools (soft — nothing in the build invokes sdkmanager) ---
     if ! _have_file "${SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" && ! _have_file "${SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager.bat"; then

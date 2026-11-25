@@ -166,7 +166,13 @@ for the JDK — `sdkmanager` does not work behind this VM's egress
 proxy, so it is never used. A missing NDK is downloaded as r27c and
 installed to `ndk/27.2.12479018`; a missing JDK is installed to
 `jdk-17.0.21.1+2` (the name `package-apk.sh` looks for) and
-`JAVA_HOME` is exported for the packaging step. On Windows (Git
+`JAVA_HOME` is exported for the packaging step. (26 November 2026:
+the export now happens for every JDK the check resolves, not just a
+downloaded one — a bad `JAVA_HOME` left in the environment, e.g. the
+Oracle JRE shim dir, used to reach `d8`/`apksigner` and fail the dex
+build after the library had built fine. `build-dex.sh` and
+`package-apk.sh` also export the JDK they resolve, so they are safe
+standalone too.) On Windows (Git
 Bash) the apt steps are skipped — only the SDK/NDK/JDK/tool checks
 apply — and archives are unpacked with `unzip` when present, else
 PowerShell `Expand-Archive`. A required dependency that cannot be
